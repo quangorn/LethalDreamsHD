@@ -1,0 +1,70 @@
+--- a/ui_ui.py
++++ b/ui_ui.py
+@@ -1,4 +1,9 @@
+ import gamemodule, globalscript, copy, ui_macros
++_HDC = [0]
++def _hp(s):
++    # dev-зонды billboards; в установленной сборке - заглушка (Good-сборка: зондов нет)
++    return
++
+ Checked = 0
+ CapturedElement = None
+ ResetCaptureFunc = None
+@@ -271,6 +276,7 @@
+         self.__dict__[BillBoardName] = BillBoard
+         BillBoard.CreateInnerData()
+         BillBoard.Set(Parameters['x'], Parameters['y'], Parameters['prior'], Parameters['w'], Parameters['h'])
++        _hp('INITBB ' + repr((BillBoardName, Parameters['x'], Parameters['y'], Parameters['prior'], Parameters['w'], Parameters['h'])))
+         BillBoard.SetColor(Parameters['color'][0], Parameters['color'][1], Parameters['color'][2], Parameters['color'][3])
+         if len(Parameters['TextureName']) != 0:
+             tex = gamemodule.LoadTexture(Parameters['TextureName'])
+@@ -318,13 +324,17 @@
+             BillBoardFont = gamemodule.LoadFont(Parameters['TextParams']['FontName'])
+             self.__dict__[BillBoardFontName] = BillBoardFont
+             BillBoard.SetFont(BillBoardFont, Parameters['TextParams']['Size'])
++            _hp('FONT ' + repr(Parameters['TextParams']['Size']))
+             BillBoard.SetTextLeading(Parameters['TextParams']['Leading'])
++            _hp('LEAD ' + repr(Parameters['TextParams']['Leading']))
+             BillBoard.SetText(Parameters['TextParams']['TextString'])
+             BillBoard.SetTextAlignment(Parameters['TextParams']['Alignment'])
+             BillBoard.SetTextRowSpacing(Parameters['TextParams']['RowS'])
++            _hp('ROWS ' + repr(Parameters['TextParams']['RowS']))
+             BillBoard.SetTextColor(Parameters['color'][0], Parameters['color'][1], Parameters['color'][2], Parameters['color'][3])
+             if offset:
+                 BillBoard.SetTextOffset(Parameters['TextParams']['TextDX'], Parameters['TextParams']['TextDY'])
++                _hp('OFF ' + repr((Parameters['TextParams']['TextDX'], Parameters['TextParams']['TextDY'])))
+         if len(Parameters['Sound']) > 0:
+             Parameters['Sound'] = gamemodule.LoadSound(Parameters['Sound'])
+         else:
+@@ -460,6 +470,7 @@
+         if not self.__dict__.has_key(BillBoardName) or not self.__dict__[BillBoardName]:
+             return -1
+         if self.IsRefFuncValid(BillBoardName):
++            _hp('CHECK ' + repr((BillBoardName, x, y)))
+             return self.__dict__[BillBoardName].CheckRefInPoint(x, y)
+         return -1
+         return
+@@ -520,6 +531,7 @@
+             h = param['h']
+         else:
+             param['h'] = h
++        _hp('SETPOS ' + repr((BillBoardName, x, y, param['prior'], w, h)))
+         self.__dict__[BillBoardName].Set(x, y, param['prior'], w, h)
+         if self.ToolTipNew:
+             if BillBoardName == 'ToolTipBB':
+@@ -545,6 +557,7 @@
+             param['y'] = 748 - param['h']
+         if param['y'] < 20:
+             param['y'] = 20
++        _hp('SET2 ' + repr((BillBoardName, param['x'], param['y'], param['prior'], param['w'], param['h'])))
+         self.__dict__[BillBoardName].Set(param['x'], param['y'], param['prior'], param['w'], param['h'])
+         return
+ 
+@@ -565,6 +578,7 @@
+             return
+         param = self.__dict__[BillBoardName + 'Params']
+         param['prior'] = prior
++        _hp('SET2 ' + repr((BillBoardName, param['x'], param['y'], param['prior'], param['w'], param['h'])))
+         self.__dict__[BillBoardName].Set(param['x'], param['y'], param['prior'], param['w'], param['h'])
+         return
+ 

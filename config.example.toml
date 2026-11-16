@@ -1,0 +1,34 @@
+# Example config: copy to config.toml and set every path to your own.
+# All paths use forward slashes; drive letters keep their colon.
+
+[game]
+# Your Lethal Dreams install (the patched game the checker reads).
+install_dir      = "C:/path/to/LethalDreams"
+# Unpatched install archive. Contains no `Lib` directory at all.
+pristine_archive = "C:/path/to/archives/original.7z"
+# Full install snapshot (data/scripts + Lib sources and .pyc). The py223
+# compile path is cache/lib, populated from this archive.
+snapshot_archive = "C:/path/to/archives/6.7z"
+
+[assets]
+# Every upscale (textures, cursors, font sidecars). The project keeps no copies.
+hd_pack = "C:/path/to/archives/hd_pack.7z"
+base    = "C:/path/to/working_dirs"   # personal working dirs root (Upscayl src/dst)
+# Optional: the dir of x4 Upscayl sheets for gen_font4x.py (its -s default). Not
+# required and not validated; gen_font4x.py names this key when the dir is absent.
+# upscayl_dir = "C:/path/to/upscayl_4x_png"
+
+[py223]
+# Python 2.2.3 interpreter dir (contains PYTHON.EXE), used as the compile worker.
+dir = "C:/path/to/py223"
+
+[scratch]
+# Writable scratch for extraction temp dirs, checker reports, test trees.
+dir = "C:/path/to/scratch"
+
+[cache]
+# Writable cache: archive indexes, cache/lib (py223 compile path), cave blobs.
+dir = "C:/path/to/cache"
+
+[check]
+exclude = ["data/video/**"]

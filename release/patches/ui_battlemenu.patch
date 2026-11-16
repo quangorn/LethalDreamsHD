@@ -1,0 +1,96 @@
+--- a/ui_battlemenu.py
++++ b/ui_battlemenu.py
+@@ -958,7 +958,20 @@
+         self.buttons.append(self.SDname)
+         self.SDspells = []
+         self.KnownSpells = []
+-        XLeft = 0
++        # 16:9: левый BHUD-блок (underlay/gauges/spgauge/frame_l) прижат к левому краю
++        # канваса -> придвигаем весь блок к левому краю экрана СДВИГОМ XLeft.
++        # Все элементы блока используют XLeft, блок едет целиком; размеры движку
++        # передаются как SC/SY = k-масштаб -> аспект арта = 4:3, растяжения нет.
++        # При 4:3 (k>=1) HD_Shift() = 0 -> побитово родная раскладка.
++        # try/except: правка не должна уметь ронять создание боевого меню.
++        sh = 0
++        try:
++            import hd_scale
++            sh = hd_scale.HD_Shift()
++            hd_scale._log('XLEFT sh=' + repr(sh))
++        except Exception:
++            sh = 0
++        XLeft = 0 - sh
+         YLeft = 512
+         self.HPPosX = XLeft + 0
+         self.HPPosY = YLeft + 73
+@@ -1486,13 +1499,29 @@
+             rect = obj.GetControlRect()
+             ui.OffsetRect(rect, self.CurrentStep, 0)
+             sr = ui.GetScreenRect()
+-            if rect['left'] >= 0:
+-                ui.OffsetRect(rect, -rect['left'], 0)
++            # 16:9: границы анимации консоли - ЛЕВЫЙ КРАЙ ЭКРАНА, а не канваса.
++            # Открыто: rect['left'] = -sh; закрыто: rect['right'] = MinConcoleWidth - sh
++            # (console-rect шаблона уже прижат EdgeFix сдвигом -sh; speed ConcoleStep
++            # = 60 канвас/кадр, число кадров = 4:3). При 4:3 sh=0 -> побитово оригинал.
++            sh = 0
++            plog = None
++            try:
++                import hd_scale
++                sh = hd_scale.HD_Shift()
++                plog = hd_scale._log
++            except Exception:
++                sh = 0
++            if rect['left'] >= -sh:
++                ui.OffsetRect(rect, -rect['left'] - sh, 0)
+                 self.CurrentStep = 0
+-            dl = rect['right'] - self.MinConcoleWidth
++                if plog:
++                    plog('CONSOLE OPEN rect=' + repr(rect))
++            dl = rect['right'] - (self.MinConcoleWidth - sh)
+             if dl <= 0:
+                 ui.OffsetRect(rect, -dl, 0)
+                 self.CurrentStep = 0
++                if plog:
++                    plog('CONSOLE CLOSE rect=' + repr(rect))
+             obj.SetControlRect(rect)
+         return
+         return
+@@ -1680,6 +1709,11 @@
+         return
+ 
+     def CmdConsole(self):
++        try:
++            import hd_scale
++            hd_scale._log('CmdConsole st=' + repr(self.SelectionBoard['mc_pullbtn'].GetState()) + ' step=' + repr(self.CurrentStep))
++        except Exception:
++            pass
+         self.OnOpenInfo()
+         return
+ 
+@@ -2135,6 +2169,26 @@
+ 
+ 
+ def ModifyCallBackSel(type, param, vars):
++    if type == BCCT_TEMPLATE:
++        # 16:9: контролы шаблона, прижатые к краю КАНВАСА, придвигаются к краю ЭКРАНА
++        # (hd_scale.HD_EdgeFix: сдвиг позиции bb[0], размеры SC/SY = k-масштаб ->
++        # аспект арта 4:3; дети едут с родителем через BGCS_CHILD_COORD/BGCA_SHIFT).
++        # Левый список = колонка кнопок + pullbtn + КОНСОЛЬ: её rect [-434,90,450,428]
++        # при -sh даёт правый край engine k*(16-170)+dx = 12.3 >= 0 -> видима ровно
++        # та же полоска канвас 0..16 (правый border), что в 4:3, прижатая к левому краю
++        # экрана (screen ~46 px) и НЕ исчезающая. Правый = миникарта (frame/map/кнопки -
++        # дети mini_map) и зона сброса заклинаний.
++        # При 4:3 сдвиг = 0, правки нет. try/except: патч не должен уметь ронять
++        # создание боевого меню.
++        try:
++            import hd_scale
++            hd_scale.HD_EdgeFix(param,
++                ['mc_pullbtn', 'mc_pullbtn_bkg', 'btn_mainmenu', 'btn_disband',
++                 'btn_retreat', 'btn_pause', 'btn_defatt', 'btn_move', 'console'],
++                ['mini_map', 'frame', 'spells_border_zone'])
++        except Exception:
++            pass
++        return
+     if type == BCCT_ELEMENT:
+         if param['name'] == 'map':
+             param['billboardmain'][5] = vars[0]

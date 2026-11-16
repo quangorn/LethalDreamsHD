@@ -1,0 +1,20 @@
+--- a/gamescript.py
++++ b/gamescript.py
+@@ -72,7 +72,16 @@
+ 
+ 
+ def Initialize():
+-    import units_base, spells, ui
++    import units_base, spells, ui, hd_res
++    w, h, bpp, f = hd_res.Read()
++    sw, sh = gamemodule.GetScreenSize()
++    if sw == w and sh == h:
++        h = h + 1
++    gamemodule.SetDisplayMode(w, h, bpp // 8, f)
++    hd_res.Prepare()
++    import hd_scale
++    hd_scale.HD_Init(w, h, f)
++    hd_scale.install()
+     units_base.InitializeUnitsBase()
+     rm = gamemodule.GetResourceTable()
+     rm.AddFromTextFile('data/battlehud.tt')

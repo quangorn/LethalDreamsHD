@@ -1,0 +1,15 @@
+--- a/ui_btutorial.py
++++ b/ui_btutorial.py
+@@ -62,6 +62,12 @@
+     rt = Controls['tutorial_wnd'].GetControlRect()
+     rt['bottom'] = rt['top'] + t_caption_h + t_status_h + h + 2 * t_client_border
+     Controls['tutorial_wnd'].SetControlRect(rt)
++    # HD-зонд: раскладка учебного окна (канвас-значения) - для замера 16:9
++    try:
++        import hd_scale
++        hd_scale._log('BTRECT ' + repr(rt) + ' h=' + repr(h))
++    except Exception:
++        pass
+     if center_tip == 0:
+         Controls['tutorial_wnd'].CenterControlEx(1, 1)
+     return

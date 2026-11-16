@@ -1,0 +1,46 @@
+--- a/ui_olmenu.py
++++ b/ui_olmenu.py
+@@ -25,6 +25,23 @@
+ DestSubscribed = 0
+ CastOverlandSpell = 0
+ 
++def HD_Log(s):
++    # лог в hdlog.txt (абсолютный путь, латиница) - подтверждённый канал наблюдения
++    f = open('hdlog.txt', 'a')
++    f.write(str(s) + chr(10))
++    f.close()
++    return
++
++
++def HD_PanelFix(templ):
++    # 16:9: боковые панели оверленда СДВИНУТЫ к краям экрана, пропорции сохранены.
++    # Общее правило живёт в hd_scale.HD_EdgeFix (сдвиг позиции, размеры SC/SY не
++    # трогались -> аспект = 4:3; дети едут с родителем). При 4:3 сдвиг = 0.
++    import hd_scale
++    hd_scale.HD_EdgeFix(templ, ['overland_dlg_l'], ['overland_dlg_r'])
++    return
++
++
+ def DlgAttackSelectedDomain():
+     if len(overland_map.SelectedDomain.Keepers):
+         td = overland_map.SelectedDomain.Keepers[0].GetOpponentData(overlandcharacters.AvailablePlayers[overlandcharacters.CurrentPlayer].GetKeyName(), 'TalkScriptData')
+@@ -105,7 +122,7 @@
+             return
+         import mainmenu
+         ui.ResetTooltip()
+-        mainmenu.ShowMainmenu(1, [2, 1, 1, 1, 1, 1])
++        mainmenu.ShowMainmenu(1, [2, 2, 2, 2, 2, 3])
+         return
+ 
+     def OL_Encyclopedy(self):
+@@ -393,6 +410,10 @@
+ 
+     def ModifyCallBack(self, type, param):
+         import bgui_constant
++        if type == bgui_constant.BCCT_TEMPLATE:
++            # 16:9: боковые панели оверленда -> к краям экрана (4:3: правки нет)
++            HD_PanelFix(param)
++            return
+         if type == bgui_constant.BCCT_ELEMENT:
+             if param['name'] == 'overlandmenu':
+                 param['hotkeys'].append([self.pOL_Encyclopedy, globalscript.PlayerConfig.olmenu['ol_encyclopedy'][0]])

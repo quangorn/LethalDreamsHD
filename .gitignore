@@ -1,0 +1,32 @@
+# config.toml — приватный (личные пути), в git не входит
+config.toml
+
+# артефакты Python
+__pycache__/
+*.pyc
+
+# рабочие директории, локальные артефакты и кэши
+build/
+decompiled_fixed/
+decompiled_manifest.json
+cfg/
+backup/
+backup_orig/
+backup_current_pycinstalled/
+ld_patch/
+cache/
+.tmp/
+resources/
+# patches/hd_scale.py и patches/hd_tex.py — авторский код, публикуется (не игнорируется)
+patches/gamescript.py
+patches/ui/*.py
+*.log
+scratch/
+
+# игровые бинары никогда не коммитятся
+*.exe
+*.dll
+*.btf
+*.fdf
+*.cur
+*.wmv
