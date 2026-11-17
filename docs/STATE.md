@@ -197,3 +197,9 @@ REPO_BASENAME 1 (console.py), UNCOVERED 0. Состав SNAPSHOT_ONLY (741): `li
   патченный EXE md5 `aab6454ca501…`; `python3 tools/exe/exepatch_frame1.py` (scratch)
   воспроизводит правку байта fileoff 149932 (`00 → 80`, md5 scratch
   `7c4036a07850…`). Установка после всех прогонов: 5097 файлов, md5-diff 0.
+- `[P]` Воспроизведены сканы публикационного ядра: tracked-файлов 272, личных путей вне
+  `tools/archive/**` **0**, игровых бинаров/`.pyc` в git **0**, `vendor/**` не отслеживается;
+  AST core `.py` (вне архива) = 51, парсится Python 3 = 50, py2-only = 1
+  (`tools/pyc/py22_worker.py`, задокументировано в `docs/TOOLS.md`); AST `tools/archive/**` `.py`
+  = 105, парсится = 97, py2-only = 8 — список имён в `tools/archive/README.md`
+  (абзац «8 архивных скриптов не парсятся Python 3»).
