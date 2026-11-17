@@ -64,10 +64,10 @@ def taps(n_out, n_in, scale=2.0):
     return tab
 
 
-def upscale2(w, h, bpp, data):
-    """data — bytes строк (top-down, interleaved RGBA); возвращает (2w,2h,rows)."""
-    ow, oh = 2 * w, 2 * h
-    xtab = taps(ow, w)
+def upscale2(w, h, bpp, data, f=2):
+    """data — bytes строк (top-down, interleaved RGBA); возвращает (f*w,f*h,rows)."""
+    ow, oh = f * w, f * h
+    xtab = taps(ow, w, float(f))
     # горизонтальный проход: каждая входная строка -> выходная строка
     tmp = []
     for y in range(h):
@@ -85,7 +85,7 @@ def upscale2(w, h, bpp, data):
                 out_row[base + ch] = 0 if v < 0 else (255 if v > 255 else v)
         tmp.append(out_row)
     # вертикальный проход
-    ytab = taps(oh, h)
+    ytab = taps(oh, h, float(f))
     rows = []
     for yo in range(oh):
         accs = [[0.0] * bpp for _ in range(ow)]
@@ -112,6 +112,7 @@ def main():
     ap.add_argument('--in', dest='ind', default=os.path.join(paths.scratch_dir('ld'), 'tex_src'))
     ap.add_argument('--name', default=None, help='обработать один PNG по имени stem')
     ap.add_argument('--out', dest='outd', default=os.path.join(paths.scratch_dir('ld'), 'tex_up2x'))
+    ap.add_argument('--factor', type=int, default=2, help='множитель апскейла (2, 4)')
     a = ap.parse_args()
     os.makedirs(a.outd, exist_ok=True)
     names = [a.name] if a.name else sorted(f[:-4] for f in os.listdir(a.ind) if f.endswith('.png'))
@@ -119,7 +120,7 @@ def main():
     for stem in names:
         src = os.path.join(a.ind, stem + '.png')
         w, h, rows = png_decode(src)
-        ow, oh, ur = upscale2(w, h, 4, b''.join(rows))
+        ow, oh, ur = upscale2(w, h, 4, b''.join(rows), a.factor)
         dst = os.path.join(a.outd, stem + '.png')
         png_write(dst, ow, oh, ur)
         manifest.append('%s\t%d x %d -> %d x %d' % (stem, w, h, ow, oh))

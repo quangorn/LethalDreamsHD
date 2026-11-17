@@ -248,7 +248,7 @@ python3 tools/tex/patch_map_pattern.py --tree <дерево> --circle red --bg y
 python3 tools/tex/patch_map_pattern.py --tree <scratch-дерево> [--map X.map] \
         [--band top] [--quad tl] [--solid]        # подмена blob'ов .tex паттерном; оригиналы ->
                                                    # <tree>/data/maps_ground_backup/
-python3 tools/tex/upscale_tex.py --in <tex_src> --out <tex_up2x> [--name stem]   # Lanczos-3 апскейл 2x всех PNG
+python3 tools/tex/upscale_tex.py --in <tex_src> --out <dir> [--name stem] [--factor N]   # Lanczos-3 апскейл множителем N (2, 4)
 python3 tools/tex/patch_map_pattern.py --tree <дерево> --up2x <tex_up2x> [--maxsrc N]  # пересборка записей: w,h,blob_len x2 (грузится; цепочка TLV-размеров правится)
 python3 tools/tex/patch_map_pattern.py --tree <дерево> [--map X.map] --rescale self \
         --num N --den D [--record <stem>]            # w,h = родные*num//den; --self: источник = blob записи
