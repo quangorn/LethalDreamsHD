@@ -40,6 +40,7 @@
 | `docs/TOOLS.md` | инструментальный инвентарь: что запускаемо, что архив, тулчейн сессий |
 | `docs/KNOWLEDGE.md` | факты о движке/рантайме: API, форматы, механика, поведение игры |
 | `docs/TASK_tex_unpacker.md` | план распаковки почвенных текстур `.tex` (из `.map`) в PNG: фазы A–E, REA-точки, критерии готовности |
+| `docs/ISSUE_tex_upscale.md` | проблема: движок не грузит `.tex` с изменённым w/h (2x-апскейл) — эксперименты, проверки контейнера, гипотезы, план REA-разбора |
 | `docs/OBSERVATIONS_ENGINE.md` | наблюдения: рендер, окно/DPI, геометрия мира, проекция, Python-слой (`python22.dll`, `Lib`, корневые `.pyc`) |
 | `docs/OBSERVATIONS_UI.md` | наблюдения: оверленд, бои, диалог, меню, съёмка экранов, baseline |
 | `docs/OBSERVATIONS_FONT.md` | наблюдения: шрифты, глифы, advance, коэффициент A, масштаб текста |
@@ -66,7 +67,7 @@
 | масштаб текста, природа глифов, коэффициент A | `docs/OBSERVATIONS_FONT.md` |
 | формат `.btf`, packer, апскейлы, курсоры/иконки | `docs/OBSERVATIONS_TEXTURE.md` |
 | факты о движке: API, форматы `.fdf`/`.tt`, chokepoint'ы, путь в бой | `docs/KNOWLEDGE.md` |
-| почва карт: откуда берётся, `.tex` в `.map`, раскод и команды `.tex` → PNG | `docs/OBSERVATIONS_TEXTURE.md` (раздел «Почвенные текстуры карт»), `docs/KNOWLEDGE.md` (раздел «Почва карт»), `docs/TOOLS.md` («tex-пайплайн»), `docs/PIPELINE.md` («tex-пайплайн»), план `docs/TASK_tex_unpacker.md` |
+| почва карт: откуда берётся, `.tex` в `.map`, раскод и команды `.tex` → PNG | `docs/OBSERVATIONS_TEXTURE.md` (раздел «Почвенные текстуры карт»), `docs/KNOWLEDGE.md` (раздел «Почва карт»), `docs/TOOLS.md` («tex-пайплайн»), `docs/PIPELINE.md` («tex-пайплайн»), план `docs/TASK_tex_unpacker.md`; отказ движка грузить 2x-записи — `docs/ISSUE_tex_upscale.md` |
 | история сессий (что делала каждая итерация, по датам) | `docs/archive/SESSION_LOG.md` |
 | отменённые/снятые планы (Q-режим) | `docs/archive/CANCELLED_Q_MODE.md` |
 | задачи и исследования прошлых сессий (выполненные) | `docs/archive/README.md` |

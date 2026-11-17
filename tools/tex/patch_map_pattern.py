@@ -29,7 +29,7 @@ sys.path.insert(0, _ROOT)
 sys.path.insert(0, os.path.join(_ROOT, 'tools', 'btf'))
 sys.path.insert(0, _HERE)
 import paths  # noqa: E402
-from pack_btf import build_blob  # noqa: E402
+from pack_btf import build_blob, png_decode  # noqa: E402
 from scan_tex import load_payload, find_records, u32, MAGIC, ZLIB_MAGICS  # noqa: E402
 from test_pattern import build as build_pattern, COLORS, QUADS, BANDS  # noqa: E402
 
@@ -40,6 +40,118 @@ def find_zlib(raw):
         if i >= 0:
             return i
     raise ValueError('no zlib stream')
+
+
+def patch_from_png(map_path, srcdir):
+    """payload: blob'ы .tex заменены PNG того же размера из srcdir (сглаженный
+    раскод; движок не грузит записи с изменёнными w/h, поэтому только same-size).
+    Контейнер: plen тот же, clen правится; round-trip сверка побитово."""
+    raw = open(map_path, 'rb').read()
+    payload = bytearray(load_payload(map_path))
+    recs = find_records(payload)
+    if not recs:
+        return 0
+    expected = {}
+    for r in recs:
+        w, h, bpp = r['w'], r['h'], r['bpp']
+        pw, ph, rows = png_decode(os.path.join(srcdir, r['name'][:-4] + '.png'))
+        if (pw, ph) != (w, h):
+            raise ValueError('%s: PNG %dx%d != record %dx%d' % (r['name'], pw, ph, w, h))
+        blob = build_blob(rows, w, h, bpp)
+        if len(blob) != r['blob_len']:
+            raise ValueError('%s: blob %d != blob_len %d' % (r['name'], len(blob), r['blob_len']))
+        payload[r['blob_off']:r['blob_off'] + r['blob_len']] = blob
+        expected[r['blob_off']] = blob
+    zi = find_zlib(raw)
+    comp = zlib.compress(bytes(payload), 9)
+    head = bytearray(raw[:zi])
+    old_clen = len(raw) - zi
+    for i in range(8, len(head) - 3):
+        if u32(head, i) == old_clen:
+            struct.pack_into('<I', head, i, len(comp))
+    out = bytes(head) + comp
+    open(map_path, 'wb').write(out)
+    chk = load_payload(map_path)
+    for r in find_records(chk):
+        if chk[r['blob_off']:r['blob_off'] + r['blob_len']] != expected[r['blob_off']]:
+            raise ValueError('%s: re-read blob mismatch' % r['name'])
+    return len(recs)
+
+
+def patch_up2x(map_path, updir, maxsrc=None):
+    """payload: .tex-записи заменены 2x-апскейлом из `updir/<stem>.png`.
+
+    Запись пересобирается целиком: имя то же, в шапке `w,h` удвоены и
+    `blob_len = w*h*bpp` новый (поле [20..28] — лимит движка, не трогается);
+    payload удлинняется, поля plen/clen контейнера правятся. Round-trip
+    сверка: перечитанный blob побитово равен апскейлу, w/h вдвое больше.
+    `maxsrc` — апскейл только записей со стороной <= maxsrc (движок не грузит
+    2048²: проверка на дереве, записи 1024² остаются родными).
+    """
+    raw = open(map_path, 'rb').read()
+    payload_orig = load_payload(map_path)
+    recs = find_records(payload_orig)
+    if not recs:
+        return 0
+    pieces = []
+    prev_end = 0
+    expected = {}
+    for r in recs:
+        stem = r['name'][:-4]
+        if maxsrc is not None and r['w'] > maxsrc:
+            pieces.append(payload_orig[prev_end:r['blob_off'] + r['blob_len']])
+            prev_end = r['blob_off'] + r['blob_len']
+            continue
+        png_path = os.path.join(updir, stem + '.png')
+        pw, ph, rows = png_decode(png_path)
+        w2, h2, bpp = 2 * r['w'], 2 * r['h'], r['bpp']
+        if (pw, ph) != (w2, h2):
+            raise ValueError('%s: upscaled PNG %dx%d != 2x record %dx%d' %
+                             (stem, pw, ph, w2, h2))
+        blob = build_blob(rows, w2, h2, bpp)
+        if len(blob) != w2 * h2 * bpp:
+            raise ValueError('%s: blob %d != w*h*bpp' % (stem, len(blob)))
+        if len(blob) > 33554432:
+            raise ValueError('%s: blob %d exceeds engine cap 33554432' % (stem, len(blob)))
+        hdr = bytearray(r['hdr'])
+        struct.pack_into('<I', hdr, 0, w2)
+        struct.pack_into('<I', hdr, 4, h2)
+        struct.pack_into('<I', hdr, 36, len(blob))
+        rec_bin = struct.pack('<I', r['name_len']) + r['name'].encode('ascii') + bytes(hdr) + blob
+        pieces.append(payload_orig[prev_end:r['name_off']])
+        pieces.append(rec_bin)
+        prev_end = r['blob_off'] + r['blob_len']
+        expected[r['name']] = blob
+    pieces.append(payload_orig[prev_end:])
+    payload = b''.join(pieces)
+    # пересборка контейнера: plen и clen правятся (payload удлиннился)
+    zi = find_zlib(raw)
+    old_plen = len(payload_orig)
+    new_plen = len(payload)
+    comp = zlib.compress(payload, 9)
+    head = bytearray(raw[:zi])
+    old_clen = len(raw) - zi
+    for i in range(8, len(head) - 3):
+        if u32(head, i) == old_plen:
+            struct.pack_into('<I', head, i, new_plen)
+    for i in range(8, len(head) - 3):
+        if u32(head, i) == old_clen:
+            struct.pack_into('<I', head, i, len(comp))
+    out = bytes(head) + comp
+    open(map_path, 'wb').write(out)
+    # round-trip: перечитали payload, сверили w/h/blob побитово
+    chk = load_payload(map_path)
+    recs2 = {r['name']: r for r in find_records(chk)}
+    for r in recs:
+        if maxsrc is not None and r['w'] > maxsrc:
+            continue
+        r2 = recs2[r['name']]
+        if (r2['w'], r2['h']) != (2 * r['w'], 2 * r['h']):
+            raise ValueError('%s: re-read w/h not doubled' % r['name'])
+        blob = chk[r2['blob_off']:r2['blob_off'] + r2['blob_len']]
+        if blob != expected[r['name']]:
+            raise ValueError('%s: re-read blob mismatch' % r['name'])
+    return len(recs)
 
 
 def patch_record(map_path, quad='tl', color='white', solid=False, band=None,
@@ -114,6 +226,12 @@ def main():
     ap.add_argument('--alpha', default='keep', choices=('keep', 'opaque', 'zero'),
                     help='альфа-плоскость alpha-записей: родная / 255 / 0')
     ap.add_argument('--solid', action='store_true', help='вся запись одним цветом')
+    ap.add_argument('--up2x', default=None, metavar='DIR',
+                    help='заменить записи 2x-апскейлом из DIR (PNG по имени записи)')
+    ap.add_argument('--frompng', default=None, metavar='DIR',
+                    help='заменить blob\'ы PNG того же размера из DIR (сглажение без смены w/h)')
+    ap.add_argument('--maxsrc', type=int, default=None,
+                    help='апскейл только записей со стороной <= maxsrc')
     ap.add_argument('--dry', action='store_true', help='только проверка, без записи')
     a = ap.parse_args()
 
@@ -143,8 +261,13 @@ def main():
         bp = os.path.join(backup, fn)
         if not os.path.isfile(bp):
             shutil.copyfile(tgt, bp)
-        n = patch_record(tgt, a.quad, a.color, a.solid, a.band,
-                         a.circle, a.bg, a.frac, a.alpha, a.dry)
+        if a.up2x:
+            n = patch_up2x(tgt, paths.norm(a.up2x), a.maxsrc)
+        elif a.frompng:
+            n = patch_from_png(tgt, paths.norm(a.frompng))
+        else:
+            n = patch_record(tgt, a.quad, a.color, a.solid, a.band,
+                             a.circle, a.bg, a.frac, a.alpha, a.dry)
         total += n
         print('%s: %d records patched%s' % (fn, n, ' (dry)' if a.dry else ''))
     print('patched %d .tex records in %d maps' % (total, len(targets)))

@@ -248,6 +248,10 @@ python3 tools/tex/patch_map_pattern.py --tree <дерево> --circle red --bg y
 python3 tools/tex/patch_map_pattern.py --tree <scratch-дерево> [--map X.map] \
         [--band top] [--quad tl] [--solid]        # подмена blob'ов .tex паттерном; оригиналы ->
                                                    # <tree>/data/maps_ground_backup/
+python3 tools/tex/upscale_tex.py --in <tex_src> --out <tex_up2x> [--name stem]   # Lanczos-3 апскейл 2x всех PNG
+python3 tools/tex/upscale_tex.py --smooth --out <tex_smooth>   # lanczos-2x -> box 1x: сглажение в родном размере
+python3 tools/tex/patch_map_pattern.py --tree <дерево> --up2x <tex_up2x> [--maxsrc N]  # пересборка записей: w,h,blob_len x2 (движок НЕ грузит — docs/ISSUE_tex_upscale.md)
+python3 tools/tex/patch_map_pattern.py --tree <дерево> --frompng <DIR>  # blob'ы заменены PNG того же размера
 python3 tools/tex/patch_map_pattern.py --tree <дерево> --restore
 python3 tools/tex/hook_ground.py --tree <дерево> [--size N --band top --solid]  # хук-материалы на 92 почвенных
 python3 tools/tex/hook_ground.py --tree <дерево> --restore   # оригиналы из materials_ground_backup/
@@ -261,6 +265,8 @@ python3 tools/tex/hook_ground.py --tree <дерево> --restore   # ориги�
   известный ответ даёт только подмена `.tex` в `.map` (`patch_map_pattern.py`).
 - Реестр для scratch-дерева: значение `~ HIGHDPIAWARE` на `<tree>/LETHALDREAMS.EXE`
   (снимок оверленда — `tools/archive/probes/probe_loadshot.ps1 … -Mode new`).
+- Съёмка боя: `tools/probes/probe_battleshot.ps1` — новая игра, скип уроков Enter'ом,
+  клики по канвасным тайлам, обнаружение боя по строке `SCENE battle` в `hdlog.txt`.
 - Проверка после прогонов: снапшот md5+mtime установки до/после (diff обязан быть
   нулевым; запуски игры дают известный дрейф `Lib/*.pyc`, `hd.cfg`, `hdlog.txt`,
   font-сайкары, `mm_bkg01.btf` — их убирают/не трогают), `--quick`/`--untouched` rc 0.
