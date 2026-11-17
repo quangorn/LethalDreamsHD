@@ -362,3 +362,25 @@ REPO_BASENAME 1 (console.py), UNCOVERED 0. Состав SNAPSHOT_ONLY (741): `li
 - `[P]` `upscale_tex.py --factor N` (произвольный целый множитель Lanczos-3). Для 4K: растяжка канвас->4K = 2.8125 (y) / 3.75 (x); лимит blob'а 32 MiB: 1024² при 4x не влезает (50 MB bpp3), подтвержденный грузящий максимум — сторона 2048. Группы: 9 записей 1024² -> 2x (`scratch_dir('ld')/tex_up2x_big`), 35 записей <=512² -> 4x (`tex_up4x_small`, максимум 2048²); списки `big_names.txt`/`small_names.txt`, параллельный прогон — 4 сбалансированных потока (`g1..g4.txt`).
 
 - `[P]` `patch_map_pattern.py` получил явный `--install` (запись в установку по запросу пользователя, path-guard снят только с флагом). UpScayl 2x/4x были положены в установку (30 `.map`, оригиналы -> `data/maps_ground_backup`), игра запускалась для проверки; затем полный откат: `--install --restore` (30 `.map` восстановлены), backup-каталог удалён из установки, снапшот = drift 9 известных `Lib/*.pyc`, `--quick` rc 0, игра закрыта.
+
+## Сессия 2026-11-18: блоки 32x32 почвенных `.tex` (нарезка и сборка)
+
+Анализ + инструменты; установка не менялась, игра не запускалась.
+
+- `[P]` Декод `.tex` (`scan_tex.py`/`unpack_tex.py`) проверен по движку и данным:
+  blob уходит в `glTexImage2D` без перестановок (`FUN_00495300` → `FUN_004772e0`),
+  атлас = сетка блоков 32x32, UV меша ссылаются ровно на непустые блоки
+  (world_heart 6/6, atlantis 19/19, bald_hill 116/116, portal_domain 632/632,
+  ссылок в пустые 0). Мозаика/пустые зоны — свойство упаковки патчей
+  (`BTexturer.dll`, `TexturizeIt`), переставлять блоки не нужно.
+- `[P]` Новый `tools/tex/tex_tiles.py`: имя блока `<stem>__tx<col>_ty<row>.png`
+  (позиция в атласе), `split_record`/`glue_rows`/`blob_tile_empty`, CLI `glue`.
+  `unpack_tex.py --batch … --tiles DIR [--skip-empty]` — 44 записи → 13490 блоков
+  (7438 пустых; с `--skip-empty` пишется 6052). `patch_map_pattern.py --tiles DIR`
+  собирает атлас (сторона блока 32*f → запись f*w x f*h) и пишет в дерево.
+- `[P]` Гейты: f=1 сборка всех 44 записей побитово = `unpack_tex.py`; запись в
+  scratch-дерево при f=1 даёт payload, идентичный установочному (payload equal:
+  world_heart 9239857 B, portal_domain 10639424 B, blob'ы побитово); f=2 на
+  world_heart (256²) и portal_domain (2048² + 64²) — round-trip внутри патчера и
+  цепочка TLV до EOF. Потеря непустого блока — ошибка, `--allow-missing` заливает
+  пустым слотом. Установка не тронута, игра закрыта.

@@ -13,6 +13,10 @@
 #
 #   python3 tools/tex/upscale_tex.py                      # tex_src -> tex_up2x
 #   python3 tools/tex/upscale_tex.py --in <dir> --out <dir> --name <stem>
+#   python3 tools/tex/upscale_tex.py --in <tiles-dir> --out <dir> --factor 4  # блоки 32x32
+# (нарезка блоков — `unpack_tex.py --batch … --tiles DIR`, сборка атласа обратно —
+#  `patch_map_pattern.py --tiles DIR` или `tex_tiles.py glue`; имена блоков
+#  сохраняются, поэтому каталоги апскейла и сборки совместимы)
 import argparse
 import math
 import os

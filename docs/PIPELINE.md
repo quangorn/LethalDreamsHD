@@ -173,6 +173,17 @@ baseline `45e93d46…` (`backup/LETHALDREAMS.EXE.pre4`) → exepatch12 (cave) =
   fault offset из журнала Application/WER). Съёмка оверленда —
    `tools/archive/probes/probe_loadshot.ps1 … -Mode new`, съёмка боя —
    `tools/probes/probe_battleshot.ps1`.
+7. **Потайловый контур (блоки 32x32)**: `unpack_tex.py --batch <maps> x --tiles <dir>
+   [--skip-empty]` — блоки `<stem>__tx<col>_ty<row>.png` (имя = позиция в атласе,
+   `tools/tex/tex_tiles.py`); ресемпл любого множителя — `upscale_tex.py --in <dir>
+   --out <dir> --factor N` (имена сохраняются); сборка обратно —
+   `patch_map_pattern.py --tree <дерево> --tiles <dir>` (сторона блока 32*f → запись
+   f*w x f*h, `fix_chain`, round-trip) или PNG-атласы без дерева игры —
+   `tex_tiles.py glue <dir> --maps <maps> -o <out>`. Гейты: f=1 собирает родные
+   атласы побитово (44/44) и даёт payload, идентичный установочному; f=2 (блок 64)
+   даёт 2048²-записи с цепочкой TLV до EOF. Пустые блоки атласа можно не писать
+   (`--skip-empty`): при сборке они восстанавливаются как пустые слоты, а
+   непустой потерянный блок — ошибка (`--allow-missing`).
 
 Формат записи, поля шапки, статистика, наблюдения отображения — `docs/OBSERVATIONS_TEXTURE.md`
 («Почвенные текстуры карт (`.tex` внутри `.map`)»), факты — `docs/KNOWLEDGE.md`

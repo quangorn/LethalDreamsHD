@@ -362,3 +362,22 @@
 - `[P]` Ярусы: дерево восстановлено (30 `.map`, 92 материалов), diff против
   `tree_snap_pre_phase1.json` — только `hdlog.txt`; установка: дрейф 2 известных
   (`ui/cursor.pyc`, `ui/olmenu.pyc`), `--untouched` rc 0; игра закрыта, Frida закрыта.
+
+## Сессия 2026-11-18: блоки 32x32 почвенных `.tex`
+
+- `[P]` Проверка «блоки на своих местах»: blob уходит в `glTexImage2D` без
+  перестановок, атлас = сетка 32x32, UV меша (TLV `type=132`) приходятся на
+  центры текселей и ссылаются ровно на непустые блоки (world_heart 6/6,
+  atlantis 19/19, bald_hill 116/116, portal_domain 632/632; ссылок в пустые 0).
+  Мозаика — упакованные патчи земли (`BTexturer.dll`, `TexturizeIt`), пустые
+  зоны — незанятые слоты; переставлять блоки не нужно (UV нормированы).
+- `[P]` `tools/tex/tex_tiles.py`: блок = `<stem>__tx<col>_ty<row>.png`,
+  `split_record`/`glue_rows`/`blob_tile_empty`, CLI `glue`.
+  `unpack_tex.py --batch … --tiles DIR [--skip-empty]` -> 13490 блоков
+  (7438 пустых, с `--skip-empty` пишется 6052); `patch_map_pattern.py --tiles DIR`
+  собирает атлас (блок 32*f -> запись f*w x f*h) и пишет в дерево.
+- `[P]` Гейты: f=1 — сборка 44/44 побитово равна `unpack_tex.py`,
+  запись в scratch-дерево даёт payload, идентичный установочному; f=2 —
+  world_heart 256², portal_domain 2048²+64², цепочка TLV до EOF. Ошибка на
+  потерянном непустом блоке, `--allow-missing` заливает пустым слотом.
+  Установка не тронута (`--untouched` rc 0), игра не запускалась.

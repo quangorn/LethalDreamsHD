@@ -15,6 +15,7 @@
 # Оригиналы `.map` сохраняются в `<tree>/data/maps_ground_backup/`.
 #
 #   python3 tools/tex/patch_map_pattern.py --tree <дерево> [--map <map>]  # поставить
+#   python3 tools/tex/patch_map_pattern.py --tree <дерево> --tiles <dir>  # блоки 32x32
 #   python3 tools/tex/patch_map_pattern.py --tree <дерево> --restore       # вернуть
 import argparse
 import os
@@ -32,6 +33,7 @@ import paths  # noqa: E402
 from pack_btf import build_blob, png_decode  # noqa: E402
 from scan_tex import load_payload, find_records, u32, MAGIC, ZLIB_MAGICS  # noqa: E402
 from test_pattern import build as build_pattern, COLORS, QUADS, BANDS  # noqa: E402
+import tex_tiles  # noqa: E402
 
 
 def find_zlib(raw):
@@ -306,14 +308,16 @@ def patch_up2x(map_path, updir, maxsrc=None):
     return len(recs)
 
 
-def patch_upscayl(map_path, dirs):
-    """payload: .tex-записи заменены PNG из каталогов dirs (UpScayl-апскейлы).
+def _patch_scaled(map_path, resolve):
+    """payload: записи заменены RGBA-строками, которые отдаёт `resolve`.
 
-    Размер PNG = factor*родной стороны (factor 2, 4); запись пересобирается:
-    имя то же, w/h = новые, blob_len новый, БЕЗ name_len-префикса, дельта blob'а
-    во все накрывающие TLV-размеры (`fix_chain`), plen/clen правятся.
-    Для alpha-записей (bpp 4) PNG RGB — родная альфа-плоскость передискретизруется
-    ближайшим соседом в новый размер и врезается в blob. Round-trip побитовый.
+    `resolve(r, stem, payload_orig)` -> (rows, pw, ph) или None (запись остаётся
+    родной). Запись пересобирается целиком: имя то же, w/h = pw/ph,
+    `blob_len = pw*ph*bpp`; дельта blob'а прибавляется ко всем накрывающим
+    TLV-размерам (`fix_chain`), plen/clen контейнера правятся. Для alpha-записей
+    (bpp 4) альфа-плоскость берётся из родной записи nearest-ресемплом на новый
+    размер (RGBA-канал источника игнорируется — как в `--upscayl`).
+    Round-trip сверка: перечитанный blob побитово равен ожидаемому.
     """
     raw = open(map_path, 'rb').read()
     payload_orig = load_payload(map_path)
@@ -326,23 +330,13 @@ def patch_upscayl(map_path, dirs):
     deltas = {}
     for r in recs:
         stem = r['name'][:-4]
-        w, h, bpp = r['w'], r['h'], r['bpp']
-        png_path = None
-        for d in dirs:
-            p = os.path.join(d, stem + '.png')
-            if os.path.isfile(p):
-                png_path = p
-                break
-        if not png_path:
+        got = resolve(r, stem, payload_orig)
+        if not got:
             pieces.append(payload_orig[prev_end:r['blob_off'] + r['blob_len']])
             prev_end = r['blob_off'] + r['blob_len']
             continue
-        pw, ph, rows = png_decode(png_path)
-        if pw % w or ph % h:
-            raise ValueError('%s: PNG %dx%d не кратен родной %dx%d' % (stem, pw, ph, w, h))
-        f = pw // w
-        if (f * h) != ph:
-            raise ValueError('%s: фактор по w (%d) != по h (%d)' % (stem, f, ph // h))
+        rows, pw, ph = got
+        w, h, bpp = r['w'], r['h'], r['bpp']
         blob = bytearray(build_blob(rows, pw, ph, bpp))
         if bpp == 4:
             # родная альфа-плоскость -> nearest на новый размер
@@ -390,8 +384,7 @@ def patch_upscayl(map_path, dirs):
     chk = load_payload(map_path)
     recs2 = {r['name']: r for r in find_records(chk)}
     for r in recs:
-        stem = r['name'][:-4]
-        if stem not in expected:
+        if r['name'] not in expected:
             continue
         r2 = recs2[r['name']]
         if (r2['w'], r2['h']) != expected[r['name']][:2]:
@@ -399,6 +392,62 @@ def patch_upscayl(map_path, dirs):
         if chk[r2['blob_off']:r2['blob_off'] + r2['blob_len']] != expected[r['name']][2]:
             raise ValueError('%s: перечитанный blob не совпадает' % r['name'])
     return len(expected)
+
+
+def patch_upscayl(map_path, dirs):
+    """payload: .tex-записи заменены PNG из каталогов dirs (UpScayl-апскейлы).
+
+    Размер PNG = factor*родной стороны (factor 2, 4); запись пересобирается:
+    имя то же, w/h = новые, blob_len новый, БЕЗ name_len-префикса, дельта blob'а
+    во все накрывающие TLV-размеры (`fix_chain`), plen/clen правятся.
+    Для alpha-записей (bpp 4) PNG RGB — родная альфа-плоскость передискретизруется
+    ближайшим соседом в новый размер и врезается в blob. Round-trip побитовый.
+    """
+    def resolve(r, stem, payload_orig):
+        png_path = None
+        for d in dirs:
+            p = os.path.join(d, stem + '.png')
+            if os.path.isfile(p):
+                png_path = p
+                break
+        if not png_path:
+            return None
+        pw, ph, rows = png_decode(png_path)
+        w, h = r['w'], r['h']
+        if pw % w or ph % h:
+            raise ValueError('%s: PNG %dx%d не кратен родной %dx%d' % (stem, pw, ph, w, h))
+        f = pw // w
+        if (f * h) != ph:
+            raise ValueError('%s: фактор по w (%d) != по h (%d)' % (stem, f, ph // h))
+        return rows, pw, ph
+
+    return _patch_scaled(map_path, resolve)
+
+
+def patch_tiles(map_path, index, allow_missing=False):
+    """payload: записи собраны из блоков 32x32 (`tex_tiles.scan_tiles`).
+
+    Блоки записи собираются в атлас: сторона блока 32*f -> атлас f*w x f*h.
+    Нет ни одного блока записи — запись остаётся родной. Отсутствующие блоки
+    заливаются нулями (пустой слот атласа), но если в родной записи такой блок
+    был непустым — ошибка (`allow_missing` заливает нулями явно). Дальше — как
+    `--upscayl` (альфа-плоскость bpp4 родная nearest).
+    """
+    def resolve(r, stem, payload_orig):
+        tilemap = index.get(stem)
+        if not tilemap:
+            return None
+        f, rows, missing = tex_tiles.glue_rows(stem, r['w'], r['h'], tilemap, r['bpp'])
+        blob = payload_orig[r['blob_off']:r['blob_off'] + r['blob_len']]
+        lost = [p for p in missing if not tex_tiles.blob_tile_empty(
+            blob, r['w'], r['h'], r['bpp'], p[0], p[1])]
+        if lost and not allow_missing:
+            raise ValueError('%s: нет непустых блоков %s (--allow-missing — залить '
+                             'нулями)' % (stem, lost[:6]))
+        return rows, f * r['w'], f * r['h']
+
+    return _patch_scaled(map_path, resolve)
+
 
 
 def patch_record(map_path, quad='tl', color='white', solid=False, band=None,
@@ -477,6 +526,11 @@ def main():
                     help='заменить записи 2x-апскейлом из DIR (PNG по имени записи)')
     ap.add_argument('--upscayl', nargs=2, default=None, metavar=('DIR_A','DIR_B'),
                     help='заменить записи UpScayl-PNG из двух каталогов (кратный размер, альфа врезается)')
+    ap.add_argument('--tiles', default=None, metavar='DIR',
+                    help='заменить записи атласами, собранными из блоков 32x32 в DIR '
+                         '(<stem>__tx<col>_ty<row>.png; блок 32*f -> атлас f*w x f*h)')
+    ap.add_argument('--allow-missing', action='store_true',
+                    help='с --tiles: заливать нулями отсутствующие непустые блоки')
     ap.add_argument('--rescale', default=None, metavar='DIR',
                     help='пересемплировать записи множителем --num/--den из DIR '
                          '(PNG родного размера по имени записи)')
@@ -510,6 +564,7 @@ def main():
         return
 
     targets = [a.map] if a.map else sorted(f for f in os.listdir(maps) if f.endswith('.map'))
+    tile_index = tex_tiles.scan_tiles(paths.norm(a.tiles)) if a.tiles else None
     os.makedirs(backup, exist_ok=True)
     total = 0
     for fn in targets:
@@ -525,6 +580,8 @@ def main():
             n = patch_up2x(tgt, paths.norm(a.up2x), a.maxsrc)
         elif a.upscayl:
             n = patch_upscayl(tgt, [paths.norm(a.upscayl[0]), paths.norm(a.upscayl[1])])
+        elif a.tiles:
+            n = patch_tiles(tgt, tile_index, a.allow_missing)
         else:
             n = patch_record(tgt, a.quad, a.color, a.solid, a.band,
                              a.circle, a.bg, a.frac, a.alpha, a.dry)

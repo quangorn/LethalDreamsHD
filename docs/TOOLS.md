@@ -237,6 +237,11 @@ python3 tools/tex/scan_tex.py                    # скан 30 карт, гей�
 python3 tools/tex/scan_tex.py --dump [OUTDIR]    # raw-blob'ы + MANIFEST.txt (scratch_dir('ld')/tex_raw)
 python3 tools/tex/scan_tex.py <map>.map --fields # u32-поля шапки записей
 python3 tools/tex/unpack_tex.py --batch <maps-каталог> <outdir>   # 44 PNG + MANIFEST.txt
+python3 tools/tex/unpack_tex.py --batch <maps-каталог> <x> --tiles <tilesdir> [--skip-empty]
+                                                   # 44 записи -> блоки 32x32: <stem>__tx<col>_ty<row>.png + MANIFEST.txt
+python3 tools/tex/unpack_tex.py <map>.map --tiles <tilesdir> [--index N]  # блоки одной карты/записи
+python3 tools/tex/tex_tiles.py glue <tilesdir> --maps <maps-каталог|map> -o <outdir> [--allow-missing]
+                                                   # сборка блоков обратно в PNG-атласы (без дерева игры)
 python3 tools/tex/unpack_tex.py <map>.map -o <out.png> --index N   # одна запись
 python3 tools/tex/unpack_tex.py <map>.map --probe                 # все варианты раскода (layout/flip)
 python3 tools/tex/qc_tex.py                      # round-trip blob→PNG→blob (44/44) + статистика
@@ -249,6 +254,8 @@ python3 tools/tex/patch_map_pattern.py --tree <scratch-дерево> [--map X.ma
         [--band top] [--quad tl] [--solid]        # подмена blob'ов .tex паттерном; оригиналы ->
                                                    # <tree>/data/maps_ground_backup/
 python3 tools/tex/upscale_tex.py --in <tex_src> --out <dir> [--name stem] [--factor N]   # Lanczos-3 апскейл множителем N (2, 4)
+python3 tools/tex/upscale_tex.py --in <tilesdir> --out <dir> --factor N      # то же по блокам 32x32 (имена блоков сохраняются)
+python3 tools/tex/patch_map_pattern.py --tree <дерево> --tiles <tilesdir> [--allow-missing]  # атлас из блоков: блок 32*f -> запись f*w x f*h; fix_chain, round-trip
 python3 tools/tex/patch_map_pattern.py --tree <дерево> --up2x <tex_up2x> [--maxsrc N]  # пересборка записей: w,h,blob_len x2 (грузится; цепочка TLV-размеров правится)
 python3 tools/tex/patch_map_pattern.py --tree <дерево> --upscayl <DIR_A> <DIR_B>  # UpScayl-PNG кратного размера (2x/4x); для bpp4 родная альфа nearest-ресемпл и врезка; fix_chain, round-trip
 python3 tools/tex/patch_map_pattern.py --tree <установка> --install --upscayl DIR_A DIR_B  # явная запись в установку (по запросу пользователя); оригиналы -> data/maps_ground_backup; откат --install --restore
@@ -266,6 +273,16 @@ python3 tools/tex/hook_ground.py --tree <дерево> --restore   # ориги�
   содержимое `pos+8..pos+8+size`, следующий заголовок — `pos+8+size`);
   `fix_chain(payload, recs, deltas)` — правит размеры всех заголовков, накрывающих
   изменённые записи, с пересчётом позиций после вставок/вырезок.
+- Блоки 32x32 (`tools/tex/tex_tiles.py`): имя `<stem>__tx<col>_ty<row>.png` несёт
+  позицию блока в атласе (stem = имя записи без `.tex`, col/row 0-based, паддинг
+  полей по сетке, минимум 2 цифры; разбор устойчив к паддингу). `unpack_tex.py
+  --tiles` пишет блоки RGBA (bpp 3 — альфа 255), `--skip-empty` не пишет пустые
+  (при сборке они станут пустыми слотами); `tex_tiles.py glue` и
+  `patch_map_pattern.py --tiles` собирают атлас: сторона блока 32*f -> запись
+  f*w x f*h (все блоки записи одного размера). Отсутствующий блок заливается
+  пустым слотом (bpp 3 — чёрный/альфа 255, bpp 4 — нули), но если в родной записи
+  он был непустым — ошибка, обходится `--allow-missing`. Альфа-плоскость bpp4
+  берётся родная nearest-ресемплом (как `--upscayl`), альфа из блоков не читается.
 - Зонд сигнатуры отказа: `tools/probes/probe_exitcode.ps1 <W> <H> <F> <Tag> -Mode new` —
   новая игра (глиф → скип Enter'ом → глиф персонажа → Enter x2), снимки окна, и
   ExitCode процесса + faulting module/RVA из журнала Application и отчёта WER
