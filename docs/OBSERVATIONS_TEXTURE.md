@@ -354,6 +354,13 @@
   Контроль данных: dims 3x родных у 44/44, blob_len = w*h*bpp, цепочки TLV всех
   30 карт до EOF, `world_heart_0` == сборка из блоков побитово, у `volcanic_throne_1`
   (bpp4) RGB == сборка, альфа == родная nearest.
+- `[P]` (18.11) **Итог: в HD-пак вошёл вариант high-fidelity 3x.** Собраны три
+  комплекта из одного набора блоков (`upscayl_png_{high-fidelity,upscayl-standard,remacri}-4x_3x`,
+  блок 96x96); выбран `high-fidelity`, его 30 `.map` (44 записи ×3) добавлены в
+  `config[hd_pack]` (`hd_pack.7z`: 1379 записей, из них 30 `data/maps/*.map`) и
+  установлены в игру. `check_state --full` rc 0 (`hd_pack: 1379/1379` побитово),
+  `--untouched` rc 0. Родная почва восстанавливается из `original.7z` (pristine),
+  собственные правки — `patch_map_pattern.py --tiles … --install`.
 
 ## Разбор чтения `.tex` движком и TLV-размеры записей (2026-11-17, вечер)
 

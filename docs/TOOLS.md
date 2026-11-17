@@ -285,6 +285,11 @@ python3 tools/tex/hook_ground.py --tree <дерево> --restore   # ориги�
   берётся родная nearest-ресемплом (как `--upscayl`), альфа из блоков не читается.
   `--maxside N` пропускает записи, где f*w > N: блоки 4x для записи 1024x1024 дают
   сторону 4096 и 50 MB blob'а при лимите движка 32 MiB, такие записи остаются родными.
+- Почва карт поставляется в `config[hd_pack]` (`hd_pack.7z`, 1379 записей): 30 `data/maps/*.map`
+  с 3x-комплектом High Fidelity (блоки 96x96, 44 записи ×3). `check_state --full` сверяет
+  hd_pack побитово, `--untouched` — rc 0. Родные `.map` — в `original.7z` (pristine);
+  сборка и накат — `patch_map_pattern.py --tiles <dir> [--install]` (`.ndm`/`.lt` текстур
+  не содержат — там геометрия/данные карты).
 - Зонд сигнатуры отказа: `tools/probes/probe_exitcode.ps1 <W> <H> <F> <Tag> -Mode new` —
   новая игра (глиф → скип Enter'ом → глиф персонажа → Enter x2), снимки окна, и
   ExitCode процесса + faulting module/RVA из журнала Application и отчёта WER

@@ -86,11 +86,12 @@
 ## Ярус ассетов
 
 - 1342 .btf в установке (список зафиксирован в `release/manifest.json` assets_tier);
-  из них 12 шрифтов HD Pack (побитово) и 1349 hd_pack-записей побитово;
+  из них 12 шрифтов HD Pack (побитово) и 1379 hd_pack-записей побитово;
   black-пары — только snapshot-архив, в install не входят.
 - Шрифты: `data/fonts/` из `tools/fonts/gen_font4x.py` (изображения-эскизы
   приватны, не в git).
-- HD Pack 1.4.3 ассеты (1349) и pristine-ассеты (3005) — неприкосновенны.
+- HD Pack ассеты (1379, из них 30 `.map` с 3x-почвой — `docs/OBSERVATIONS_TEXTURE.md`,
+  «Почвенные текстуры карт») и pristine-ассеты (2968) — неприкосновенны.
 - Пользовательский бэкап (729+12 allowlist) — неприкосновенен.
 
 ## Python-слой (обязательная часть базы)
@@ -110,12 +111,12 @@
 
 ## Замеры проверки (см. docs/VERIFY.md)
 
-PRISTINE 3005, HD_PACK 1349, SNAPSHOT_ONLY 741, REPO 1 (hd.cfg),
-REPO_BASENAME 1 (console.py), UNCOVERED 0. Состав SNAPSHOT_ONLY (741): `lib/*` 713,
-корневые `.pyc` 11, корневые бинары 6 (`LETHALDREAMS.EXE`, `python22.dll`,
-`msvcr70.dll`, `msvcp70.dll`, `msvcr70d.dll`, `ld-setup.bat`), `data/scripts/*.pyc` 10
-(5 в корне `data/scripts` + 5 в `data/scripts/ui/`) и `data/textures/mm_bkg01.btf` 1. — артефакт
-пайплайна (`release/allowlist.json`), в git не входит
+Замер 18.11.2026 (`check_state --untouched`, установка 5097 файлов):
+PRISTINE 2968, HD_PACK 1379, ALLOWED 729, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0.
+Покрытие allowlist'а не менялось (`release/allowlist.json`: `lib/*` 713, корневые `.pyc` 11,
+корневые бинары 6 — `LETHALDREAMS.EXE`, `python22.dll`, `msvcr70.dll`, `msvcp70.dll`,
+`msvcr70d.dll`, `ld-setup.bat`, `data/scripts/*.pyc` 10, `data/textures/mm_bkg01.btf` 1);
+`hd.cfg` классифицируется как REPO. — артефакт пайплайна, в git не входит
 
 ---
 
@@ -361,7 +362,9 @@ REPO_BASENAME 1 (console.py), UNCOVERED 0. Состав SNAPSHOT_ONLY (741): `li
 
 - `[P]` `upscale_tex.py --factor N` (произвольный целый множитель Lanczos-3). Для 4K: растяжка канвас->4K = 2.8125 (y) / 3.75 (x); лимит blob'а 32 MiB: 1024² при 4x не влезает (50 MB bpp3), подтвержденный грузящий максимум — сторона 2048. Группы: 9 записей 1024² -> 2x (`scratch_dir('ld')/tex_up2x_big`), 35 записей <=512² -> 4x (`tex_up4x_small`, максимум 2048²); списки `big_names.txt`/`small_names.txt`, параллельный прогон — 4 сбалансированных потока (`g1..g4.txt`).
 
-- `[P]` `patch_map_pattern.py` получил явный `--install` (запись в установку по запросу пользователя, path-guard снят только с флагом). UpScayl 2x/4x были положены в установку (30 `.map`, оригиналы -> `data/maps_ground_backup`), игра запускалась для проверки; затем полный откат: `--install --restore` (30 `.map` восстановлены), backup-каталог удалён из установки, снапшот = drift 9 известных `Lib/*.pyc`, `--quick` rc 0, игра закрыта.
+- `[P]` `patch_map_pattern.py` получил явный `--install` (запись в установку по
+  запросу пользователя; path-guard снят только с флагом, оригиналы `.map` уходят в
+  `<tree>/data/maps_ground_backup`, откат `--install --restore`).
 
 ## Сессия 2026-11-18: блоки 32x32 почвенных `.tex` (нарезка и сборка)
 
@@ -409,18 +412,16 @@ REPO_BASENAME 1 (console.py), UNCOVERED 0. Состав SNAPSHOT_ONLY (741): `li
   4x-вариант (сторона 4096, blob 50 MB) в лимит не влезает — `--maxside` его пропускает;
   каталог `scratch_dir('ld')/upscayl4x_tree` удалён по просьбе пользователя.
 
-- `[P]` (18.11) **3x-почва накатана на установку** (по просьбе пользователя):
-  `patch_map_pattern.py --tree D:/Games/LethalDreams --install --tiles
-  scratch_dir('ld')/tex_tiles_ne/upscayl_png_remacri-4x_3x` — 30 `.map`, 44 записи
-  пересобраны ×3 (1024→3072 … 32→96), оригиналы в
-  `data/maps_ground_backup/` (30 файлов, побайтно равны до-патчевым), карты
-  установки побайтно равны `scratch_dir('ld')/upscayl3x_tree/data/maps`.
-  Установка теперь 5127 файлов (было 5097: +30 backup). Гейт на установке:
-  `probe_exitcode 3840 2160 1 tex3x_inst -Mode new` — новая игра загрузилась,
+- `[P]` (18.11) **Почва в HD-паке: High Fidelity 3x.** Из трёх собранных 3x-вариантов
+  (`remacri`, `upscayl-standard`, `high-fidelity`) выбран **high-fidelity**; его 30 `.map`
+  (44 записи ×3: 1024→3072 … 32→96, max blob 28 311 552 B при лимите 32 MiB) лежат
+  в установке и в `config[hd_pack]` (`D:/For Games/Lethal Dreams/hd_pack.7z`:
+  1379 записей, из них 30 `data/maps/*.map`, размер карт == установке побитово).
+  Проверки: `check_state --full` rc 0 (`hd_pack: 1379/1379` побитово),
+  `--untouched` rc 0 (HD_PACK 1379), `--quick` rc 1 = 2 известных pyc-дрейфа.
+  В игре: `probe_exitcode 3840 2160 1 tex3x_inst -Mode new` — новая игра грузится,
   terrain 3x отрисован (`scratch_dir('ld')/ld/tex3x_inst_overland.png`),
   Application-лог пуст, игра погашена.
-  `check_state --quick` rc 1 = 2 известных дрейфа (`ui/cursor.pyc`, `ui/olmenu.pyc`);
-  `--untouched` даёт 60 «DRIFT`ов: 30 изменённых `.map` + 30 файлов backup
-  (ожидаемо, пока 3x стоит; после `--install --restore` вернётся rc 0).
-  Откат: `python3 tools/tex/patch_map_pattern.py --tree D:/Games/LethalDreams --install --restore`
-  (backup-каталог после откката удалить, как в прошлый раз).
+  Каталоги блоков: `scratch_dir('ld')/tex_tiles_ne/upscayl_png_{high-fidelity,upscayl-standard,remacri}-4x_3x`;
+  собранные комплекты карт: `upscayl3x_hifi_tree` (выбранный), `upscayl3x_standard_tree`,
+  `upscayl3x_tree` (remacri). Родная почва восстанавливается из `original.7z` (pristine).

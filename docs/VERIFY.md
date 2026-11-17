@@ -44,11 +44,12 @@ co_filename; `docs/PATCHES.md`).
 префикса `LethalDreams/`) → SNAPSHOT; basename+(size,crc) fallback; basename
 (без контента) → REPO_BASENAME; UNCOVERED — репорт.
 
-Замер на установке (5097 файлов, без `__pycache__`):
+Замер на установке (5097 файлов, без `__pycache__`, 18.11.2026):
 
-- PRISTINE **3005**, HD_PACK **1349**, SNAPSHOT_ONLY **741**, REPO **1**
-  (`hd.cfg`: bytes есть в snapshot-архиве, класс REPO по порядку),
-  REPO_BASENAME **1** (`console.py`), UNCOVERED **0**; — артефакт пайплайна, в git не входит
+- PRISTINE **2968**, HD_PACK **1379** (включая 30 `data/maps/*.map` с 3x-почвой),
+  ALLOWED **729**, CODE **17**, EXCLUDED **4**, UNCOVERED **0**;
+  `hd.cfg` классифицируется как REPO; `console.py` — REPO_BASENAME; — артефакт
+  пайплайна, в git не входит
 - allowlist: `data/video/*.wmv` (glob) + `.log`-класс; отсутствие
   `boolat.wmv`, `russobit_r.wmv` — разрешено (присутствуют в archive, отсутствуют
   в установках; run без exclude это доказывает);
@@ -62,7 +63,7 @@ black-эксперимент: чёрные .btf в установку не вх�
 
 1. real install `--quick`: 1 DRIFT (cursor) + fix_command, rc 1; снапшот diff 0;
 2. real install `--full`: rc 0, KNOWN-drift, diff 0;
-3. `--untouched`: rc 0 (PRISTINE 2998 / HD_PACK 1349 / ALLOWED 729 / CODE 17 /
+3. `--untouched`: rc 0 (PRISTINE 2968 / HD_PACK 1379 / ALLOWED 729 / CODE 17 /
    EXCLUDED 4 — без code-файлов), diff 0;
 4. fake game (полная копия, sabotaged: gamescript.pyc modified, white.btf deleted,
    zzz_inject.pyc (утрачен: покрытия нет ни в git, ни в приватных архивах сессий Project/1-3.7z, 5.7z, 6.7z, 7.7z, original.7z, hd_pack.7z, python_libs.7z) added): quick rc1 (DRIFT pyc + DRIFT registry), full rc1 — исторический прогон сессии, артефакты в git не входят

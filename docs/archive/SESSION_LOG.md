@@ -400,3 +400,11 @@
   (`scratch_dir('ld')/ld/tex3x_inst_overland.png`), Application-лог пуст, игра
   погашена. `--quick` rc 1 (2 известных дрейфа), `--untouched` 60 (30 изменённых
   карт + 30 backup) — ожидаемо до откката.
+- `[P]` Итоговый выбор почвы — **High Fidelity 3x** (из трёх собранных 3x-комплектов).
+  Его 30 `.map` (44 записи ×3) установлены в игру и добавлены в `hd_pack.7z`
+  (`config[hd_pack]`, 1379 записей, из них 30 `data/maps/*.map`; карты в архиве
+  побайтно равны установке). `check_state --full` rc 0 (`hd_pack: 1379/1379`
+  побитово), `--untouched` rc 0 (PRISTINE 2968 / HD_PACK 1379 / ALLOWED 729 /
+  CODE 17 / EXCLUDED 4). Родная почва — в `original.7z` (pristine). Упоминания
+  прежних накатов карт (remacri-3x, UpScayl 2x/4x с откатом) из STATE убраны как
+  устаревшие: актуальна поставка через HD-пак.

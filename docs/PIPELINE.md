@@ -186,6 +186,11 @@ baseline `45e93d46…` (`backup/LETHALDREAMS.EXE.pre4`) → exepatch12 (cave) =
    непустой потерянный блок — ошибка (`--allow-missing`). `--maxside N` пропускает
    записи, где f*w > N (блоки 4x для 1024² дают 4096² и 50 MB blob'а при лимите
    32 MiB) — такие записи остаются родными.
+8. **Почва в HD-паке**: в поставку вошёл 3x-комплект High Fidelity (блоки 96x96,
+  1024→3072 … 32→96, max blob 27 MB) — 30 `.map` лежат в `config[hd_pack]`
+  (`hd_pack.7z`, 1379 записей) и в установке; `check_state --full`/`--untouched`
+  rc 0, `hd_pack` сверяется побитово. Родные карты — в `original.7z` (pristine);
+  пересборка/накат — `patch_map_pattern.py --tiles <blocks> [--install]`.
 
 Формат записи, поля шапки, статистика, наблюдения отображения — `docs/OBSERVATIONS_TEXTURE.md`
 («Почвенные текстуры карт (`.tex` внутри `.map`)»), факты — `docs/KNOWLEDGE.md`
