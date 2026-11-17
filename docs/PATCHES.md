@@ -40,10 +40,10 @@ rewrite даёт header build-time (`2026-11-17 10:42`) и md5, не равны�
 
 - `ui/cursor.pyc` (`DRIFT_RELEASE_AHEAD`): установленный `4a8eb4bab413…` = патч
   курсоров версии 6; base-печать `60754a253515…`.
-- `ui/olmenu.pyc` (`DRIFT_KNOWN`): установленный `3d96162df727…` собран в приватном
-  историческом дереве, чей co_filename-путевой строковый литерал не публикуется;
-  опубликованный зонд-лог (`HD_Log`) персонализирован (пишет `hdlog.txt` (создаётся игрой, в git не входит) в cwd игры),
-  base-печать опубликованного дерева `5cb5cc88ddc8…`. Installed-значение — измеренный факт.
+- `ui/olmenu.pyc` — с 18.11.2026 каноническая сборка (`MATCH`, md5 `af176d4859a1…`);
+  прежний `DRIFT_KNOWN` (приватное дерево `3d96162df727…`, base-печать
+  `5cb5cc88ddc8…`) закрыт пересборкой из опубликованного дерева вместе с фиксом
+  Esc×2 (см. `docs/STATE.md`, сессия 18.11).
 
 ## Модули и константы (release/manifest.json)
 
@@ -52,7 +52,7 @@ rewrite даёт header build-time (`2026-11-17 10:42`) и md5, не равны�
 | data/scripts/gamescript | gamescript.patch (554 B) | 1794778202 |
 | ui/ui | ui_ui.patch (3574 B) | 1794778202 |
 | ui/cursor | ui_cursor.patch (4120 B) | 1794778645 |
-| ui/olmenu | ui_olmenu.patch (1933 B) | 1794778203 |
+| ui/olmenu | ui_olmenu.patch (2237 B) | 1794778203 |
 | ui/battlemenu | ui_battlemenu.patch (4813 B) | 1794778202 |
 | ui/btutorial | ui_btutorial.patch (599 B) | 1794778203 |
 

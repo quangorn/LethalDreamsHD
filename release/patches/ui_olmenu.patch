@@ -24,12 +24,15 @@
  def DlgAttackSelectedDomain():
      if len(overland_map.SelectedDomain.Keepers):
          td = overland_map.SelectedDomain.Keepers[0].GetOpponentData(overlandcharacters.AvailablePlayers[overlandcharacters.CurrentPlayer].GetKeyName(), 'TalkScriptData')
-@@ -105,7 +122,7 @@
+@@ -105,7 +122,10 @@
              return
          import mainmenu
          ui.ResetTooltip()
 -        mainmenu.ShowMainmenu(1, [2, 1, 1, 1, 1, 1])
-+        mainmenu.ShowMainmenu(1, [2, 2, 2, 2, 2, 3])
++        # 6-й элемент - действие пункта "Продолжить": 2 = ResumeGame (оверленд),
++        # 3 = ResumeBattle. Здесь всегда оверленд: 3 вызывал battlemenu.ShowBattlemenu
++        # без боя (BattlemenuScene is None) -> KeyError в cursor.SetScene(None).
++        mainmenu.ShowMainmenu(1, [2, 2, 2, 2, 2, 2])
          return
  
      def OL_Encyclopedy(self):

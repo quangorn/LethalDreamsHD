@@ -77,11 +77,11 @@
   в бою после установки патченной сборки в scratch-дереве: «всё работает».
 - Известные дрейфы кодового яруса (manifest `state`):
   `ui/cursor.pyc` = `DRIFT_RELEASE_AHEAD` (в установке патч курсоров версии 6,
-  md5 `4a8eb4bab413` vs base-печать `60754a253515`);
-  `ui/olmenu.pyc` = `DRIFT_KNOWN` (установленный `3d96162df727` собран в
-  приватном историческом дереве с личным co_filename-строковым путём;
-  опубликованный зонд-лог персонализирован, base-печать опубликованного дерева =
-  `5cb5cc88ddc8`). Installed-значения оставлены измеренными фактами.
+  md5 `4a8eb4bab413` vs base-печать `60754a253515`).
+  `ui/olmenu.pyc` с 18.11.2026 = каноническая сборка (md5 `af176d4859a1…`,
+  state `MATCH`); прежний `DRIFT_KNOWN` (приватное дерево `3d96162df727…` /
+  base-печать `5cb5cc88ddc8…`) закрыт пересборкой из опубликованного дерева
+  вместе с фиксом Esc (см. сессию 18.11).
 
 ## Ярус ассетов
 
@@ -221,6 +221,33 @@ PRISTINE 2968, HD_PACK 1379, ALLOWED 729, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0
   (`tools/pyc/py22_worker.py`, задокументировано в `docs/TOOLS.md`); AST `tools/archive/**` `.py`
   = 105, парсится = 97, py2-only = 8 — список имён в `tools/archive/README.md`
   (абзац «8 архивных скриптов не парсятся Python 3»).
+## Сессия 2026-11-18 (ночь): зависание ввода после Esc×2 из оверленда
+
+- `[U]` Баг: загрузка с сохранения → Esc (главное меню) → Esc ещё раз → курсор
+  «прилипает», мышь почти не реагирует, клавиатура мертва; при новой игре не
+  воспроизводится.
+- `[P]` Канал диагностики — движковый `PythonLogFile`
+  (`Documents\Boolat Games\Lethal Dreams\PythonLogFile`): `KeyError` в `cursor.Set`
+  через `cursor.SetScene(None, …)` ← `battlemenu.ShowBattlemenu` ←
+  `mainmenu.ResumeBattle`, затем каждый кадр `AttributeError: 'NoneType' …
+  SetPickFilter` из `olmenu.Update`. Причина — наш патч: `OL_MainMenu` звонил
+  `mainmenu.ShowMainmenu(1, [2,2,2,2,2,3])`; шестой элемент `3` = ResumeBattle, а в
+  оверленде `BattlemenuScene is None` (при новой игре меню не пересоздаётся —
+  отсюда невоспроизводимость).
+- `[P]` Фикс: шестой элемент = `2` (ResumeGame) в `patches/ui/olmenu.py`;
+  `release/patches/ui_olmenu.patch` (+комментарий), манифест пересобран канонически
+  (`ui/olmenu` md5 `af176d4859a1…`, size 38421, state `MATCH`). Установлено
+  `install_patch.py ui/olmenu --install`.
+- `[P]` Живая проверка (`D:/tmp/cygwin/opencode/ld/probe_esc_save.ps1`, окно
+  1920x1440, загрузка SLOT по Recall→строка→Enter): Esc → меню, Esc → оверленд,
+  курсор игры ходит за мышью, R/F1 открывают окна; `PythonLogFile` без трейсбеков
+  (только доброкачественные ImportError ol_hex/mini_domain01).
+  Ярусы: `--quick` rc 1 (только известный cursor), `--full` rc 0, `--untouched` rc 0.
+- `[P]` Грабля прогонов: движок при выходе переписывает базовые шрифты установки
+  (`data/fonts/*.fdf`, `data/textures/ld_*.btf`) родным содержимым → `--full`
+  печатает 7 `DRIFT hd_pack … size`. Восстановление — `7z x` этих 8 файлов из
+  `config[assets.hd_pack]`; зафиксировано в `docs/PITFALLS.md`.
+
 ## Сессия 2026-11-17 (вечер): тултипы у курсора в 16:9
 
 - `[U]` «Тултипы в 16:9 возникают в верху экрана, а не под курсором»;

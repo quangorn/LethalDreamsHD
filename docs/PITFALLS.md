@@ -576,6 +576,16 @@ tgz. Замеренное дерево и его состав — `docs/TOOLS.md
   (`0x467566` — обход тайлов почвы `FUN_00467540`). Правка —
   `tools/tex/patch_map_pattern.py` (`chain_headers` + `fix_chain`, с пересчётом
   позиций после вставок). Дельта прибавляется (+ при апскейле, − при даунскейле).
+- `[P]` Живой прогон игры переписывает базовые шрифты установки родным содержимым:
+  `data/fonts/ld_{numbers15,tahoma11,uncial12,uncial20}.{fdf,btf}` при выходе движка
+  получают native-размеры (fdf 216/3386/2730/2730, btf 1557/4152/40595/56322) вместо
+  HD-набора `config[assets.hd_pack]` (240/3659/2879/2916, 51722/838201/971697/1461036).
+  Симптом: `--full` печатает 7 `DRIFT hd_pack … size != …` после любого запуска игры.
+  Восстановление: `7z x -y -o<game.root> <hd_pack> data\fonts\ld_numbers15.fdf
+  data\fonts\ld_tahoma11.fdf data\fonts\ld_uncial12.fdf data\fonts\ld_uncial20.fdf
+  data\textures\ld_numbers15.btf data\textures\ld_tahoma11.btf
+  data\textures\ld_uncial12.btf data\textures\ld_uncial20.btf`; сайдкары `*_169/*_43`
+  не трогаются. После восстановления `--full` rc 0.
 - `[P]` Frida-софт: spawn-режим не управляется кликами; attach по pid из shell-запуска,
   клики — DPI-aware driver, лог только через `send()` (File/NativeFile недоступны),
   стрим-параметр ADV/FACT — u32 по `sp+4` (return address по `sp+0`).
