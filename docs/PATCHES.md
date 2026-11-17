@@ -176,6 +176,10 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
   пиксель уходит за нижнюю границу), панель задач при этом перекрыта и не рисуется
   поверх игры. Правка генератора хука — `pycbuild.MIN_NEW`, накат:
   `python3 tools/pyc/pycbuild.py install-min`.
+  - `[P]` **Эксперимент 2026-11-16: видео-окно не заменяет `h+1`.** Видео-окно
+    `lethaldreamsvideo` — отдельный top-level `WS_POPUP` (owner = главное окно), живёт
+    только на время ролика; при отключённом `h+1` и 4:3 видео-окне OSD/мигание главного
+    окна вернулись. Разбор — `docs/OBSERVATIONS_ENGINE.md`, раздел «Второе окно…».
 - `[P]` Замер alt-tab: слушатель `WM_DISPLAYCHANGE` (`tools/archive/probes/probe_displaychange.ps1`) за
   переключение туда/обратно не получил **ни одного** события; `EnumDisplaySettings`
   до/во время/после = `3840x2160 bpp=32 hz=120`; переключение 3-75 мс. То есть режим

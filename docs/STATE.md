@@ -150,3 +150,11 @@ REPO_BASENAME 1 (console.py), UNCOVERED 0. Состав SNAPSHOT_ONLY (741): `li
 
 Срез зафиксирован дословно; текущие константы установок — разделы выше. Последовательность
 `exepatch9 → exepatch10 → exepatch12` зафиксирована в `docs/PATCHES.md`.
+
+
+## Публикация (2026-11-16)
+
+- `[P]` Репозиторий опубликован: `https://github.com/quangorn/LethalDreamsHD` (public),
+  один чистый initial commit `85ec7b9d…` из дерева HEAD, ветка `master`; 267 файлов,
+  игровых бинаров 0, личных путей 0, `config.toml` не отслеживается. Локальная история
+  (`master`, 33 коммита) не опубликована. Хроника — `docs/archive/SESSION_LOG.md`.

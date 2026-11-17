@@ -34,6 +34,12 @@ python_libs.7z; тот же мандат applies к истории сессий.
  (VA 0x4ebf12, fileoff 966418 = VA − base), три sites вызова. Без флага пишет в
    `paths.scratch_dir('exe')/LETHALDREAMS.EXE.patched`; `--install` пишет в EXE
    установки; `restore` возвращает baseline (в тот же выходной файл).
+ 4. `python3 tools/exe/exepatch_frame1.py` — **эксперимент, откатён (16.11.2026)**:
+    единственный байт fileoff 149932 (`push 0x80000000` → `push 0x80800000`,
+    добавление `WS_BORDER`). `--install` / `--restore`; после отката EXE = эталон
+    `171319bbc170…`. Итог — `docs/PITFALLS.md`, «Рамка `WS_BORDER` вместо `h+1».
+ 5. `python3 tools/exe/exepatch_video43.py` — **эксперимент, откатён (16.11.2026)**: сайт-jmp (VA `0x49a322`, вызов `IVideoWindow::SetWindowPosition`) + пещера `tools/exe/caves/video43.s` в zero-run `.rdata` (VA `0x50ec70`) + флаг исполняемости `.rdata`. Игра падает (`0xc0000005`, адрес вне образа) — путь закрыт, см. `docs/PITFALLS.md`, «Пещера в `.rdata` для 4:3 роликов». `--install`/`--restore`; после отката EXE = эталон `171319bbc170…`.
+
 
 ## btf-пайплайн (курсоры/иконки)
 

@@ -192,3 +192,30 @@
 - `[P]` Документация приведена в соответствие: `docs/archive/RESEARCH_PY_DECOMPILE.md` (примеры пути ->
   `decompiled_fixed/`, `tools/archive/decompile/pin_decompiled.py` помечен устаревшим), `docs/archive/TASK_decompiler.md`
   (статус-блок: упоминания `decompiled_snap/` исторические). `docs/archive/NOTES_OLD.md` — архив, не троган.
+
+
+## Публикация git-репозитория (2026-11-16, вечер)
+
+- `[P]` Финальный верификатор (измерение/отчёт, ничего не исправлял): rc `--quick` 1
+  (два документированных дрейфа), `--full` 0, `--untouched` 0; цепь EXE, worker-компиляция
+  `hd_scale`/`hd_tex`, архивные crc-сверки, §D (Lib/DLL/header-группы/оп-числа), E1–E3/E5,
+  гейтинг записи — воспроизведены; установка 5097 файлов, md5-diff 0, EXE `171319bbc170…`.
+  Отчёт: `scratch_dir('ld')/verify2/REPORT.md` (scratch-меры прогона съёмки/верификации; пересоздаётся скриптами, в git не входит).
+- `[P]` Шесть дефектов отчёта исправлены (коммит `039baa0`): `tools/fonts/restore_fonts.py`
+  гейтирован `--install` (по умолчанию CHECK, md5-diff установки после check-прогона 0);
+  состав SNAPSHOT_ONLY в `docs/STATE.md` 741 = 713+11+6+**10**+1 (`data/scripts/*.pyc` = 10:
+  5 в корне + 5 в `ui/`); `tools/archive/README.md` получил адрес+статус для удалённого
+  `docs/NOTES.md` и список 8 py2-only скриптов; `docs/PITFALLS.md` указывает на этот список;
+  `docs/OBSERVATIONS_ENGINE.md`: C-API-число измерено — EXE импортирует из `python22.dll`
+  **53** символа (все есть среди **753** экспортов), импорты `MSVCRT` 162 / `SHELL32` 1
+  принадлежат DLL, не EXE; docstring `tools/exe/exepatch12.py`: блоб **236** B (было 224).
+- `[P]` Личные абсолютные пути нейтрализованы в 104 файлах `tools/archive/**`
+  (игровая установка → `config[game.install_dir]`/`paths.game_path`, scratch/кэш/бэкап/
+  рабочие каталоги → `paths.scratch_dir|cache_dir|btf_backup_dir|assets_dir`, пути репозитория
+  → `_ROOT`, личные CD-архивы → «приватный архив»); PowerShell-зоны получили параметры
+  `$ScratchRoot`/`$GameRoot`/`$RepoRoot` (env `LD_SCRATCH`/`LD_GAME`/`LD_REPO`). Факты, числа,
+  md5 и логика скриптов не менялись. Скан личных путей по 267 отслеживаемым файлам = 0.
+- `[P]` **Опубликовано**: `https://github.com/quangorn/LethalDreamsHD` (public), единственный
+  чистый initial commit `85ec7b9d…` из дерева локального HEAD (`git commit-tree`), ветка
+  `master`, 267 файлов, игровых бинаров 0, личных путей 0, `config.toml` не в tree.
+  Локальная история `master` (32+1 коммитов) сохранена и не опубликована.
