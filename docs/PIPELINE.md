@@ -157,12 +157,21 @@ baseline `45e93d46…` (`backup/LETHALDREAMS.EXE.pre4`) → exepatch12 (cave) =
 5. **Ярусы после всех прогонов**: `check_state.py --quick` rc 0, `--untouched` rc 0;
    снапшот md5+mtime установки — diff нулевой (запуски игры дают известный дрейф
    `Lib/*.pyc`, `hd.cfg`, `hdlog.txt`, font-сайкары, `mm_bkg01.btf`).
-6. **Апскейл 2x**: `tools/tex/upscale_tex.py` (Lanczos-3, stdlib) кладёт PNG в
+6. **Апскейл 2x (грузится)**: `tools/tex/upscale_tex.py` (Lanczos-3, stdlib) кладёт PNG в
    `scratch_dir('ld')/tex_up2x`; `patch_map_pattern.py --up2x` пересобирает записи с
-   удвоенными w/h/blob_len (plen/clen правятся).
-   **Проблема**: движок не грузит записи с изменённым w/h (закрытие игры на загрузке
-   карты, даже 32²→64²) — протокол и план разбора `docs/ISSUE_tex_upscale.md`;
-   съёмка боя — `tools/probes/probe_battleshot.ps1`.
+   удвоенными w/h/blob_len (plen/clen правятся). Записи пересобираются БЕЗ лишнего
+   `name_len`-префикса (`name_len` u32 живёт в gap'е перед именем), а дельта blob'а
+   (+/−) прибавляется ко ВСЕМ TLV-размерам, накрывающим запись: внешний заголовок
+   записи и цепочка заголовков payload'а (`chain_headers`, `fix_chain`). Иначе
+   `FUN_0049bf70` (ADV) сбивает координаты потока, FACT (`FUN_00495720`) даёт NULL и
+   движок падает (`0xC0000005` на `0x467f54`). Механизм и гейты —
+   `docs/ISSUE_tex_upscale.md` («РЕШЕНИЕ»), факты — `docs/KNOWLEDGE.md`.
+   Произвольные стороны: `--rescale self --num N --den D --record <stem>` (целочисленные
+   w,h = родные·num/den; `--self` — источником служит blob самой записи).
+   Сигнатура отказа фиксируется `tools/probes/probe_exitcode.ps1` (ExitCode +
+  fault offset из журнала Application/WER). Съёмка оверленда —
+   `tools/archive/probes/probe_loadshot.ps1 … -Mode new`, съёмка боя —
+   `tools/probes/probe_battleshot.ps1`.
 
 Формат записи, поля шапки, статистика, наблюдения отображения — `docs/OBSERVATIONS_TEXTURE.md`
 («Почвенные текстуры карт (`.tex` внутри `.map`)»), факты — `docs/KNOWLEDGE.md`

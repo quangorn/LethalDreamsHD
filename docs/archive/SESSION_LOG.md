@@ -323,3 +323,42 @@
   `patches/tex_hook_alpha.py`, компиляция 2.2.3) грузятся и AddTexture работает,
   но `.btf`-ресурс резолвится из источника: подмена `.btf` не видна на земле;
   стартовая карта новой игры — `portal_domain` (имена модулей из зондов `hdlog.txt`).
+
+
+## Сессия 2026-11-17 (ночь): разбор краша при изменённом размере `.tex`, патч грузится
+
+- `[P]` Сигнатура отказа: ExitCode `0xC0000005`, WER fault offset `0x67f54` =
+  `MOV EDX,[ESI]` (`FUN_00467eb0` `0x467f54`), `ESI` = NULL-возврат FACT `FUN_00495720`.
+  Зонд: `tools/probes/probe_exitcode.ps1` (ExitCode + faulting module/RVA из журнала
+  Application/WER).
+- `[P]` Payload `.map` ходит ADV `FUN_0049bf70` по цепочке TLV-заголовков
+  `(type u32, size u32)`: содержимое `pos+8..pos+8+size`, следующий заголовок
+  `pos+8+size`; размер = длина содержимого, ADV сверяет `ftell == pos+8` и при
+  рассинхроне гасит флаг потока `+0x28` → FACT NULL. Цепочка `portal_domain.map`
+  (clean len 10639424): @8 `142/24`, @40 `135/2986612`, @2986660 `130/3150006`
+  (секция почвенных текстур), внешние заголовки записей @2986692 `size=3145811`
+  и @6132487 `type=116 size=4179`.
+- `[P]` Порядок разбора записи `FUN_00495300`: 4 байта, ADV, строка имени, w(4) h(4)
+  alpha(4) f58(4) f54(4), 2-байтный short (младший байт обязан быть 0), byte 0x51,
+  u32 0x60, u32 0x5c, byte 0x50, ADV, blob `w*bpp*h`, upload `FUN_004772e0`.
+  `name_len` u32 лежит в gap'е перед именем (`scan_tex` `name_off` = строка имени).
+- `[P]` Две причины краша, обе чисто данные: дублирующий `name_len` u32-префикс в
+  пересобранной записи (сдвиг полей +4, short читает мусор) и неисправленные
+  TLV-размеры (внешний заголовок по `name_off-28` и цепочка секций) — ADV сбивал
+  координаты, краш переезжал на `0x467566` (`FUN_00467540`, обход тайлов почвы).
+- `[P]` Исправлено в `tools/tex/patch_map_pattern.py`: `rec_bin = имя+шапка+blob`
+  (без префикса), `chain_headers(payload, start=8)` и `fix_chain(payload, recs, deltas)`
+  (+/− дельта blob'а во все накрывающие заголовки, пересчёт позиций после вставок).
+- `[P]` Гейты на scratch-дереве (probe_exitcode/probe_clicks) — все грузятся
+  (`ALIVE after enter2+15s`, `ExitCode=00000000`): `--rescale self --num 2 --den 1
+  --record portal_domain_1` (32²→64²); полный `--up2x` (rec0 1024²→2048² + rec1 64²,
+  plen 20088896); даунскейл `--num 1 --den 2` (16²); не-POT `--num 3 --den 4` (24²).
+  Оверленд снимается: `scratch_dir('ld')/ld/up2x_gate2_overland.png`, кроп 4:3
+  `up2x_gate2_overland_43.png` (terrain, учебный диалог, геометрия 4:3).
+- `[P]` Frida: attach по pid из shell-запуска (`launch_game.ps1` → `game_pid.txt`),
+  spawn не управляется кликами; клики `frida_click3.ps1`, лог только `send()`;
+  стрим-параметр FACT/ADV — u32 по `sp+4`. Зонд `hook_ground.py --native --only <map>`
+  логирует w/h до/после AddTexture.
+- `[P]` Ярусы: дерево восстановлено (30 `.map`, 92 материалов), diff против
+  `tree_snap_pre_phase1.json` — только `hdlog.txt`; установка: дрейф 2 известных
+  (`ui/cursor.pyc`, `ui/olmenu.pyc`), `--untouched` rc 0; игра закрыта, Frida закрыта.

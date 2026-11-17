@@ -310,3 +310,49 @@ REPO_BASENAME 1 (console.py), UNCOVERED 0. Состав SNAPSHOT_ONLY (741): `li
   (новая игра, скип уроков Enter'ом, клики по канвасу, `SCENE battle` из hdlog).
 - `[P]` После всех прогонов дерево восстановлено (`--restore`), игра закрыта;
   установка — дрейф только 9 известных `Lib/*.pyc`, `--quick` rc 0.
+
+
+## Сессия 2026-11-17 (ночь): краш при изменённом w/h разобран, патч грузится
+
+- `[P]` **Сигнатура отказа**: ExitCode `0xC0000005`; WER fault offset `0x67f54` =
+  `MOV EDX,[ESI]` в диспетчере `FUN_00467eb0` (`0x467f54`), `ESI` = возврат
+  FACT `FUN_00495720` (NULL при отказе разбора). Зонд сигнатуры —
+  `tools/probes/probe_exitcode.ps1` (ExitCode + faulting module/RVA из журнала
+  Application/WER).
+- `[P]` **Причины — только в данных, патч EXE не нужен.** (1) `rec_bin` собирался с
+  дублирующим `name_len` u32-префиксом: поля записи сдвигались на +4, 2-байтная
+  short-проверка (`FUN_00495300`) читала мусор → FACT NULL. (2) TLV-размеры наружных
+  заголовков (внешний заголовок записи u32 по `name_off-28`, секция цепочки ADV
+  `type=130` @2986660) не росли вместе с blob'ом: `FUN_0049bf70` сбивал координаты
+  потока, краш переезжал на `0x467566` (`FUN_00467540`, обход тайлов почвы).
+- `[P]` **Механизм**: payload ходит ADV по цепочке `(type,size)` (содержимое
+  `pos+8..pos+8+size`); размер каждого заголовка = длина содержимого, ADV сверяет
+  `ftell == pos+8` и при рассинхроне гасит флаг потока `+0x28`; FACT даёт NULL.
+  Цепочка `portal_domain.map`: @8 `142/24`, @40 `135/2986612`, @2986660 `130/3150006`
+  (секция почвенных текстур), записи @2986692 (`size=3145811`) и @6132487
+  (`type=116 size=4179`).
+- `[P]` **Исправление** `tools/tex/patch_map_pattern.py`: `rec_bin = имя+шапка+blob`
+  (без префикса) + `chain_headers(payload, start=8)` и
+  `fix_chain(payload, recs, deltas)` — дельта blob'а (+/−) во все накрывающие
+  заголовки с пересчётом позиций после вставок. Новый CLI:
+  `--rescale self --num N --den D --record <stem>`.
+- `[P]` **Гейты** (scratch-дерево, probe_exitcode/probe_clicks):
+  `--rescale self --num 2 --den 1 --record portal_domain_1` (32²→64²), полный `--up2x`
+  (rec0 1024²→2048² + rec1 64², plen 20088896), даунскейл `--num 1 --den 2` (16²),
+  не-POT `--num 3 --den 4` (24²) — все: `ALIVE after enter2+15s`, `ExitCode=00000000`.
+  Оверленд снимается (`scratch_dir('ld')/ld/up2x_gate2_overland.png`, кроп 4:3
+  `up2x_gate2_overland_43.png`): terrain, учебный диалог, геометрия 4:3 сохранена.
+- `[P]` Frida-контур: attach по pid после shell-запуска (`launch_game.ps1` →
+  `game_pid.txt`), клики `frida_click3.ps1`, лог только через `send()`; стрим-параметр
+  FACT/ADV — u32 по `sp+4`. Зонд-хук `hook_ground.py --native [--only <map>]` грузит
+  родную `.tex` и логирует w/h до/после AddTexture (`TEXHOOK PRE/POST`); хуки надо
+  снимать (`--restore`) перед съёмкой оверленда — они дают диалог
+  «Texture not found».
+- `[P]` Итоги ярусов: дерево восстановлено (30 `.map`, 92 материалов); diff дерева
+  против `scratch_dir('ld')/ld/tree_snap_pre_phase1.json` — изменён только `hdlog.txt`;
+  установка: дрейф только 2 известных (`ui/cursor.pyc`, `ui/olmenu.pyc`),
+  `--untouched` rc 0; игра закрыта, все Frida-сессии закрыты.
+  Регистрация: `docs/ISSUE_tex_upscale.md` («РЕШЕНИЕ»),
+  `docs/OBSERVATIONS_TEXTURE.md` (разбор чтения движком), `docs/KNOWLEDGE.md`,
+  `docs/PITFALLS.md`, `docs/CONTRADICTIONS.md` (п. 12–13),
+  `docs/TOOLS.md`/`docs/PIPELINE.md` (CLI `--rescale`, `--native`, `probe_exitcode.ps1`).

@@ -34,6 +34,10 @@ from test_pattern import build as build_pattern  # noqa: E402
 
 TEST_TEX_NAME = 'mm_bkg01.btf'      # имя ресурса, которое уже есть в .tt-манифестах
 HOOKS = ('tex_hook_opaque', 'tex_hook_alpha')
+# Зонд-хуки: грузят родную `.tex` по имени модуля и логируют w/h до/после AddTexture
+# (`--native`). Разделяют «падёт внутри загрузки .tex» (PRE есть, POST нет) и
+# «материал загружен, падают позже».
+HOOKS_NATIVE = ('tex_hook_native_opaque', 'tex_hook_native_alpha')
 PDIR = os.path.join(_ROOT, 'patches')
 
 
@@ -49,10 +53,10 @@ def ground_materials(mats_dir):
     return out
 
 
-def build_hooks():
+def build_hooks(hooks=HOOKS):
     """Компиляция хук-материалов 2.2.3; возвращает {hook: pyc_path}."""
     made = {}
-    for hook in HOOKS:
+    for hook in hooks:
         src = os.path.join(PDIR, hook + '.py')
         if not os.path.isfile(src):
             raise SystemExit('missing %s' % src)
@@ -76,6 +80,11 @@ def main():
     ap.add_argument('--solid', action='store_true', help='вся картинка одним цветом')
     ap.add_argument('--quad', default='tl', choices=('tl', 'tr', 'bl', 'br'))
     ap.add_argument('--color', default='white', choices=('white', 'red', 'green', 'blue'))
+    ap.add_argument('--native', action='store_true',
+                    help='зонд-хук: материал грузит родную .tex по имени модуля и '
+                         'логирует w/h до/после AddTexture (паттерн НЕ пачкуется)')
+    ap.add_argument('--only', default=None,
+                    help='hook only materials of one map (имя карты, напр. portal_domain)')
     a = ap.parse_args()
 
     tree = paths.norm(a.tree)
@@ -99,29 +108,35 @@ def main():
         print('restored %d ground materials in %s' % (n, mats))
         return
 
-    # 1. тестовый паттерн -> .btf дерева (шаблон = родный .btf этого дерева)
-    scratch = paths.scratch_dir('ld')
-    png = os.path.join(scratch, 'tex_test_pattern.png')
-    w, h, rows = build_pattern(a.size, a.quad, a.color, a.solid)
-    from unpack_btf import png_write
-    png_write(png, w, h, rows)
-    template = os.path.join(tex, TEST_TEX_NAME)
-    if not os.path.isfile(template):
-        raise SystemExit('template %s missing in tree' % template)
-    P.pack_one(png, template, template)   # перезаписывает ресурс дерева паттерном
-    print('test pattern %dx%d packed into %s' % (w, h, template))
+    # 1. тестовый паттерн -> .btf дерева (шаблон = родный .btf этого дерева);
+    #    в зондовом режиме (--native) ресурс не трогается: грузится родная .tex.
+    if not a.native:
+        scratch = paths.scratch_dir('ld')
+        png = os.path.join(scratch, 'tex_test_pattern.png')
+        w, h, rows = build_pattern(a.size, a.quad, a.color, a.solid)
+        from unpack_btf import png_write
+        png_write(png, w, h, rows)
+        template = os.path.join(tex, TEST_TEX_NAME)
+        if not os.path.isfile(template):
+            raise SystemExit('template %s missing in tree' % template)
+        P.pack_one(png, template, template)   # перезаписывает ресурс дерева паттерном
+        print('test pattern %dx%d packed into %s' % (w, h, template))
 
     # 2. хук-материалы -> .pyc (2.2.3)
-    hooks = build_hooks()
+    hooks = build_hooks(HOOKS_NATIVE if a.native else HOOKS)
 
-    # 3. раскладка по всем почвенным материалам, оригиналы в backup
+    # 3. раскладка по почвенным материалам, оригиналы в backup
     os.makedirs(backup, exist_ok=True)
     made = 0
     for fn in ground_materials(mats):
+        if a.only and not fn.startswith(a.only + '_'):
+            continue
         tgt = os.path.join(mats, fn)
         if not os.path.isfile(os.path.join(backup, fn)):
             shutil.copyfile(tgt, os.path.join(backup, fn))
-        hook = 'tex_hook_opaque' if '_opaque_' in fn else 'tex_hook_alpha'
+        hook = ('tex_hook_native_opaque' if a.native else 'tex_hook_opaque') \
+            if '_opaque_' in fn else \
+            ('tex_hook_native_alpha' if a.native else 'tex_hook_alpha')
         shutil.copyfile(hooks[hook], tgt)
         made += 1
     print('hooked %d ground materials in %s (originals -> %s)' % (made, mats, backup))

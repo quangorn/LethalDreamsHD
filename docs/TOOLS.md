@@ -249,11 +249,26 @@ python3 tools/tex/patch_map_pattern.py --tree <scratch-дерево> [--map X.ma
         [--band top] [--quad tl] [--solid]        # подмена blob'ов .tex паттерном; оригиналы ->
                                                    # <tree>/data/maps_ground_backup/
 python3 tools/tex/upscale_tex.py --in <tex_src> --out <tex_up2x> [--name stem]   # Lanczos-3 апскейл 2x всех PNG
-python3 tools/tex/patch_map_pattern.py --tree <дерево> --up2x <tex_up2x> [--maxsrc N]  # пересборка записей: w,h,blob_len x2 (движок НЕ грузит — docs/ISSUE_tex_upscale.md)
+python3 tools/tex/patch_map_pattern.py --tree <дерево> --up2x <tex_up2x> [--maxsrc N]  # пересборка записей: w,h,blob_len x2 (грузится; цепочка TLV-размеров правится)
+python3 tools/tex/patch_map_pattern.py --tree <дерево> [--map X.map] --rescale self \
+        --num N --den D [--record <stem>]            # w,h = родные*num//den; --self: источник = blob записи
 python3 tools/tex/patch_map_pattern.py --tree <дерево> --restore
 python3 tools/tex/hook_ground.py --tree <дерево> [--size N --band top --solid]  # хук-материалы на 92 почвенных
+python3 tools/tex/hook_ground.py --tree <дерево> --native [--only <map>]  # зонд: грузит родную .tex, пишет w/h до/после AddTexture в hdlog.txt
 python3 tools/tex/hook_ground.py --tree <дерево> --restore   # оригиналы из materials_ground_backup/
 ```
+
+- `patch_map_pattern.py` (функции): `chain_headers(payload, start=8)` — цепочка TLV-заголовков
+  payload'а так, как её ходит `FUN_0049bf70` (заголовок `(type u32, size u32)` по pos,
+  содержимое `pos+8..pos+8+size`, следующий заголовок — `pos+8+size`);
+  `fix_chain(payload, recs, deltas)` — правит размеры всех заголовков, накрывающих
+  изменённые записи, с пересчётом позиций после вставок/вырезок.
+- Зонд сигнатуры отказа: `tools/probes/probe_exitcode.ps1 <W> <H> <F> <Tag> -Mode new` —
+  новая игра (глиф → скип Enter'ом → глиф персонажа → Enter x2), снимки окна, и
+  ExitCode процесса + faulting module/RVA из журнала Application и отчёта WER
+  (`<Tag>_exit.txt`). Запуск scratch-дерева без съёмки и alive-проверки после каждого
+  шага — съёмочные драйверы `scratch_dir('ld')/launch_game.ps1` (pid →
+  `game_pid.txt`) и `scratch_dir('ld')/probe_clicks.ps1` (scratch, в git не входят).
 
 - Хук-материалы (`patches/tex_hook_opaque.py`, `patches/tex_hook_alpha.py`) компилируются
   2.2.3 (`tools/pyc/pycbuild.run_worker`) и кладутся на
