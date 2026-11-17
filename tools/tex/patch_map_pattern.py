@@ -43,22 +43,37 @@ def find_zlib(raw):
 
 
 def patch_record(map_path, quad='tl', color='white', solid=False, band=None,
-                circle=None, bg='black', frac=0.5, dry=False):
-    """payload: blob'ы всех .tex-записей -> паттерн; возвращает число записей."""
+                circle=None, bg='black', frac=0.5, alpha_mode='keep', dry=False):
+    """payload: blob'ы всех .tex-записей -> паттерн; возвращает число записей.
+
+    Для alpha-записей (bpp 4) альфа-плоскость берётся из режима `alpha_mode`:
+    `keep` — родная альфа записи (движковый blend-пасс сохраняет поведение),
+    `opaque` — альфа 255 из паттерна, `zero` — альфа 0 (пасс прозрачен).
+    """
     raw = open(map_path, 'rb').read()
-    payload = bytearray(load_payload(map_path))
+    payload_orig = load_payload(map_path)
+    payload = bytearray(payload_orig)
     recs = find_records(payload)
     if not recs:
         return 0
+    expected = {}
     for r in recs:
         w, h, bpp = r['w'], r['h'], r['bpp']
         S = w
         _, _, rows = build_pattern(S, quad, color, solid, band, circle, bg, frac)
-        blob = build_blob(rows, w, h, bpp)
+        blob = bytearray(build_blob(rows, w, h, bpp))
+        if bpp == 4:
+            ob = payload_orig[r['blob_off']:r['blob_off'] + r['blob_len']]
+            if alpha_mode == 'keep':
+                blob[3::4] = ob[3::4]
+            elif alpha_mode == 'zero':
+                blob[3::4] = bytes(len(blob) // 4)
+        blob = bytes(blob)
         if len(blob) != r['blob_len']:
             raise ValueError('%s: pattern blob %d != record blob_len %d' %
                              (r['name'], len(blob), r['blob_len']))
         payload[r['blob_off']:r['blob_off'] + r['blob_len']] = blob
+        expected[r['blob_off']] = blob
     if dry:
         return len(recs)
     # пересборка контейнера: plen тот же, clen = длина нового zlib-поток
@@ -76,9 +91,7 @@ def patch_record(map_path, quad='tl', color='white', solid=False, band=None,
     # проверка round-trip: перечитали payload, сверили с ожидаемым
     chk = load_payload(map_path)
     for r in find_records(chk):
-        w, h, bpp = r['w'], r['h'], r['bpp']
-        _, _, rows = build_pattern(w, quad, color, solid, band, circle, bg, frac)
-        if chk[r['blob_off']:r['blob_off'] + r['blob_len']] != build_blob(rows, w, h, bpp):
+        if chk[r['blob_off']:r['blob_off'] + r['blob_len']] != expected[r['blob_off']]:
             raise ValueError('%s: re-read blob mismatch' % r['name'])
     return len(recs)
 
@@ -98,6 +111,8 @@ def main():
                     help='цвет фона записи')
     ap.add_argument('--frac', type=float, default=0.5,
                     help='диаметр круга как доля стороны записи (0.5 => 32 px для 64x64)')
+    ap.add_argument('--alpha', default='keep', choices=('keep', 'opaque', 'zero'),
+                    help='альфа-плоскость alpha-записей: родная / 255 / 0')
     ap.add_argument('--solid', action='store_true', help='вся запись одним цветом')
     ap.add_argument('--dry', action='store_true', help='только проверка, без записи')
     a = ap.parse_args()
@@ -129,7 +144,7 @@ def main():
         if not os.path.isfile(bp):
             shutil.copyfile(tgt, bp)
         n = patch_record(tgt, a.quad, a.color, a.solid, a.band,
-                         a.circle, a.bg, a.frac, a.dry)
+                         a.circle, a.bg, a.frac, a.alpha, a.dry)
         total += n
         print('%s: %d records patched%s' % (fn, n, ' (dry)' if a.dry else ''))
     print('patched %d .tex records in %d maps' % (total, len(targets)))
