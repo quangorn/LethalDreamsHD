@@ -42,7 +42,8 @@ def find_zlib(raw):
     raise ValueError('no zlib stream')
 
 
-def patch_record(map_path, quad='tl', color='white', solid=False, band=None, dry=False):
+def patch_record(map_path, quad='tl', color='white', solid=False, band=None,
+                circle=None, bg='black', frac=0.5, dry=False):
     """payload: blob'ы всех .tex-записей -> паттерн; возвращает число записей."""
     raw = open(map_path, 'rb').read()
     payload = bytearray(load_payload(map_path))
@@ -52,7 +53,7 @@ def patch_record(map_path, quad='tl', color='white', solid=False, band=None, dry
     for r in recs:
         w, h, bpp = r['w'], r['h'], r['bpp']
         S = w
-        _, _, rows = build_pattern(S, quad, color, solid, band)
+        _, _, rows = build_pattern(S, quad, color, solid, band, circle, bg, frac)
         blob = build_blob(rows, w, h, bpp)
         if len(blob) != r['blob_len']:
             raise ValueError('%s: pattern blob %d != record blob_len %d' %
@@ -76,7 +77,7 @@ def patch_record(map_path, quad='tl', color='white', solid=False, band=None, dry
     chk = load_payload(map_path)
     for r in find_records(chk):
         w, h, bpp = r['w'], r['h'], r['bpp']
-        _, _, rows = build_pattern(w, quad, color, solid, band)
+        _, _, rows = build_pattern(w, quad, color, solid, band, circle, bg, frac)
         if chk[r['blob_off']:r['blob_off'] + r['blob_len']] != build_blob(rows, w, h, bpp):
             raise ValueError('%s: re-read blob mismatch' % r['name'])
     return len(recs)
@@ -91,6 +92,12 @@ def main():
     ap.add_argument('--color', default='white', choices=list(COLORS.keys()))
     ap.add_argument('--band', default=None, choices=list(BANDS.keys()),
                     help='яркая полоса вдоль края записи (thin edge marker)')
+    ap.add_argument('--circle', default=None, choices=list(COLORS.keys()),
+                    help='круг по центру записи заданного цвета')
+    ap.add_argument('--bg', default='black', choices=list(COLORS.keys()),
+                    help='цвет фона записи')
+    ap.add_argument('--frac', type=float, default=0.5,
+                    help='диаметр круга как доля стороны записи (0.5 => 32 px для 64x64)')
     ap.add_argument('--solid', action='store_true', help='вся запись одним цветом')
     ap.add_argument('--dry', action='store_true', help='только проверка, без записи')
     a = ap.parse_args()
@@ -121,7 +128,8 @@ def main():
         bp = os.path.join(backup, fn)
         if not os.path.isfile(bp):
             shutil.copyfile(tgt, bp)
-        n = patch_record(tgt, a.quad, a.color, a.solid, a.band, a.dry)
+        n = patch_record(tgt, a.quad, a.color, a.solid, a.band,
+                         a.circle, a.bg, a.frac, a.dry)
         total += n
         print('%s: %d records patched%s' % (fn, n, ' (dry)' if a.dry else ''))
     print('patched %d .tex records in %d maps' % (total, len(targets)))

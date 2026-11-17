@@ -243,6 +243,7 @@ python3 tools/tex/qc_tex.py                      # round-trip blob→PNG→blob 
 python3 tools/tex/qc_tex.py --tiles              # доля пикселей в палитре генератора (тайлы x GROUPS)
 python3 tools/tex/test_pattern.py <out.png> --size 256 \
         [--quad tl|tr|bl|br] [--band top|bottom|left|right] [--color white|red|green|blue] [--solid]
+        [--circle red|yellow|white|green|blue|black --bg <фон> --frac 0.5]   # круг по центру, диаметр = frac*сторона
 python3 tools/tex/patch_map_pattern.py --tree <scratch-дерево> [--map X.map] \
         [--band top] [--quad tl] [--solid]        # подмена blob'ов .tex паттерном; оригиналы ->
                                                    # <tree>/data/maps_ground_backup/
