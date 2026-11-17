@@ -356,3 +356,5 @@ REPO_BASENAME 1 (console.py), UNCOVERED 0. Состав SNAPSHOT_ONLY (741): `li
   `docs/OBSERVATIONS_TEXTURE.md` (разбор чтения движком), `docs/KNOWLEDGE.md`,
   `docs/PITFALLS.md`, `docs/CONTRADICTIONS.md` (п. 12–13),
   `docs/TOOLS.md`/`docs/PIPELINE.md` (CLI `--rescale`, `--native`, `probe_exitcode.ps1`).
+
+- `[P]` (позже) Полный Lanczos-2x патч на дереве после `fix_chain` грузится и виден на земле (снимки `up2xsh_*`, бой = стартовая сцена новой игры, `KNOWLEDGE.md`). Дерево восстановлено, установка — дрейф 9 `Lib/*.pyc`, `--quick` rc 0 с 2 известными дрейфами.

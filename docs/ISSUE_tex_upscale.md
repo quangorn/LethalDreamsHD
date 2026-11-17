@@ -120,6 +120,7 @@ w/h (даже 32²→64²) приводит к закрытию игры на з
   `up2x_gate2_overland_43.png`).
   `--up2x` без maxsrc (rec0 1024²→2048² + rec1 64², plen 20088896) — грузится.
   Даунскейл `--num 1 --den 2` (16²) и не-POT `--num 3 --den 4` (24²) — грузятся.
+- `[P]` Финальный гейт отображения: полный `--up2x` с Lanczos-2x PNG всех 44 записей грузится и показывается на земле боевой сцены новой игры (`scratch_dir('ld')/ld/up2xsh_overland.png`, `up2xsh_postlesson.png` — гладкие травяные поля против шумных родных в `ovland2_overland.png`).
 - `[P]` Frida: spawn-режим не управляется кликами (целостность); attach по pid после
   shell-запуска (`launch_game.ps1` -> `game_pid.txt`), clicks
   `frida_click3.ps1`, лог через `send()` (File/NativeFile недоступны).
