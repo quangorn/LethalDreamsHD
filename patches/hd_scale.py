@@ -285,6 +285,7 @@ def _push(self, BillBoardName, tag):
 _orig_InitBillboard = ui.BActionElement.InitBillboard
 _orig_SetPos = ui.BActionElement.SetPos
 _orig_AutoPosition = ui.BActionElement.AutoPosition
+_orig_CalcPopupPos = ui.CalcPopupPos
 _orig_SetPrior = ui.BActionElement.SetPrior
 _orig_SetTextOffset = ui.BActionElement.SetTextOffset
 _orig_CheckRefInPoint = ui.BActionElement.CheckRefInPoint
@@ -376,6 +377,61 @@ def AutoPosition(self, BillBoardName):
     if HD_K == 1:
         return
     _push(self, BillBoardName, 'HDAUTOP')
+
+
+# Тултип: оригинальный ui.CalcPopupPos проверяет 4 кандидата (право-низ, право-верх,
+# лево-верх, лево-низ от курсора) против канвасного бокса GetScreenRect() =
+# (0,0,1024,768). В 16:9 видимый канвас-бокс - x = -DX/k .. (1024-DX)/k (EdgeFix
+# уводит левую панель в x < 0), y = 0..768; для иконок левой панели (pt.x < 0)
+# оригинальный тест даёт отказ для всех кандидатов, ArrangeTooltip оставляет
+# rect (1,1), и тултип рисуется у верха экрана. Правило: кандидаты проверяются
+# против ВИДИМОГО канвас-бокса; если ни один не влез - тултип ставится у курсора
+# (кандидат право-низ) и клампится в бокс. При k==1 - оригинал (4:3 побитово).
+# Границы бокса строже, чем <= (IsRectInRect: right < rightD, bottom < bottomD).
+def CalcPopupPos(pt, rect):
+    if HD_K == 1:
+        return _orig_CalcPopupPos(pt, rect)
+    sz = ui.GetRectSize(rect)
+    cw = 40
+    dl = ui.CreateSize(pt['x'] - rect['left'], pt['y'] - rect['top'])
+    lx = -HD_DX / HD_K
+    rx = (1024.0 - HD_DX) / HD_K
+    pairs = [(dl['sx'], dl['sy'] + cw),
+             (dl['sx'], dl['sy'] - sz['sy'] - cw / 4),
+             (dl['sx'] - sz['sx'], dl['sy'] - sz['sy'] - cw / 4),
+             (dl['sx'] - sz['sx'], dl['sy'] + cw)]
+    i = 0
+    while i < len(pairs):
+        rt = {'left': rect['left'] + pairs[i][0], 'right': rect['right'] + pairs[i][0],
+              'top': rect['top'] + pairs[i][1], 'bottom': rect['bottom'] + pairs[i][1]}
+        if rt['left'] >= lx and rt['right'] < rx and rt['top'] >= 0 and rt['bottom'] < 768:
+            _log('HDPOP cand=' + repr(i) + ' rect=' + repr((rt['left'], rt['top'], rt['right'], rt['bottom'])))
+            return rt
+        i += 1
+    # ни один кандидат не влез: тултип у курсора (право-низ), клампим в бокс
+    w = sz['sx']
+    h = sz['sy']
+    left = rect['left'] + dl['sx']
+    top = rect['top'] + dl['sy'] + cw
+    bw = rx - lx
+    if w >= bw:
+        cx = (lx + rx) / 2
+        left = cx - w / 2
+    else:
+        if left < lx:
+            left = lx
+        if left + w > rx:
+            left = rx - 1 - w
+    if h >= 768:
+        top = 0
+    else:
+        if top < 0:
+            top = 0
+        if top + h > 768:
+            top = 767 - h
+    rt = {'left': left, 'right': left + w, 'top': top, 'bottom': top + h}
+    _log('HDPOP clamp rect=' + repr((rt['left'], rt['top'], rt['right'], rt['bottom'])))
+    return rt
 
 
 def SetPrior(self, BillBoardName, prior):
@@ -593,6 +649,7 @@ def install():
     BE.GetTextHeight = GetTextHeight
     BE.GetFontSize = GetFontSize
     ui.GetRealTextHeight = GetRealTextHeight
+    ui.CalcPopupPos = CalcPopupPos
     BE.MouseMove = MouseMove
     BE.LBDown = LBDown
     BE.RBDown = RBDown

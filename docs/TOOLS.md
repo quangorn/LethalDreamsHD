@@ -103,6 +103,31 @@ session-имена `pack_fonts.py` (утрачен: покрытия нет ни
 `crop2160.ps1`, `downscale.ps1`, `stack_cmp.ps1` — замеры скриншотов, глифов,
 text-lines (история измерений: `docs/OBSERVATIONS_FONT.md`, `docs/PITFALLS.md`, `docs/archive/TODO_FONT_WIDTH.md`).
 
+## Зонды (tools/probes)
+
+`probe_hovershot.ps1` — запуск игры, загрузка сохранения (глиф окна → слот → Enter),
+наведение курсора ОС на канвасные точки с паузой и съёмка окна:
+
+```
+LD_GAME="<tree>" LD_REPO="<repo>" LD_SCRATCH="<scratch>" \
+  powershell -NoProfile -ExecutionPolicy Bypass -File tools/probes/probe_hovershot.ps1 \
+  <W> <H> <F> <Tag> -Sub <subdir> -Steps "h<cx>:<cy>;h<cx>:<cy>;c<cx>:<cy>" \
+  -ShotSec 2 [-Strip] [-GameRoot <tree>]
+```
+
+- `-Steps`: `h<канвас X>:<канвас Y>` — наведение (hover), `c<…>:<…>` — клик ЛКМ;
+  точки канвасные, probe пересчитывает их в экранные по той же схеме, что и игра
+  (`GetCenterRect` + `HD_EdgeFix`), то есть для сдвинутых панелей 16:9 канвасные
+  X<0 работают; точки для съёмки берутся из шаблонов
+  `gui_templates.olmenu_dlg` (см. OBSERVATIONS_UI.md).
+- `-ShotSec` — секунд на наведение+съёмку после предыдущего шага; `-Strip` —
+  нормализация снимка в «окно» (`tools/measure/norm_canvas.ps1`), sizes снимаются
+  из `hd.cfg`; `-GameRoot` — дерево игры (scratch) вместо установки; снимки в
+  `<scratch>/<Tag>/`, `hd.cfg` — в `RepoRoot` и `GameRoot`. Игра закрывается
+  после последнего кадра (`taskkill`).
+- Реестр HIGHDPIAWARE нужен **для каждого scratch-дерева** (окно без него
+  виртуализуется); значения для scratch-деревьев тестов — в `docs/STATE.md`.
+
 ## exe (tools/exe)
 
 ```
