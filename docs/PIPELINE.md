@@ -157,7 +157,8 @@ baseline `45e93d46…` (`backup/LETHALDREAMS.EXE.pre4`) → exepatch12 (cave) =
 5. **Ярусы после всех прогонов**: `check_state.py --quick` rc 0, `--untouched` rc 0;
    снапшот md5+mtime установки — diff нулевой (запуски игры дают известный дрейф
    `Lib/*.pyc`, `hd.cfg`, `hdlog.txt`, font-сайкары, `mm_bkg01.btf`).
-6. **Апскейл 2x (грузится)**: `tools/tex/upscale_tex.py` (Lanczos-3, stdlib) кладёт PNG в
+6. **Апскейл (грузится)**: `tools/tex/upscale_tex.py` (Lanczos-3, stdlib, `--factor N` —
+   произвольный целый множитель; для 4K: 1024²-записи x2, записи <=512 x4) кладёт PNG в
    `scratch_dir('ld')/tex_up2x`; `patch_map_pattern.py --up2x` пересобирает записи с
    удвоенными w/h/blob_len (plen/clen правятся). Записи пересобираются БЕЗ лишнего
    `name_len`-префикса (`name_len` u32 живёт в gap'е перед именем), а дельта blob'а

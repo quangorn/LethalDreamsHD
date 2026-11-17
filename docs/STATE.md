@@ -358,3 +358,5 @@ REPO_BASENAME 1 (console.py), UNCOVERED 0. Состав SNAPSHOT_ONLY (741): `li
   `docs/TOOLS.md`/`docs/PIPELINE.md` (CLI `--rescale`, `--native`, `probe_exitcode.ps1`).
 
 - `[P]` (позже) Полный Lanczos-2x патч на дереве после `fix_chain` грузится и виден на земле (снимки `up2xsh_*`, бой = стартовая сцена новой игры, `KNOWLEDGE.md`). Дерево восстановлено, установка — дрейф 9 `Lib/*.pyc`, `--quick` rc 0 с 2 известными дрейфами.
+
+- `[P]` `upscale_tex.py --factor N` (произвольный целый множитель Lanczos-3). Для 4K: растяжка канвас->4K = 2.8125 (y) / 3.75 (x); лимит blob'а 32 MiB: 1024² при 4x не влезает (50 MB bpp3), подтвержденный грузящий максимум — сторона 2048. Группы: 9 записей 1024² -> 2x (`scratch_dir('ld')/tex_up2x_big`), 35 записей <=512² -> 4x (`tex_up4x_small`, максимум 2048²); списки `big_names.txt`/`small_names.txt`, параллельный прогон — 4 сбалансированных потока (`g1..g4.txt`).
