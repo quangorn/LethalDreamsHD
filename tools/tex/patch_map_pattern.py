@@ -306,6 +306,101 @@ def patch_up2x(map_path, updir, maxsrc=None):
     return len(recs)
 
 
+def patch_upscayl(map_path, dirs):
+    """payload: .tex-записи заменены PNG из каталогов dirs (UpScayl-апскейлы).
+
+    Размер PNG = factor*родной стороны (factor 2, 4); запись пересобирается:
+    имя то же, w/h = новые, blob_len новый, БЕЗ name_len-префикса, дельта blob'а
+    во все накрывающие TLV-размеры (`fix_chain`), plen/clen правятся.
+    Для alpha-записей (bpp 4) PNG RGB — родная альфа-плоскость передискретизруется
+    ближайшим соседом в новый размер и врезается в blob. Round-trip побитовый.
+    """
+    raw = open(map_path, 'rb').read()
+    payload_orig = load_payload(map_path)
+    recs = find_records(payload_orig)
+    if not recs:
+        return 0
+    pieces = []
+    prev_end = 0
+    expected = {}
+    deltas = {}
+    for r in recs:
+        stem = r['name'][:-4]
+        w, h, bpp = r['w'], r['h'], r['bpp']
+        png_path = None
+        for d in dirs:
+            p = os.path.join(d, stem + '.png')
+            if os.path.isfile(p):
+                png_path = p
+                break
+        if not png_path:
+            pieces.append(payload_orig[prev_end:r['blob_off'] + r['blob_len']])
+            prev_end = r['blob_off'] + r['blob_len']
+            continue
+        pw, ph, rows = png_decode(png_path)
+        if pw % w or ph % h:
+            raise ValueError('%s: PNG %dx%d не кратен родной %dx%d' % (stem, pw, ph, w, h))
+        f = pw // w
+        if (f * h) != ph:
+            raise ValueError('%s: фактор по w (%d) != по h (%d)' % (stem, f, ph // h))
+        blob = bytearray(build_blob(rows, pw, ph, bpp))
+        if bpp == 4:
+            # родная альфа-плоскость -> nearest на новый размер
+            nrows = blob_rows(payload_orig, r)
+            xs = [min(w - 1, (x * w) // pw) for x in range(pw)]
+            ablob = bytearray()
+            for y in range(ph):
+                sy = min(h - 1, (y * h) // ph)
+                arow = nrows[sy][3::4]
+                ablob += bytes(arow[i] for i in xs)
+            blob[3::4] = ablob
+        blob = bytes(blob)
+        if len(blob) != pw * ph * bpp:
+            raise ValueError('%s: blob %d != w*h*bpp' % (stem, len(blob)))
+        if len(blob) > 33554432:
+            raise ValueError('%s: blob %d превышает лимит движка 33554432' % (stem, len(blob)))
+        hdr = bytearray(r['hdr'])
+        struct.pack_into('<I', hdr, 0, pw)
+        struct.pack_into('<I', hdr, 4, ph)
+        struct.pack_into('<I', hdr, 36, len(blob))
+        rec_bin = r['name'].encode('ascii') + bytes(hdr) + blob
+        deltas[r['name_off']] = len(blob) - r['blob_len']
+        pieces.append(payload_orig[prev_end:r['name_off']])
+        pieces.append(rec_bin)
+        prev_end = r['blob_off'] + r['blob_len']
+        expected[r['name']] = (pw, ph, blob)
+    pieces.append(payload_orig[prev_end:])
+    payload = bytearray(b''.join(pieces))
+    fix_chain(payload, recs, deltas)
+    payload = bytes(payload)
+    zi = find_zlib(raw)
+    old_plen = len(payload_orig)
+    new_plen = len(payload)
+    comp = zlib.compress(payload, 9)
+    head = bytearray(raw[:zi])
+    old_clen = len(raw) - zi
+    for i in range(8, len(head) - 3):
+        if u32(head, i) == old_plen:
+            struct.pack_into('<I', head, i, new_plen)
+    for i in range(8, len(head) - 3):
+        if u32(head, i) == old_clen:
+            struct.pack_into('<I', head, i, len(comp))
+    out = bytes(head) + comp
+    open(map_path, 'wb').write(out)
+    chk = load_payload(map_path)
+    recs2 = {r['name']: r for r in find_records(chk)}
+    for r in recs:
+        stem = r['name'][:-4]
+        if stem not in expected:
+            continue
+        r2 = recs2[r['name']]
+        if (r2['w'], r2['h']) != expected[r['name']][:2]:
+            raise ValueError('%s: перечитанный w/h не равен ожидаемому' % r['name'])
+        if chk[r2['blob_off']:r2['blob_off'] + r2['blob_len']] != expected[r['name']][2]:
+            raise ValueError('%s: перечитанный blob не совпадает' % r['name'])
+    return len(expected)
+
+
 def patch_record(map_path, quad='tl', color='white', solid=False, band=None,
                 circle=None, bg='black', frac=0.5, alpha_mode='keep', dry=False):
     """payload: blob'ы всех .tex-записей -> паттерн; возвращает число записей.
@@ -380,6 +475,8 @@ def main():
     ap.add_argument('--solid', action='store_true', help='вся запись одним цветом')
     ap.add_argument('--up2x', default=None, metavar='DIR',
                     help='заменить записи 2x-апскейлом из DIR (PNG по имени записи)')
+    ap.add_argument('--upscayl', nargs=2, default=None, metavar=('DIR_A','DIR_B'),
+                    help='заменить записи UpScayl-PNG из двух каталогов (кратный размер, альфа врезается)')
     ap.add_argument('--rescale', default=None, metavar='DIR',
                     help='пересемплировать записи множителем --num/--den из DIR '
                          '(PNG родного размера по имени записи)')
@@ -424,6 +521,8 @@ def main():
                               self_src=(a.rescale == 'self'))
         elif a.up2x:
             n = patch_up2x(tgt, paths.norm(a.up2x), a.maxsrc)
+        elif a.upscayl:
+            n = patch_upscayl(tgt, [paths.norm(a.upscayl[0]), paths.norm(a.upscayl[1])])
         else:
             n = patch_record(tgt, a.quad, a.color, a.solid, a.band,
                              a.circle, a.bg, a.frac, a.alpha, a.dry)
