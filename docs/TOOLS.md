@@ -155,7 +155,8 @@ python3 tools/extract_pristine.py templates  # btf-шаблоны/родные �
   — OK, `imp.get_magic()` = `[45, 237, 13, 10]`. Источники: `Python-2.2.3.exe` (7334106 B, md5
   `d76e774a4169794ae0d7a8598478e69e`, `https://www.python.org/ftp/python/2.2.3/Python-2.2.3.exe`)
   даёт `PYTHON.EXE` (20526 B), `PYTHONW.EXE`, `PYTHON22.DLL` (847920 B) и DLLs;
-  `Python-2.2.3.tgz` (6709556 B, md5 `169f89f318e252dac0c54dd1b165d229`) даёт канонический
+  `Python-2.2.3.tgz` (6709556 B, md5 `169f89f318e252dac0c54dd1b165d229`,
+  `https://www.python.org/ftp/python/2.2.3/Python-2.2.3.tgz`) даёт канонический
   `Lib/` (`plat-win` в tgz нет; путь `lib/plat-win` отсутствующий — безвреден). Плоский дамп
   установщика (имена в ВЕРХНЕМ регистре) **не импортируется** — грабли: `docs/PITFALLS.md`,
   раздел «Импорт 2.2.3 чувствителен к регистру имени модуля (плоский дамп установщика не
