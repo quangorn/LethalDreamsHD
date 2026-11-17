@@ -133,3 +133,31 @@ baseline `45e93d46…` (`backup/LETHALDREAMS.EXE.pre4`) → exepatch12 (cave) =
 - `[P]` Удалены папки `decompiled/` и `decompiled_snap/` (остался `decompiled_manifest.json` (историческая ссылка; рабочая директория, в git не входит)
   — нужен `tools/archive/decompile/dd.py`). `tools/archive/decompile/pin_decompiled.py`, `tools/archive/decompile/decompile_all.py`, `tools/archive/decompile/decompile_fast.py` помечены
   предупреждением "не запускать" (они воссоздали бы базу).
+
+
+## tex-пайплайн (почва карт: `.tex` из `.map` → PNG)
+
+1. **Экстрактор**: `python3 tools/tex/scan_tex.py` — скан 30 `.map`
+   (`LDPACKER`+zlib payload), записи `<map>_<N>.tex`, гейт (44 записи, имена уникальны,
+   blob'ы не перекрываются); `--dump` — raw-blob'ы и `MANIFEST.txt` в
+   `scratch_dir('ld')/tex_raw`.
+2. **Раскод**: `python3 tools/tex/unpack_tex.py --batch data/maps <outdir>` — канон
+   raw interleaved RGB (bpp 3) / RGBA (bpp 4), строки top-down (тот же канон, что
+   `.btf`); `--probe` — все варианты (layout/flip) для отбора; `-o … --index N` — запись.
+3. **QC**: `python3 tools/tex/qc_tex.py` — round-trip blob→PNG→blob побитово
+   (**44/44 lossless**) + статистика uniq/gray по всем записям; `--tiles` — сверка
+   палитры генератора (тайлы `data/wrender/figures/textures/*.bmp` × цвета `GROUPS`).
+4. **Тестовый контур отображения** (scratch-дерево, полная копия установки):
+   `tools/tex/patch_map_pattern.py --tree <дерево> --band top|bottom|…` кладёт тестовый
+   паттерн (`tools/tex/test_pattern.py`) в blob'ы `.tex`; снимок оверленда
+   `tools/archive/probes/probe_loadshot.ps1 … -Mode new` читает ориентацию
+   (полоса у верхнего края записи → дальние/левые рёбра тайлов). Откат
+   `--restore`. Хук-материалы (`tools/tex/hook_ground.py`) проверены как зонд:
+   модули грузятся, подмена `.btf`-ресурса движком не проходит.
+5. **Ярусы после всех прогонов**: `check_state.py --quick` rc 0, `--untouched` rc 0;
+   снапшот md5+mtime установки — diff нулевой (запуски игры дают известный дрейф
+   `Lib/*.pyc`, `hd.cfg`, `hdlog.txt`, font-сайкары, `mm_bkg01.btf`).
+
+Формат записи, поля шапки, статистика, наблюдения отображения — `docs/OBSERVATIONS_TEXTURE.md`
+(«Почвенные текстуры карт (`.tex` внутри `.map`)»), факты — `docs/KNOWLEDGE.md`
+(«Почва карт: `.tex` в `.map`»), команды — `docs/TOOLS.md` («tex-пайплайн»).

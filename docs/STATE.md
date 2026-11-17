@@ -241,3 +241,32 @@ REPO_BASENAME 1 (console.py), UNCOVERED 0. Состав SNAPSHOT_ONLY (741): `li
   штатное значение. После финального прогона из установки `hdlog.txt` (его
   пересоздаёт игра при каждом запуске) убран из дерева — `--untouched` rc 0;
   `hd.cfg` = `3840 2160 32 1` (записан последним прогоном).
+
+
+## Сессия 2026-11-17 (день): почвенные текстуры карт (`.tex` из `.map`)
+
+- `[P]` План `docs/TASK_tex_unpacker.md`, фазы A–D: 44 записи `.tex` из 30 `.map`
+  (гейт сканера OK, сумма blob'ов 41732096 B); канон раскода = raw interleaved
+  RGB (bpp 3) / RGBA (bpp 4), строки top-down (тот же канон, что `.btf`);
+  round-trip blob→PNG→blob побитово **44/44** (`tools/tex/qc_tex.py`).
+  Раскод 44 PNG: `scratch_dir('ld')/tex_src/` + `MANIFEST.txt`.
+- `[P]` Новые инструменты (регистрация — `docs/TOOLS.md`, «tex-пайплайн»; пайплайн —
+  `docs/PIPELINE.md`, «tex-пайплайн»): `tools/tex/scan_tex.py`, `unpack_tex.py`,
+  `qc_tex.py`, `tile_match.py`, `test_pattern.py`, `patch_map_pattern.py`,
+  `hook_ground.py`, `realcopy_tree.py`; хук-материалы
+  `patches/tex_hook_opaque.py`, `patches/tex_hook_alpha.py`.
+- `[P]` Known-answer по отображению (scratch-дерево `D:/tmp/cygwin/opencode/ld/tex_hook_tree`,
+  полная копия установки): подмена blob'ов `.tex` паттерном даёт решётку тайлов на
+  земле (`scratch_dir('ld')/taxpat_overland.png`, `taxband_overland.png`,
+  `taxbandb_overland.png` (снимки прогона съёмки; пересоздаются скриптами,
+  в git не входят)); полоса у верхнего края записи = дальние/левые рёбра тайлов.
+  Стартовая карта новой игры — `portal_domain`. Подмена `.btf`-ресурса (`mm_bkg01.btf`)
+  движком не проходит (ресурс пересоздаётся при запуске, текстура в материале 2048²).
+- `[P]` Дерево после тестов восстановлено (`patch_map_pattern.py --restore`,
+  `hook_ground.py --restore`: 30 `.map` и 92 почвенных материала из backup).
+  Реестр: `~ HIGHDPIAWARE` для `D:\tmp\cygwin\opencode\ld\tex_hook_tree\LETHALDREAMS.EXE`
+  — осталось.
+- `[P]` Установка не изменена инструментами: снапшот md5+mtime до/после — дрейф только
+  игровых артефактов запуска (`Lib/*.pyc` 9, `hd.cfg`, `hdlog.txt`, font-сайкары
+  `.fdf`/`ld_*.btf`, `mm_bkg01.btf`); `hdlog.txt` из дерева убран. Ярусы:
+  `--quick` rc 0 (файлов 5097, 2 известных дрейфа), `--untouched` rc 0 (нарушений 0).

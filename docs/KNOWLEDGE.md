@@ -148,3 +148,26 @@
   Скрипт: `tools/archive/probes/probe_loadshot.ps1 <W> <H> <F> <Tag> -Mode new -SkipClicks 2 -CharX 349 -CharY 658 -EnterCount 2 -LoadWait 3`
  (после Enter снимает
   `scratch_dir('ld')/<tag>_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) = бой).
+
+
+## Почва карт: `.tex` в `.map` (2026-11-17)
+
+- `[P]` `config[game.root]/data/maps/*.map` = 30 карт; почвенные текстуры — 44 записи
+  `<map>_<N>.tex` внутри payload'а контейнера `LDPACKER`+zlib (формат записи и поля
+  шапки — `docs/OBSERVATIONS_TEXTURE.md`, «Почвенные текстуры карт»).
+  Размеры сторон S ∈ {32,64,128,256,512,1024}, bpp 3 при alpha=0, bpp 4 при alpha=1;
+  blob = raw raster без mip/alpha-плоскости/RLE; движковый лимит шапки 33554432 B.
+- `[P]` Почву рисуют генерируемые материалы `data/materials/<map>_opaque_N.pyc` /
+  `<map>_alpha_N.pyc` (92 файла): `Passability = globalscript.GROUND`,
+  `AcceptCamera = 1`, `InitMaterial` вызывает `Mtl.GetPass(0).AddTexture('<map>_<N>.tex')`;
+  alpha-материалы добавляют `SetBlendFunc(globalscript.BBlend_Blend)`.
+  Стартовая карта новой игры — `portal_domain` (записи 1024² bpp3 и 32² bpp4).
+- `[P]` Игра при каждом запуске пересоздаёт ресурсы: `Lib/**/*.pyc` (9), `hd.cfg`,
+  `hdlog.txt`, font-сайкары `data/fonts/*.fdf` + `data/textures/ld_*.btf`,
+  `data/textures/mm_bkg01.btf`. Поэтому в scratch-дереве эти файлы обязаны быть
+  настоящими копиями (hardlink = запись в установку), и подмена `.btf`-ресурса
+  тестовым содержимым не работает: движок резолвит имя из источника.
+- `[P]` `GROUPS` = `id|group|class|name|path|color` (6 полей, color — 0xRRGGBB
+  десятичное); тайловые BMP `data/wrender/figures/textures/*.bmp` — 32x32 24-bit RGB
+  с обманным `biBitCount`, строки bottom-up. Генерация почвы из тайлов не подтверждена
+  (остаток сетки 32 = 15.0, палитра не покрывает blob'ы).

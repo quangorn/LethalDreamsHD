@@ -214,3 +214,66 @@
 - `[P]` Установка: 74 записано в игру поверх Lanczos-версий, game==staged побайтово,
   лог размеров+md5: `scratch_dir('ld')/cursors_stand/INSTALL_LOG_ai.txt` (стенд прогона; пересоздаётся скриптами, в git не входит). Стенды AI:
   `btf_ai/` (курсоры), `btf_ai_icons/` (иконки); Lanczos-пакеты остались в `btf/` и `btf_backup/`.
+
+
+## Почвенные текстуры карт (`.tex` внутри `.map`) (2026-11-17)
+
+Инструменты: `tools/tex/scan_tex.py` (экстрактор), `tools/tex/unpack_tex.py`
+(раскод blob→PNG), `tools/tex/qc_tex.py` (round-trip+статистика),
+`tools/tex/test_pattern.py` (тестовый паттерн), `tools/tex/patch_map_pattern.py`
+(подмена записей в scratch-дереве), `tools/tex/hook_ground.py` (+
+`patches/tex_hook_opaque.py`/`patches/tex_hook_alpha.py` — хук-материалы).
+
+- `[P]` Контейнер `.map` — тот же, что `.btf`: `LDPACKER` + u32(plen) + u32(clen) +
+  zlib → payload. В payload'е почвенные текстуры записями
+  `u32 name_len | ASCII <map>_<N>.tex | шапка 40 B | blob`. Шапка (u32 LE):
+  `[0]=w`, `[4]=h` (w==h), `[8]=alpha` (0/1), `[12]=[16]=2`, `[20]=[24]=[28]=16777216`,
+  `[32]=119` (TLV-тип `'w'`), в `[8..31]` лимит движка 33554432 (32 MiB),
+  `[36]=blob_len = w*h*(3+alpha)`. Хвост payload'а после последней записи —
+  геометрия карты, к текстуре не относится. mip-цепочки, alpha-плоскости, RLE нет.
+  Замеров: 30 карт, 44 записи, имена уникальны, blob'ы не перекрываются,
+  сумма blob'ов 41732096 B; размеры S ∈ {32,64,128,256,512,1024}.
+- `[P]` **Канон раскода — raw interleaved raster**: 24-бит RGB (bpp 3) при alpha=0,
+  32-бит RGBA (bpp 4) при alpha=1, строки top-down — тот же канон, что `.btf`
+  (`docs/OBSERVATIONS_TEXTURE.md`, «Канон раскода .btf»). Доказательство: round-trip
+  blob → PNG → blob побитово совпал для **44/44** записей (`tools/tex/qc_tex.py`).
+- `[P]` Движок читает `.tex` по имени записи из генерируемых материалов
+  `config[game.root]/data/materials/<map>_opaque_N.pyc` и `<map>_alpha_N.pyc` (92 файла;
+  dis`bald_hill_opaque_0.pyc`/`bald_hill_alpha_0.pyc`): модуль задаёт
+  `Passability = globalscript.GROUND`, `AcceptCamera = 1`,
+  `InitMaterial(Mtl)`: `p = Mtl.GetPass(0)`, `p.AddTexture('<map>_<N>.tex')`,
+  у alpha-варианта дополнительно `p.SetBlendFunc(globalscript.BBlend_Blend)`.
+  Материалов больше, чем текстур: часть карт имеет 2 записи, часть материалы
+  переиспользуют одну.
+- `[P]` Стартовая карта новой игры = **`portal_domain`** (при запуске грузятся
+  `portal_domain_opaque_0/1`, `portal_domain_alpha_0/1` — имена видны из зондов
+  хук-модулей в `config[game.root]/hdlog.txt`; строки `TEXHOOK … module <имя>`).
+- `[P]` **Подмена `.btf`-ресурса непригодна**: игра при запуске пересоздаёт
+  `mm_bkg01.btf` из источника (md5 дерева после прогона == md5 установки), и
+  `p.AddTexture('mm_bkg01.bmp')` в хук-материале даёт Texture `2048x2048` — родной
+  ресурс, паттерн на землю не попадает (три прогона: 1024-паттерн, 256-паттерн,
+  сплошной белый — земля тёмная). Сам хук грузится и AddTexture работает
+  (зонды), т.е. отказ по резолву имени ресурса, не по загрузке модуля.
+- `[P]` **Known-answer по отображению**: замена blob'ов `.tex` тестовым паттерном в
+  scratch-дереве (`tools/tex/patch_map_pattern.py --tree <дерево> --band …`) — земля
+ отображается по тайлам: периодическая решётка тайлов, швы со сглаживанием (блендинг).
+  Белый квадрат (левая верхняя четверть записи) даёт светлые области; яркая полоса
+  у **верхнего** края записи ложится на **дальние/левые** рёбра тайлов, полоса у
+  **нижнего** края — на ближние/правые (`scratch_dir('ld')/taxpat_overland.png`,
+  `taxband_overland.png`, `taxbandb_overland.png` (снимки прогона съёмки; пересоздаются
+  скриптами, в git не входят), кропы `band_cropA.png`/`bandb_cropA.png`). Т.е. ряд 0
+  blob'а = дальняя сторона тайла: **top-down канон совпадает с тем, как движок
+  кладёт землю** — PNG из `unpack_tex.py` ориентирован как мир (north up).
+- `[P]` Статистика по 44 записям (`tools/tex/qc_tex.py`): uniq 2..62313, gray% 0..100.
+  Записи 32x32 alpha=1 с uniq==2 (черный+белый) — заглушки; записи 100% gray
+  (`atlantis_0`, `dry_lands_0`, `evoker_domain_0`, `shiny_stronghold_0`,
+  `solar_colector_0`, `volcanic_throne_0`, `world_heart_0`, `distorted_mirrors_0`,
+  `observatory_0`) — однотонная почва; самые насыщенные по цвету
+  `portal_domain_0` (62313) и `crossroads_0` (59632).
+- `[P]` Визуальный раскод родных карт (`scratch_dir('ld')/tex_src/<name>.png`
+  (лог прогона; пересоздаётся скриптами, в git не входят)) похож на terrain: мозаика
+  блоков 32/64/128 px, швы масштаба t=32/64/128 (ratio 3.2–3.6).
+- `[P]` Фазу B (тайлы `data/wrender/figures/textures/*.bmp` × цвета `GROUPS`) закрытой
+  не считаем: сетка 32 даёт средний остаток 15.0, доминируют чёрные блоки;
+  сверка палитры генератора (`qc_tex.py --tiles`) не дала покрытия — путь
+  генерации почвы из тайлов не подтверждён.

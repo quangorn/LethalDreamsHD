@@ -225,3 +225,40 @@ python3 tools/extract_pristine.py templates  # btf-шаблоны/родные �
 - `[P]` `tools/archive/probes/measure_bgrows.ps1 <png>` — постредный профиль яркости (среднее по строке,
   шаг выборки 32 px): first/last non-black row, top/bottom black, профиль каждые 64
   строки. Для проверки фонового заполнения кадра (фон-арт, не чёрный фон).
+
+
+## tex-пайплайн (почва карт, `tools/tex`)
+
+Инструменты только читают игру; пишут в scratch-каталоги/деревья. Запись в
+scratch-дерево (`--tree`) — тестовый контур; путь установки отвергается с ошибкой.
+
+```
+python3 tools/tex/scan_tex.py                    # скан 30 карт, гейт 44 записей .tex
+python3 tools/tex/scan_tex.py --dump [OUTDIR]    # raw-blob'ы + MANIFEST.txt (scratch_dir('ld')/tex_raw)
+python3 tools/tex/scan_tex.py <map>.map --fields # u32-поля шапки записей
+python3 tools/tex/unpack_tex.py --batch <maps-каталог> <outdir>   # 44 PNG + MANIFEST.txt
+python3 tools/tex/unpack_tex.py <map>.map -o <out.png> --index N   # одна запись
+python3 tools/tex/unpack_tex.py <map>.map --probe                 # все варианты раскода (layout/flip)
+python3 tools/tex/qc_tex.py                      # round-trip blob→PNG→blob (44/44) + статистика
+python3 tools/tex/qc_tex.py --tiles              # доля пикселей в палитре генератора (тайлы x GROUPS)
+python3 tools/tex/test_pattern.py <out.png> --size 256 \
+        [--quad tl|tr|bl|br] [--band top|bottom|left|right] [--color white|red|green|blue] [--solid]
+python3 tools/tex/patch_map_pattern.py --tree <scratch-дерево> [--map X.map] \
+        [--band top] [--quad tl] [--solid]        # подмена blob'ов .tex паттерном; оригиналы ->
+                                                   # <tree>/data/maps_ground_backup/
+python3 tools/tex/patch_map_pattern.py --tree <дерево> --restore
+python3 tools/tex/hook_ground.py --tree <дерево> [--size N --band top --solid]  # хук-материалы на 92 почвенных
+python3 tools/tex/hook_ground.py --tree <дерево> --restore   # оригиналы из materials_ground_backup/
+```
+
+- Хук-материалы (`patches/tex_hook_opaque.py`, `patches/tex_hook_alpha.py`) компилируются
+  2.2.3 (`tools/pyc/pycbuild.run_worker`) и кладутся на
+  `<tree>/data/materials/<map>_opaque_N.pyc` / `<map>_alpha_N.pyc`; зонды пишут
+  `TEXHOOK …` в `config[game.root]/hdlog.txt`. Проверяно: модули грузятся, AddTexture
+  работает, но `.btf`-ресурс резолвится движком из источника (подмена не видна) —
+  известный ответ даёт только подмена `.tex` в `.map` (`patch_map_pattern.py`).
+- Реестр для scratch-дерева: значение `~ HIGHDPIAWARE` на `<tree>/LETHALDREAMS.EXE`
+  (снимок оверленда — `tools/archive/probes/probe_loadshot.ps1 … -Mode new`).
+- Проверка после прогонов: снапшот md5+mtime установки до/после (diff обязан быть
+  нулевым; запуски игры дают известный дрейф `Lib/*.pyc`, `hd.cfg`, `hdlog.txt`,
+  font-сайкары, `mm_bkg01.btf` — их убирают/не трогают), `--quick`/`--untouched` rc 0.

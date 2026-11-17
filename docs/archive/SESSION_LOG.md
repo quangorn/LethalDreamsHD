@@ -304,3 +304,22 @@
   Манифест entry `battlecamera`: base-печать md5 `ddb3e6fa629e…` (25320 B, crc32
   `d3218ac8`, `.py` md5 `63990fd1eeb4…` 19049 B, mtime 1794778203), pristine
   `9efdb4d1dae9…` (23289 B). Кодовый ярус 12 .pyc, CODE-класс `--untouched` 17.
+
+
+## Сессия 2026-11-17 (день): почвенные текстуры `.tex` → PNG
+
+- `[P]` Экстрактор `tools/tex/scan_tex.py`: `.map` = `LDPACKER`+zlib payload; записи
+  `u32 name_len | ASCII <map>_<N>.tex | шапка 40 B | blob`, поля шапки
+  w,h(w==h)/alpha/2,2/16777216×3/33554432/119('w')/blob_len=w*h*(3+alpha);
+  30 карт, 44 записи, GATE OK.
+- `[P]` Раскод `tools/tex/unpack_tex.py` (канон top-down RGB/RGBA = канон `.btf`),
+  44 PNG в `scratch_dir('ld')/tex_src`; QC `tools/tex/qc_tex.py` — round-trip
+  побитово 44/44, статистика uniq/gray.
+- `[P]` Known-answer отображения: `tools/tex/patch_map_pattern.py` кладёт
+  `tools/tex/test_pattern.py` (яркий квадрат/полоса) в blob'ы `.tex` scratch-дерева;
+  снимки `taxpat_overland.png`, `taxband_overland.png`, `taxbandb_overland.png`
+  показывают решётку тайлов, полоса у верхнего края записи — дальние/левые рёбра.
+  Хук-материалы (`tools/tex/hook_ground.py` + `patches/tex_hook_opaque.py`/
+  `patches/tex_hook_alpha.py`, компиляция 2.2.3) грузятся и AddTexture работает,
+  но `.btf`-ресурс резолвится из источника: подмена `.btf` не видна на земле;
+  стартовая карта новой игры — `portal_domain` (имена модулей из зондов `hdlog.txt`).
