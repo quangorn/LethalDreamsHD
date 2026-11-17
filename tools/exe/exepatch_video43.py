@@ -9,7 +9,8 @@
 Что делается (три правки):
   1) секция `.rdata` становится исполняемой: flags fileoff 604 `0x40000040` -> `0xe0000040`
      (добавлен IMAGE_SCN_MEM_EXECUTE). Пещера кладётся в zero-run внутри `.rdata`.
-  2) пещера (48 B) в zero-run fileoff 1109104 (VA 0x50ec70, зона 916 B):
+  2) пещера (49 B; длина измеряется сборкой `sh tools/exe/build_cave.sh video43`) в
+     zero-run fileoff 1109104 (VA 0x50ec70, зона 916 B):
      считает width = 4*height/3 и left = (client.right - width)/2 и зовёт
      IVideoWindow::SetWindowPosition(this, left, 0, width, height) — видео-окно
      `lethaldreamsvideo` получает 4:3 по центру. При 4:3-окне identity.

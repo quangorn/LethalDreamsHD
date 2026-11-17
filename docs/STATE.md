@@ -184,3 +184,16 @@ REPO_BASENAME 1 (console.py), UNCOVERED 0. Состав SNAPSHOT_ONLY (741): `li
   установленному (`b69dfa3799da`). Запись в игру не тронута (diff 0).
 - `[P]` Грабля плоского дампа установщика (регистр имени модуля, `case_ok`) —
   `docs/PITFALLS.md`, раздел «Импорт 2.2.3 чувствителен к регистру имени модуля».
+- `[P]` Повторные замеры тулчейна после переноса (2026-11-17): паритет
+  `python3 tools/pyc/parity_file.py config[game.root]/data/scripts/hd_scale.pyc patches/hd_scale.py`
+  (установка читается) → **code objects 43/43, близость 1.0000, sig=0 ops=0**;
+  `python3 tools/exe/exepatch12.py` (без флага, scratch) из baseline
+  `45e93d46…` → md5 **`171319bbc170…`** = установленный EXE; cave-блобы из
+  `sh tools/exe/build_cave.sh` сверяются с `docs/STATE.md` (fixall 236 B
+  `bf3fc99b796c…`, fontscale 192 B `546fd954343f…`, fontscale4x 224 B `f320fcb6e1a3…`);
+  `sh tools/exe/build_cave.sh video43` даёт пещеру **49 B** (docstring
+  `tools/exe/exepatch_video43.py` исправлен с 48 B на измеренное), прогон
+  `python3 tools/exe/exepatch_video43.py` (scratch, игра не тронута) воспроизводит
+  патченный EXE md5 `aab6454ca501…`; `python3 tools/exe/exepatch_frame1.py` (scratch)
+  воспроизводит правку байта fileoff 149932 (`00 → 80`, md5 scratch
+  `7c4036a07850…`). Установка после всех прогонов: 5097 файлов, md5-diff 0.
