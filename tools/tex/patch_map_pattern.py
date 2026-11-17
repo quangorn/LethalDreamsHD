@@ -487,10 +487,12 @@ def main():
     ap.add_argument('--maxsrc', type=int, default=None,
                     help='апскейл только записей со стороной <= maxsrc')
     ap.add_argument('--dry', action='store_true', help='только проверка, без записи')
+    ap.add_argument('--install', action='store_true',
+                    help='разрешить запись в установку (по явному запросу; оригиналы -> backup, откат --restore)')
     a = ap.parse_args()
 
     tree = paths.norm(a.tree)
-    if tree == paths.install_dir():
+    if tree == paths.install_dir() and not a.install:
         raise SystemExit('refusing to touch the installed game: %s' % tree)
     maps = os.path.join(tree, 'data', 'maps')
     backup = os.path.join(tree, 'data', 'maps_ground_backup')
