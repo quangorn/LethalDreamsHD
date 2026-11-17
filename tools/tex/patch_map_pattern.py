@@ -424,7 +424,7 @@ def patch_upscayl(map_path, dirs):
     return _patch_scaled(map_path, resolve)
 
 
-def patch_tiles(map_path, index, allow_missing=False):
+def patch_tiles(map_path, index, allow_missing=False, maxside=None):
     """payload: записи собраны из блоков 32x32 (`tex_tiles.scan_tiles`).
 
     Блоки записи собираются в атлас: сторона блока 32*f -> атлас f*w x f*h.
@@ -432,11 +432,20 @@ def patch_tiles(map_path, index, allow_missing=False):
     заливаются нулями (пустой слот атласа), но если в родной записи такой блок
     был непустым — ошибка (`allow_missing` заливает нулями явно). Дальше — как
     `--upscayl` (альфа-плоскость bpp4 родная nearest).
+    `maxside` — пропускать записи, у которых f*w > maxside (блоки 4x для 1024²-записей
+    дают сторону 4096 и 50 MB blob'а — лимит движка 32 MiB); такие записи остаются
+    родными.
     """
     def resolve(r, stem, payload_orig):
         tilemap = index.get(stem)
         if not tilemap:
             return None
+        if maxside is not None:
+            f0 = png_decode(tilemap[sorted(tilemap)[0]])[0] // tex_tiles.TILE
+            if f0 * r['w'] > maxside or f0 * r['h'] > maxside:
+                print('  %s: пропуск f=%d -> %dx%d > --maxside %d' %
+                      (stem, f0, f0 * r['w'], f0 * r['h'], maxside))
+                return None
         f, rows, missing = tex_tiles.glue_rows(stem, r['w'], r['h'], tilemap, r['bpp'])
         blob = payload_orig[r['blob_off']:r['blob_off'] + r['blob_len']]
         lost = [p for p in missing if not tex_tiles.blob_tile_empty(
@@ -531,6 +540,9 @@ def main():
                          '(<stem>__tx<col>_ty<row>.png; блок 32*f -> атлас f*w x f*h)')
     ap.add_argument('--allow-missing', action='store_true',
                     help='с --tiles: заливать нулями отсутствующие непустые блоки')
+    ap.add_argument('--maxside', type=int, default=None,
+                    help='с --tiles: пропускать записи, где f*w > maxside '
+                         '(блоки 4x -> 4096² не влезают в лимит 32 MiB); они остаются родными')
     ap.add_argument('--rescale', default=None, metavar='DIR',
                     help='пересемплировать записи множителем --num/--den из DIR '
                          '(PNG родного размера по имени записи)')
@@ -581,7 +593,7 @@ def main():
         elif a.upscayl:
             n = patch_upscayl(tgt, [paths.norm(a.upscayl[0]), paths.norm(a.upscayl[1])])
         elif a.tiles:
-            n = patch_tiles(tgt, tile_index, a.allow_missing)
+            n = patch_tiles(tgt, tile_index, a.allow_missing, a.maxside)
         else:
             n = patch_record(tgt, a.quad, a.color, a.solid, a.band,
                              a.circle, a.bg, a.frac, a.alpha, a.dry)

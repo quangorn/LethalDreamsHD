@@ -255,7 +255,7 @@ python3 tools/tex/patch_map_pattern.py --tree <scratch-дерево> [--map X.ma
                                                    # <tree>/data/maps_ground_backup/
 python3 tools/tex/upscale_tex.py --in <tex_src> --out <dir> [--name stem] [--factor N]   # Lanczos-3 апскейл множителем N (2, 4)
 python3 tools/tex/upscale_tex.py --in <tilesdir> --out <dir> --factor N      # то же по блокам 32x32 (имена блоков сохраняются)
-python3 tools/tex/patch_map_pattern.py --tree <дерево> --tiles <tilesdir> [--allow-missing]  # атлас из блоков: блок 32*f -> запись f*w x f*h; fix_chain, round-trip
+python3 tools/tex/patch_map_pattern.py --tree <дерево> --tiles <tilesdir> [--allow-missing] [--maxside N]  # атлас из блоков: блок 32*f -> запись f*w x f*h; fix_chain, round-trip
 python3 tools/tex/patch_map_pattern.py --tree <дерево> --up2x <tex_up2x> [--maxsrc N]  # пересборка записей: w,h,blob_len x2 (грузится; цепочка TLV-размеров правится)
 python3 tools/tex/patch_map_pattern.py --tree <дерево> --upscayl <DIR_A> <DIR_B>  # UpScayl-PNG кратного размера (2x/4x); для bpp4 родная альфа nearest-ресемпл и врезка; fix_chain, round-trip
 python3 tools/tex/patch_map_pattern.py --tree <установка> --install --upscayl DIR_A DIR_B  # явная запись в установку (по запросу пользователя); оригиналы -> data/maps_ground_backup; откат --install --restore
@@ -283,6 +283,8 @@ python3 tools/tex/hook_ground.py --tree <дерево> --restore   # ориги�
   пустым слотом (bpp 3 — чёрный/альфа 255, bpp 4 — нули), но если в родной записи
   он был непустым — ошибка, обходится `--allow-missing`. Альфа-плоскость bpp4
   берётся родная nearest-ресемплом (как `--upscayl`), альфа из блоков не читается.
+  `--maxside N` пропускает записи, где f*w > N: блоки 4x для записи 1024x1024 дают
+  сторону 4096 и 50 MB blob'а при лимите движка 32 MiB, такие записи остаются родными.
 - Зонд сигнатуры отказа: `tools/probes/probe_exitcode.ps1 <W> <H> <F> <Tag> -Mode new` —
   новая игра (глиф → скип Enter'ом → глиф персонажа → Enter x2), снимки окна, и
   ExitCode процесса + faulting module/RVA из журнала Application и отчёта WER
