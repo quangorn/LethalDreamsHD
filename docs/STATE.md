@@ -408,3 +408,19 @@ REPO_BASENAME 1 (console.py), UNCOVERED 0. Состав SNAPSHOT_ONLY (741): `li
   восстановлено (30 `.map` == установке), установка не тронута.
   4x-вариант (сторона 4096, blob 50 MB) в лимит не влезает — `--maxside` его пропускает;
   каталог `scratch_dir('ld')/upscayl4x_tree` удалён по просьбе пользователя.
+
+- `[P]` (18.11) **3x-почва накатана на установку** (по просьбе пользователя):
+  `patch_map_pattern.py --tree D:/Games/LethalDreams --install --tiles
+  scratch_dir('ld')/tex_tiles_ne/upscayl_png_remacri-4x_3x` — 30 `.map`, 44 записи
+  пересобраны ×3 (1024→3072 … 32→96), оригиналы в
+  `data/maps_ground_backup/` (30 файлов, побайтно равны до-патчевым), карты
+  установки побайтно равны `scratch_dir('ld')/upscayl3x_tree/data/maps`.
+  Установка теперь 5127 файлов (было 5097: +30 backup). Гейт на установке:
+  `probe_exitcode 3840 2160 1 tex3x_inst -Mode new` — новая игра загрузилась,
+  terrain 3x отрисован (`scratch_dir('ld')/ld/tex3x_inst_overland.png`),
+  Application-лог пуст, игра погашена.
+  `check_state --quick` rc 1 = 2 известных дрейфа (`ui/cursor.pyc`, `ui/olmenu.pyc`);
+  `--untouched` даёт 60 «DRIFT`ов: 30 изменённых `.map` + 30 файлов backup
+  (ожидаемо, пока 3x стоит; после `--install --restore` вернётся rc 0).
+  Откат: `python3 tools/tex/patch_map_pattern.py --tree D:/Games/LethalDreams --install --restore`
+  (backup-каталог после откката удалить, как в прошлый раз).
