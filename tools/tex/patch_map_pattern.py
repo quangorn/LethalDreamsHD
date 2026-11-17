@@ -42,42 +42,6 @@ def find_zlib(raw):
     raise ValueError('no zlib stream')
 
 
-def patch_from_png(map_path, srcdir):
-    """payload: blob'ы .tex заменены PNG того же размера из srcdir (сглаженный
-    раскод; движок не грузит записи с изменёнными w/h, поэтому только same-size).
-    Контейнер: plen тот же, clen правится; round-trip сверка побитово."""
-    raw = open(map_path, 'rb').read()
-    payload = bytearray(load_payload(map_path))
-    recs = find_records(payload)
-    if not recs:
-        return 0
-    expected = {}
-    for r in recs:
-        w, h, bpp = r['w'], r['h'], r['bpp']
-        pw, ph, rows = png_decode(os.path.join(srcdir, r['name'][:-4] + '.png'))
-        if (pw, ph) != (w, h):
-            raise ValueError('%s: PNG %dx%d != record %dx%d' % (r['name'], pw, ph, w, h))
-        blob = build_blob(rows, w, h, bpp)
-        if len(blob) != r['blob_len']:
-            raise ValueError('%s: blob %d != blob_len %d' % (r['name'], len(blob), r['blob_len']))
-        payload[r['blob_off']:r['blob_off'] + r['blob_len']] = blob
-        expected[r['blob_off']] = blob
-    zi = find_zlib(raw)
-    comp = zlib.compress(bytes(payload), 9)
-    head = bytearray(raw[:zi])
-    old_clen = len(raw) - zi
-    for i in range(8, len(head) - 3):
-        if u32(head, i) == old_clen:
-            struct.pack_into('<I', head, i, len(comp))
-    out = bytes(head) + comp
-    open(map_path, 'wb').write(out)
-    chk = load_payload(map_path)
-    for r in find_records(chk):
-        if chk[r['blob_off']:r['blob_off'] + r['blob_len']] != expected[r['blob_off']]:
-            raise ValueError('%s: re-read blob mismatch' % r['name'])
-    return len(recs)
-
-
 def patch_up2x(map_path, updir, maxsrc=None):
     """payload: .tex-записи заменены 2x-апскейлом из `updir/<stem>.png`.
 
@@ -228,8 +192,6 @@ def main():
     ap.add_argument('--solid', action='store_true', help='вся запись одним цветом')
     ap.add_argument('--up2x', default=None, metavar='DIR',
                     help='заменить записи 2x-апскейлом из DIR (PNG по имени записи)')
-    ap.add_argument('--frompng', default=None, metavar='DIR',
-                    help='заменить blob\'ы PNG того же размера из DIR (сглажение без смены w/h)')
     ap.add_argument('--maxsrc', type=int, default=None,
                     help='апскейл только записей со стороной <= maxsrc')
     ap.add_argument('--dry', action='store_true', help='только проверка, без записи')
@@ -263,8 +225,6 @@ def main():
             shutil.copyfile(tgt, bp)
         if a.up2x:
             n = patch_up2x(tgt, paths.norm(a.up2x), a.maxsrc)
-        elif a.frompng:
-            n = patch_from_png(tgt, paths.norm(a.frompng))
         else:
             n = patch_record(tgt, a.quad, a.color, a.solid, a.band,
                              a.circle, a.bg, a.frac, a.alpha, a.dry)

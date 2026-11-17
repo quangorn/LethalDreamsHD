@@ -76,8 +76,7 @@ w/h (даже 32²→64²) приводит к закрытию игры на з
 
 ## Артефакты и воспроизведение
 
-- Апскейлы: `scratch_dir('ld')/tex_up2x` (44 PNG 2x + MANIFEST); сглажение в родном
-  размере (обходной путь, не решение): `scratch_dir('ld')/tex_smooth`.
+- Апскейлы: `scratch_dir('ld')/tex_up2x` (44 PNG 2x + MANIFEST).
 - Патчер: `python3 tools/tex/patch_map_pattern.py --tree <дерево> --up2x
   <tex_up2x> [--maxsrc N]` / `--restore`.
 - Съёмка: probe'ы выше; снимки прогона — `scratch_dir('ld')/ld/*.png`.

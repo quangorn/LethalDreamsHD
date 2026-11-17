@@ -107,36 +107,12 @@ def upscale2(w, h, bpp, data):
     return ow, oh, rows
 
 
-def downscale2(w2, h2, bpp, data):
-    """Box-усреднение 2x->1x (lanczos lowpass, снятие высокочастотного шума)."""
-    w, h = w2 // 2, h2 // 2
-    stride = w2 * bpp
-    rows = []
-    for y in range(h):
-        line = bytearray(w * bpp)
-        top = data[y * 2 * stride:(y * 2 + 1) * stride]      # строка y*2
-        bot = data[(y * 2 + 1) * stride:(y * 2 + 2) * stride]  # строка y*2+1
-        for x in range(w):
-            o = x * bpp
-            s = x * 2 * bpp
-            for ch in range(bpp):
-                v = (top[s + ch] + top[s + bpp + ch] +
-                     bot[s + ch] + bot[s + bpp + ch] + 2) // 4
-                line[o + ch] = v
-        rows.append(bytes(line))
-    return w, h, rows
-
-
 def main():
     ap = argparse.ArgumentParser(description='Lanczos-3 2x upscale of ground .tex PNGs')
     ap.add_argument('--in', dest='ind', default=os.path.join(paths.scratch_dir('ld'), 'tex_src'))
     ap.add_argument('--name', default=None, help='обработать один PNG по имени stem')
-    ap.add_argument('--smooth', action='store_true',
-                    help='lanczos-2x -> box 1x: сглаживание в РОДНом размере (движок не грузит изменённые w/h)')
-    ap.add_argument('--out', dest='outd', default=None)
+    ap.add_argument('--out', dest='outd', default=os.path.join(paths.scratch_dir('ld'), 'tex_up2x'))
     a = ap.parse_args()
-    if a.outd is None:
-        a.outd = os.path.join(paths.scratch_dir('ld'), 'tex_smooth' if a.smooth else 'tex_up2x')
     os.makedirs(a.outd, exist_ok=True)
     names = [a.name] if a.name else sorted(f[:-4] for f in os.listdir(a.ind) if f.endswith('.png'))
     manifest = []
@@ -144,8 +120,6 @@ def main():
         src = os.path.join(a.ind, stem + '.png')
         w, h, rows = png_decode(src)
         ow, oh, ur = upscale2(w, h, 4, b''.join(rows))
-        if a.smooth:
-            ow, oh, ur = downscale2(ow, oh, 4, b''.join(ur))
         dst = os.path.join(a.outd, stem + '.png')
         png_write(dst, ow, oh, ur)
         manifest.append('%s\t%d x %d -> %d x %d' % (stem, w, h, ow, oh))

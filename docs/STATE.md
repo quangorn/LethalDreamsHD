@@ -297,10 +297,10 @@ REPO_BASENAME 1 (console.py), UNCOVERED 0. Состав SNAPSHOT_ONLY (741): `li
 ## Сессия 2026-11-17 (вечер): Lanczos-2x и отказ движка на изменённые w/h
 
 - `[P]` `tools/tex/upscale_tex.py` — Lanczos-3 апскейл 2x всех 44 PNG
-  (`scratch_dir('ld')/tex_up2x`), режим `--smooth` — box-даунскейл в родной размер
-  (`tex_smooth`). `patch_map_pattern.py --up2x [--maxsrc N]` пересобирает записи с
-  удвоенными w/h/blob_len (plen/clen правятся, round-trip побитовый), `--frompng` —
-  замена пикселей без смены размера.
+  (`scratch_dir('ld')/tex_up2x`). `patch_map_pattern.py --up2x [--maxsrc N]` пересобирает
+  записи с удвоенными w/h/blob_len (plen/clen правятся, round-trip побитовый).
+  Режимы сглаживания (`--smooth`, `--frompng`) откатаны по указанию пользователя
+  `[U]`, scratch-каталог `tex_smooth` удалён.
 - `[P]` Краш: при загрузке стартовой карты игра закрывается, если хоть одна запись
   имеет изменённый размер — полная 2x, ограниченный (--maxsrc 512), и минимальный
   (одна запись 32²→64² в portal_domain.map). Same-size патчи грузятся. Протокол,

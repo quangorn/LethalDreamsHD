@@ -158,9 +158,8 @@ baseline `45e93d46…` (`backup/LETHALDREAMS.EXE.pre4`) → exepatch12 (cave) =
    снапшот md5+mtime установки — diff нулевой (запуски игры дают известный дрейф
    `Lib/*.pyc`, `hd.cfg`, `hdlog.txt`, font-сайкары, `mm_bkg01.btf`).
 6. **Апскейл 2x**: `tools/tex/upscale_tex.py` (Lanczos-3, stdlib) кладёт PNG в
-   `scratch_dir('ld')/tex_up2x`; `--smooth` — тот же lanczos + box-даунскейл в родной
-   размер. `patch_map_pattern.py --up2x` пересобирает записи с удвоенными w/h/blob_len
-   (plen/clen правятся), `--frompng` меняет пиксели без смены размера.
+   `scratch_dir('ld')/tex_up2x`; `patch_map_pattern.py --up2x` пересобирает записи с
+   удвоенными w/h/blob_len (plen/clen правятся).
    **Проблема**: движок не грузит записи с изменённым w/h (закрытие игры на загрузке
    карты, даже 32²→64²) — протокол и план разбора `docs/ISSUE_tex_upscale.md`;
    съёмка боя — `tools/probes/probe_battleshot.ps1`.
