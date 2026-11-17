@@ -112,6 +112,8 @@ patches/                исходники скриптов-патчей (.py; .
 
 `decompiled_fixed/`, `cfg/`, `backup/`, `resources/`, `.tmp/`, `build/`, `caches/`,
 кэши сканов — рабочие директории, в git не входят (см. `.gitignore`).
+`vendor/py223/` — локальный интерпретатор Python 2.2.3 для компиляций (`config[py223.dir]`);
+скачивается из архивов python.org, состав и замеры — `docs/TOOLS.md`, «Тулчейн», в git не входит.
 
 ## Скрипты сессий (tools/archive/)
 

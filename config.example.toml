@@ -20,6 +20,9 @@ base    = "C:/path/to/working_dirs"   # personal working dirs root (Upscayl src/
 
 [py223]
 # Python 2.2.3 interpreter dir (contains PYTHON.EXE), used as the compile worker.
+# Layout: PYTHON.EXE + PYTHON22.DLL at the root, `Lib/` with the canonical stdlib tree,
+# `DLLs/` with the extension modules; file names keep their source case, imports are
+# case-sensitive (see docs/PITFALLS.md, «Импорт 2.2.3 чувствителен к регистру имени модуля»).
 dir = "C:/path/to/py223"
 
 [scratch]

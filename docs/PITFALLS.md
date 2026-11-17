@@ -494,3 +494,30 @@ BM-B0EXC 'int' object has no attribute 'find'
 `171319bbc170…` (`--restore`), игра запускается (съёмка `runwatch`), `check_state --quick`
 — только два известных дрейфа. Ролики **не** растянуты: рендерер сам letterbox-ит `640x480`
   в 4:3 по центру (замер снимка — `docs/OBSERVATIONS_ENGINE.md`, «Ролики уже рендерятся 4:3»).
+
+## Импорт 2.2.3 чувствителен к регистру имени модуля (плоский дамп установщика не импортируется)
+
+**Симптом:** в дереве интерпретатора, собранном из плоского дампа `Python-2.2.3.exe`,
+startup даёт `'import site' failed`, а `import site`/`os`/`string`/`UserDict` падает
+`ImportError: No module named …`; worker'у не хватает stdlib, `check_state` на таком
+`py223.dir` не проходит (`python3 tools/pyc/install_patch.py hd_scale` — compile-фейл).
+
+Причина (измерено по источнику 2.2.3 и живыми замерами):
+- `[P]` В `Python/import.c` (2.2.3) после удачного `fopen` кандидата вызывается
+  `case_ok(buf, len, namelen, name)`; реализация MS_WIN32: `FindFirstFile(buf, &data)` и
+  `strncmp(data.cFileName, name, namelen) == 0` — сравнение **точного имени файла** на диске
+  с именем модуля. Файлы дампа (`STRING.PY`, `SITE.PY`, `USERDICT.PY`) не совпадают с
+  `string`/`site`/`UserDict` → `case_ok` возвращает 0, модуль не находится.
+- `[P]` FS-lookup регистронезависим: на том же файле `os.stat()` и `open()` успешны
+  (`stat ok size 11943`, чтение полного файла), а `imp.find_module('string', [dir])`
+  → `ImportError: No module named string`. read-путь работает, import-путь — нет.
+- `[P]` `PYTHONCASEOK` — env var, при нём `case_ok` сразу возвращает 1: замер
+  `PYTHONCASEOK=1 python.exe …` импортирует `STRING.PY` под именем `string`.
+- `[P]` Плоский дамп установщика — это ровно содержимое `Lib/`+`DLLs/`+корня, имена в ВЕРХНЕМ
+  регистре, каталоги `plat-win`/`lib-tk`/`idlelib` сплюнуты в один каталог (2145 файлов).
+  Из него годятся бинары (`PYTHON.EXE` 20526 B, `PYTHON22.DLL` 847920 B) и DLLs; `Lib` — нет.
+
+**Обход:** дерево интерпретатора собирается из `Python-2.2.3.tgz` (канонический `Lib/`
+с регистром имён источника) + бинары/DLLs из дампа установщика; имена файлов — точный регистр
+tgz. Замеренное дерево и его состав — `docs/TOOLS.md`, раздел «Тулчейн» (пункт «Дерево
+интерпретатора»); проверка импортов и `imp.get_magic()` в нём — там же.

@@ -143,6 +143,23 @@ python3 tools/extract_pristine.py templates  # btf-шаблоны/родные �
   Рабочий интерпретатор: `config[py223.dir]` (Python 2.2.3, магия `.pyc` `2ded0d0a`/0xED2D —
   читается движком), требует `PYTHONPATH = py223-интерпретатор + cache/lib (paths.cache_lib_dir())`
  (игровой `Lib` не входит).
+  - `[P]` **Дерево интерпретатора** (2026-11-17): `config[py223.dir]` указывает на `vendor/py223/`
+  в корне репозитория — untracked (`vendor/py223/**` в `.gitignore`, в git не входит),
+  собирается из архивов python.org. Состав: корень `python.exe` (20526 B, md5
+  `463004315f9915a4c7fb49b811d30dbc`), `pythonw.exe`, `python22.dll` (847920 B, md5
+  `4ee79da1533f8ac2957fd46c6ba1cb2d` — побитово тот же, что в игровом бинарном ярусе,
+  `docs/STATE.md`), `w9xpopen.exe`; `Lib/` — каноническое stdlib-дерево из `Python-2.2.3.tgz`
+  (регистр имён источника); `DLLs/` — extension-модули установщика (`_sre.pyd`, `_symtable.pyd`,
+  `parser.pyd`, `zlib.pyd`, `pyexpat.pyd`, …). Проверено в этом дереве: startup-`import site`
+  проходит, `import sys, os, string, codecs, re, marshal, struct, imp, time, dis, types, UserDict`
+  — OK, `imp.get_magic()` = `[45, 237, 13, 10]`. Источники: `Python-2.2.3.exe` (7334106 B, md5
+  `d76e774a4169794ae0d7a8598478e69e`, `https://www.python.org/ftp/python/2.2.3/Python-2.2.3.exe`)
+  даёт `PYTHON.EXE` (20526 B), `PYTHONW.EXE`, `PYTHON22.DLL` (847920 B) и DLLs;
+  `Python-2.2.3.tgz` (6709556 B, md5 `169f89f318e252dac0c54dd1b165d229`) даёт канонический
+  `Lib/` (`plat-win` в tgz нет; путь `lib/plat-win` отсутствующий — безвреден). Плоский дамп
+  установщика (имена в ВЕРХНЕМ регистре) **не импортируется** — грабли: `docs/PITFALLS.md`,
+  раздел «Импорт 2.2.3 чувствителен к регистру имени модуля (плоский дамп установщика не
+  импортируется)».
 - `tools/pyc/py22_worker.py` — **только Python 2.2.3** (print-Statement; py3 AST
   падает на строке 84). Он вызывается через `paths.py223_exe()`, никогда python3.
 - `tools/pyc/probe1.py` — генератор зондовых сборок: чистый build из snapshot + правки →

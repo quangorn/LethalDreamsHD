@@ -219,3 +219,33 @@
   чистый initial commit `85ec7b9d…` из дерева локального HEAD (`git commit-tree`), ветка
   `master`, 267 файлов, игровых бинаров 0, личных путей 0, `config.toml` не в tree.
   Локальная история `master` (32+1 коммитов) сохранена и не опубликована.
+
+## Восстановление py223-интерпретатора в каталог проекта (2026-11-17)
+
+- `[U]` Пользователь: temp-каталог для интерпретатора не годится, нужен untracked каталог
+  внутри проекта. Вопрос «из архивов игровых поставок его не взять?» — закрыт
+  замером: листинги всех трёх приватных архивов (`python_libs.7z` 727, `original.7z` 4460,
+  `hd_pack.7z` 1355 записей) содержат **0** exe/dll; в `python_libs.7z` есть `python22.dll`,
+  исполняемых файлов нет. Интерпретатор взят из официального архива python.org
+  (`Python-2.2.3.exe` 7334106 B, md5 `d76e774a4169794ae0d7a8598478e69e`;
+  `Python-2.2.3.tgz` 6709556 B, md5 `169f89f318e252dac0c54dd1b165d229`).
+- `[P]` Дерево собрано в `vendor/py223/` (untracked, `.gitignore`): корень `python.exe`
+  (20526 B, md5 `463004315f9915a4c7fb49b811d30dbc`, banner
+  `Python 2.2.3 (#42, May 30 2003, 18:12:08) [MSC 32 bit (Intel)] on win32`),
+  `pythonw.exe`, `python22.dll` (847920 B, md5 `4ee79da1533f8ac2957fd46c6ba1cb2d` — побитово
+  равен игровому), `w9xpopen.exe`; `Lib/` — каноническое stdlib-дерево из tgz; `DLLs/` —
+  extension-модули установщика. Замеры: startup-`import site` проходит,
+  `import sys, os, string, codecs, re, marshal, struct, imp, time, dis, types, UserDict` — OK,
+  `imp.get_magic()` = `[45, 237, 13, 10]`.
+- `[P]` Причину отказов импорта на плоском дампе установщика (все имена ВЕРХНЕМ регистре)
+  показал источник 2.2.3: `case_ok()` в `Python/import.c` сравнивает точное имя файла
+  (`FindFirstFile` + `strncmp`) с именем модуля, и `PYTHONCASEOK` отключает эту проверку
+  (живой замер: с `PYTHONCASEOK=1` `STRING.PY` импортируется как `string`). `os.stat()` и
+  `open()` на тех же файлах успешны, `imp.find_module` — нет. Записано в
+  `docs/PITFALLS.md`, раздел «Импорт 2.2.3 чувствителен к регистру имени модуля».
+- `[P]` После переноса `config[py223.dir]` в `vendor/py223/` восстановлены ярусы чекера
+  дословно: `--quick` rc 1 (два дрейфа), `--full` rc 0, `--untouched` rc 0; установка
+  5097 файлов, md5-diff 0. Компи-путь: `pycbuild.py gate` → 434 компилируются / 0 падают;
+  `install_patch.py hd_scale` (без `--install`) → magic `2ded0d0a`, 23781 B, кодовая секция
+  побитово равна установленному `hd_scale.pyc` (`dd4123fbc19c`); `hd_tex` → 1382 B, кодовая
+  секция равна установленному (`b69dfa3799da`). Запись в игру не тронута.
