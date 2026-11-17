@@ -19,6 +19,7 @@ cache/
 resources/
 # patches/hd_scale.py и patches/hd_tex.py — авторский код, публикуется (не игнорируется)
 patches/gamescript.py
+patches/battlecamera.py
 patches/ui/*.py
 *.log
 scratch/

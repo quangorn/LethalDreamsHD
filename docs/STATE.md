@@ -38,7 +38,7 @@
    `45e93d46…` + cave-блоки; при `--install` пишет baseline в игру
    (`backup/LETHALDREAMS.EXE.pre4`), `restore` возвращает его.
 
-## Кодовый ярус (10 pyc)
+## Кодовый ярус (12 pyc)
 
 Манифест `release/manifest.json`. Для каждого модуля: md5 base-печати
 (header=build-time, source mtime — указанный), md5 установленной копии,
@@ -52,12 +52,29 @@
 | ui/olmenu | 1794778203 |
 | ui/battlemenu | 1794778202 |
 | ui/btutorial | 1794778203 |
+| ui/olcamera | 1794778203 |
+| battlecamera | 1794778203 |
 
 - Новые модули лежат в `config[game.root]/data/scripts/`: `types.pyc` (3225 B,
   md5 `414bd2aa0857…`; allowlist `named_legals` + `snapshot_only`) и `hd_res.pyc`
  (2497 B, md5 `fc524b6139c0…`; manifest `state` = `GENERATED`, собирается пайплайном
   из `hd.cfg`). В `data/scripts/ui/` их нет. Патч к ним не применяется.
 - Патчи: `release/patches/*.patch` (`tools/apply_patch.py`).
+- `[P]` Новый кодовый модуль (17.11.2026): `data/scripts/ui/olcamera.pyc` —
+  base-печать md5 `f67ae9904032…` (11910 B, crc32 `25112d1b`, `.py` md5
+  `4bf8df324ee6…` 8671 B), pristine-копия установки md5 `ba346c67b543…` (10669 B)
+  = manifest `installed_recorded_md5`; патч `release/patches/ui_olcamera.patch`
+  (краевой скролл оверленда) — `docs/PATCHES.md`, «Краевой скролл оверленда».
+  **Установлен в игру 17.11.2026** (`install_patch.py ui/olcamera --install` после
+  подтверждения пользователя), installed md5 = base-печать `f67ae9904032…`, state `MATCH`.
+- `[P]` Второй модуль той же правки (17.11.2026): `data/scripts/battlecamera.pyc` —
+  base-печать md5 `ddb3e6fa629e…` (25320 B, crc32 `d3218ac8`, `.py` md5
+  `63990fd1eeb4…` 19049 B), pristine-копия установки md5 `9efdb4d1dae9…` (23289 B)
+  = manifest `installed_recorded_md5`; патч `release/patches/battlecamera.patch`
+  (краевой скролл боевой камеры) — тот же раздел `docs/PATCHES.md`.
+  **Установлен в игру 17.11.2026** (`install_patch.py battlecamera --install`),
+  installed md5 = base-печать `ddb3e6fa629e…`, state `MATCH`. `[U]` Подтверждение
+  в бою после установки патченной сборки в scratch-дереве: «всё работает».
 - Известные дрейфы кодового яруса (manifest `state`):
   `ui/cursor.pyc` = `DRIFT_RELEASE_AHEAD` (в установке патч курсоров версии 6,
   md5 `4a8eb4bab413` vs base-печать `60754a253515`);

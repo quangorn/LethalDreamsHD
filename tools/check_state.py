@@ -17,7 +17,7 @@ fix_command из манифеста.
 (paths.validate_required) или --json вне scratch/cache.
 
 Три tier'а (единственный легальный способ судить об установке):
-  --quick    : записи code tier манифеста (EXE, 3 DLL, hd.cfg побайтно, 10 .pyc,
+  --quick    : записи code tier манифеста (EXE, 3 DLL, hd.cfg побайтно, 12 .pyc,
               реестр HIGHDPIAWARE) — сравнение md5/crc32 с эталонами.
   --full     : --quick + assets tier: каждая запись hd_pack присутствует побитово
               (CRC32+size); набор data/fonts == шрифтовой набор hd_pack; каждый

@@ -126,7 +126,7 @@ patches/                исходники скриптов-патчей (.py; .
 ## Ключевые факты
 
 - Базовая (пропатченная) версия: exe md5 `171319bbc170cf6e57c8d36a8ae5f50d`
-  (`release/manifest.json`), cave-патч 236 байт, 10 патчных pyc.
+  (`release/manifest.json`), cave-патч 236 байт, 12 патчных pyc.
   Цепочка exe: pristine `7943036fbd…` → exepatch3 → +2 байта → baseline
   `45e93d46…` → exepatch12 (cave) → base. Детали: `docs/STATE.md`.
 - Установленная игра проверяется по манифесту; два известных drift'а кодового яруса

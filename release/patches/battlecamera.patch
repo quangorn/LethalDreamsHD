@@ -1,0 +1,29 @@
+--- a/battlecamera.py
++++ b/battlecamera.py
+@@ -295,3 +295,17 @@
+         return
+ 
++    def HDEdgeY(self):
++        # 16:9: боевая камера берёт мышь из сырого движкового события WMO_MOUSEMOVE
++        # (h_MouseMove зарегистрирован на globalscript.WMO_MOUSEMOVE = 10), поэтому
++        # ms_lastx/ms_lasty = ДВИЖКОВЫЕ координаты. Движковый Y-диапазон = h/s = 768*k
++        # (< 768), и родной канвасный порог screen_size[1]-1 = 765 недостижим ->
++        # скролл вниз в бою не срабатывает никогда. Порог = движковая координата
++        # нижнего края канваса, hd_scale.SY() (k*v при F=1, identity при F=0).
++        # При k=1 SY identity -> побитово родный порог 765. try/except: правка
++        # не роняет боевой апдейт.
++        try:
++            import hd_scale
++            return hd_scale.SY(self.screen_size[1] - 1)
++        except Exception:
++            return self.screen_size[1] - 1
++        return
++
+     def hB_Update(self, time):
+@@ -339,5 +353,5 @@
+         if self.ms_lasty == 0:
+             self.cam.MoveAlignedXZ(0, 0, time * self.ms_vsens)
+-        if self.ms_lasty > self.screen_size[1] - 1:
++        if self.ms_lasty > self.HDEdgeY():
+             self.cam.MoveAlignedXZ(0, 0, -time * self.ms_vsens)
+         if self.is_slide_ud != 0:

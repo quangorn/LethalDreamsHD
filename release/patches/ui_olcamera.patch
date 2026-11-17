@@ -1,0 +1,28 @@
+--- a/ui_olcamera.py
++++ b/ui_olcamera.py
+@@ -99,3 +99,19 @@
+         return
+ 
++    def HDEdgeY(self):
++        # 16:9: движок отдаёт мышь в своих единицах, Y-диапазон = h/s = 768*k < 768;
++        # родной канвасный порог screen_size[1]-1 = 766 в движковых единицах
++        # НЕДОСТИЖИМ -> нижний краевой скролл никогда не срабатывает (верх m==0,
++        # лево m==0, право m>w/s-2 достижимы: движковый X-диапазон = 0..1024 = ширина
++        # экрана). Порог = движковая координата нижнего края канваса, hd_scale.SY()
++        # (SY = k*v при F=1, identity при F=0). При k=1 SY identity -> побитово
++        # родный порог 766 (4:3-регрессия). try/except: правка не роняет апдейт.
++        try:
++            import hd_scale
++            return hd_scale.SY(self.screen_size[1] - 1)
++        except Exception:
++            return self.screen_size[1] - 1
++        return
++
+     def h_Update(self, time):
+@@ -110,5 +126,5 @@
+         if self.ms_lasty == 0:
+             self.cam.MoveAlignedXZ(0, 0, time * self.ms_vsens)
+-        if self.ms_lasty > self.screen_size[1] - 1:
++        if self.ms_lasty > self.HDEdgeY():
+             self.cam.MoveAlignedXZ(0, 0, -time * self.ms_vsens)
+         self.ms_dx = 0

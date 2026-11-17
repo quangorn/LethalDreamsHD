@@ -62,7 +62,7 @@ black-эксперимент: чёрные .btf в установку не вх�
 
 1. real install `--quick`: 1 DRIFT (cursor) + fix_command, rc 1; снапшот diff 0;
 2. real install `--full`: rc 0, KNOWN-drift, diff 0;
-3. `--untouched`: rc 0 (PRISTINE 3000 / HD_PACK 1349 / ALLOWED 729 / CODE 15 /
+3. `--untouched`: rc 0 (PRISTINE 2998 / HD_PACK 1349 / ALLOWED 729 / CODE 17 /
    EXCLUDED 4 — без code-файлов), diff 0;
 4. fake game (полная копия, sabotaged: gamescript.pyc modified, white.btf deleted,
    zzz_inject.pyc (утрачен: покрытия нет ни в git, ни в приватных архивах сессий Project/1-3.7z, 5.7z, 6.7z, 7.7z, original.7z, hd_pack.7z, python_libs.7z) added): quick rc1 (DRIFT pyc + DRIFT registry), full rc1 — исторический прогон сессии, артефакты в git не входят
