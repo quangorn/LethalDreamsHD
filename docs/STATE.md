@@ -480,3 +480,55 @@ PRISTINE 2967, HD_PACK 1379, ALLOWED 729, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0
   устаревший кадр (сессия заблокирована/монитор погашен, часы застыли на
   16:20:12) — снимок нужно повторить при активном дисплее. Установка не
   тронута (`check_state --quick` rc 1 = 2 известных дрейфа), игра погашена.
+
+## Сессия 2026-11-18 (вечер): ldhook Фазы 1–2 — три хука в .pyd
+
+- `[P]` **Фаза 1 (site1, шрифт)**: `tools/ldhook/ldhook.c` получил
+  `install_site1` (скан `c641580159` в `.text` baseline-EXE, `VirtualProtect`,
+  `E9 rel32`) и `site1_hook`/`site1_impl` — порт cave1 (`k==1` → identity,
+  иначе `k_eff=k*0.25`, pitch/advance с carry). Лог: `ldhook_log.txt` рядом с
+  EXE (дубль `OutputDebugString`). Гейт: на scratch-дереве с baseline
+  `45e93d46…` site1 найден, хук FIRED; 4:3 — identity. Новый зонд —
+  `tools/ldhook/probe_phase1.ps1`.
+- `[P]` **Фаза 2 (site2 + site3)**: `install_site2/3` ставят `E9` на
+  0x40b494 (6 байт: `E9 rel32`+`nop`) и 0x47dd80 (5 байт). site2 — naked
+  трамплин + C-тело (`site2_impl`): сохранённые байты `mov [this+0x294],font;
+  inc [font+0x24]`, затем при `byte[font+0x58]==0` и `[font+0x44]!=0` зовёт
+  `FUN_0041cc90(font)` (thiscall, `ecx=font`, вызов в `__asm`, `ret 8`).
+  site3 — naked трамплин + C-guard/лог (`site3_impl`) + `site3_fp` (naked x87:
+  `fild h; fild w; fdivp; fmul m32 matrix[5]; fstp m32 matrix[0]`); цель
+  сеттера и продолжение берутся из `call rel32` самого сайта. EXE на диске
+  не меняется; всё в памяти.
+- `[P]` **Гейт 16:9** (`3840 2160 32 1`, scratch baseline): все три сайта
+  found (0x41ce31/0x40b494/0x47dd80), `site1/2/3_impl` FIRED. site3:
+  `matrix[0] 1.29904 (0x3FA646F1) -> 0.974731 (0x3F7987FA)`,
+  `m5=0x3FDDB3ED` — **биты точно равны** эталону `exepatch12`
+  (target 0.9747310876 = 0x3F7987FA). site2 срабатывает на SetFont и зовёт
+  `FUN_0041cc90` (в логе `site1_impl`). Игра доходит до оверленда без крашей.
+- `[P]` **Гейт 4:3** (`1440 1080 32 1`): `site3_impl: guard 4h==3w ->
+  identity`, `site1_impl: k==1.0 -> identity (4:3)` — записей нет; оверленд
+  рисуется (1440x1080), крашей нет.
+- `[P]` **Кольцо домена / A/B**: эталонные снимки воспроизводятся
+  `measure_disc.ps1` (регион `1540 1040 700 540`): `a169d_overland.png`
+  baseline = **1.4035** (633x451), `p12b_overland.png` exepatch12 = **1.0531**
+  (476x452). На одном сейве/камере hook-дерево = 486x451 (ratio 1.0776),
+  cave-дерево (установленный EXE) = 485x453 (1.0706), центр совпадает
+  `(2780,1309)` — отличие 1–2 px, геометрия идентична. Абсолютная разница с
+  1.0531 — панорама камеры (~900 px вправо), не хук.
+- `[P]` A/B с cave-EXE: в scratch-дереве с установленным `171319bb…` сигнатуры
+  не находятся (`signature NOT found` для всех трёх) — хуки не ставятся, игра
+  работает на `exepatch12`; это и безопасный fallback, и эталон для A/B.
+- `[P]` Документация: `docs/PLAN_proxy_dll.md` (Фазы 1–2 выполнены),
+  `tools/ldhook/README.md` (файлы/команды/гейт), `docs/PIPELINE.md`/
+  `docs/TOOLS.md` (ldhook-пайплайн), `docs/PATCHES.md` (in-memory эквивалент
+  exepatch12).
+- `[P]` **Установка не тронута**: файлы игры не писались (EXE установки
+  `171319bb…` MD5 MATCH, `--untouched` rc 0, 5096 файлов). Игра погашена.
+  При проверке обнаружено, что у EXE установки пропал AppCompat-флаг
+  `~ HIGHDPIAWARE` (в реестре остался только scratch-путь) — это документ-
+  состояние (`docs/VERIFY.md`, `check_state` expected): флаг восстановлен
+  `Set-ItemProperty` в `HKCU\...\AppCompatFlags\Layers` (та же запись, что
+  делает `tools/archive/probes/set_layer.ps1`). После восстановления
+  `--quick` rc 1 = 2 известных дрейфа (`hd.cfg` с пользовательской строкой
+  `#1280 960 32 0`, `cursor` DRIFT_RELEASE_AHEAD), `--full` rc 1 = 1
+  (`hd.cfg`), `--untouched` rc 0. `hd.cfg` установки не переписывался.

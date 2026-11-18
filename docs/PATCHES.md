@@ -419,6 +419,13 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
 - `[P]` Состояние на диск: EXE = `exepatch10` (md5 `51f69974e1dada6e7b191961e853a1ef`),
   сайдкары `*_169` (4x remacri) + `*_43` (родные) в `data/textures`+`data/fonts`, `hd.cfg` =
   `3840 2160 32 1`, игра остановлена.
+- `[P]` **In-memory эквивалент (18.11.2026, `tools/ldhook/`)**: те же три сайта
+  (`0x41ce31`, `0x40b494`, `0x47dd80`) ставятся сканом сигнатур в памяти
+  (`ldhook.pyd`, `E9 rel32` через `VirtualProtect`), тело — C-порт `fixall.s`;
+  EXE на диске не меняется. Гейт: site3 даёт `matrix[0] = 0x3F7987FA`
+  (= exepatch12), 4:3 — guard identity (записей нет), кольцо A/B с cave-EXE
+  совпадает в пределах 1–2 px. Статус/замеры — `docs/PLAN_proxy_dll.md` §4
+  Фазы 1–2, `tools/ldhook/README.md`.
 Base-требования к декомпиляту — `docs/PIPELINE.md`; запись о дефекте старой базы — `docs/PITFALLS.md`.
 
 

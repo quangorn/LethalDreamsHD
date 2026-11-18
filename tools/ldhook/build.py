@@ -73,7 +73,9 @@ def main():
         "@echo off",
         'call "%s" x86' % win(vcvars),
         'cd /d "%s"' % win(OUTDIR),
-        'cl /nologo /LD /MT /O2 /W3 /I"%s" "%s" '
+        # /fp:precise — сохранить порядок FP-операций (совпадает с x87-порядком
+        # cave1; без contraction/reassociation, как требует побитовая identity 4:3).
+        'cl /nologo /LD /MT /O2 /W3 /fp:precise /I"%s" "%s" '
         '/link /LIBPATH:"%s" python22.lib /OUT:ldhook.pyd'
         % (win(INCLUDE), win(SRC), win(LIBDIR)),
         "exit /b %errorlevel%",

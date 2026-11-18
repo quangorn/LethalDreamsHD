@@ -43,6 +43,25 @@ python_libs.7z; тот же мандат applies к истории сессий.
  5. `python3 tools/exe/exepatch_video43.py` — **эксперимент, откатён (16.11.2026)**: сайт-jmp (VA `0x49a322`, вызов `IVideoWindow::SetWindowPosition`) + пещера `tools/exe/caves/video43.s` в zero-run `.rdata` (VA `0x50ec70`) + флаг исполняемости `.rdata`. Игра падает (`0xc0000005`, адрес вне образа) — путь закрыт, см. `docs/PITFALLS.md`, «Пещера в `.rdata` для 4:3 роликов». `--install`/`--restore`; после отката EXE = эталон `171319bbc170…`.
 
 
+## ldhook-пайплайн (.pyd-хуки в памяти)
+
+1. `python3 tools/ldhook/fetch_headers.py` — официальные заголовки Python 2.2.3
+   в `vendor/py223/include/` (untracked; `*.LIB` уже в `vendor/py223/DLLs/`).
+2. `python3 tools/ldhook/build.py` — MSVC x86 (`/fp:precise`) →
+   `build/ldhook/ldhook.pyd` (gitignored).
+3. `python3 tools/ldhook/spike.py --baseline` — полная копия установки в
+   `paths.scratch_dir('ldhook')/tree`, `ldhook.pyd` в корень, `ui/ui.pyc` =
+   `patches/ui/ui.py` + блок `imp.load_dynamic`, EXE заменён на baseline
+   `45e93d46…` (в установленном cave-EXE сигнатуры сайтов уже `E9`, скан их не
+   найдёт). Без `--baseline` — дерево с установленным cave-EXE (эталон
+   `exepatch12` для A/B; хуки не ставятся).
+4. Прогон: `tools/probes/probe_exitcode.ps1` (16:9 → оверленд, site2/site3;
+   4:3 → identity). Лог — `<scratch>/ldhook/tree/ldhook_log.txt`.
+5. Гейт 16:9: `site3_impl` пишет `matrix[0] = 0x3F7987FA` (эталон exepatch12);
+   гейт 4:3: `guard 4h==3w -> identity` и `k==1.0 -> identity`, записей нет.
+   EXE на диске не модифицируется (только `VirtualProtect` в памяти).
+
+
 ## btf-пайплайн (курсоры/иконки)
 
 `unpack_btf.py` (распаковка blob→PNG, canon top-down) → апскейл/перерисовка

@@ -112,17 +112,23 @@ def build_ui_pyc(tree):
 def set_hidpi_flag(exe_path):
     """AppCompat-флаг ~ HIGHDPIAWARE для scratch-EXE (как у установки): без него
     Windows масштабирует окно игры (175% -> 6720x3780 вместо 3840x2160).
-    Cygwin-python без winreg — флаг ставим через PowerShell."""
+    Cygwin-python без winreg — флаг ставим через PowerShell.
+
+    ВАЖНО: имя значения в AppCompatFlags\\Layers сопоставляется с путём EXE
+    ПОБАЙТОВО, и Windows хранит пути с ОБРАТНЫМИ слешами. win_path() отдаёт
+    прямые слеши (D:/...), поэтому их НЕ используем — иначе shim не применяется
+    и окно выходит 6720x3780 (грабли, 18.11.2026)."""
+    win = exe_path.replace("/", "\\")
     ps = ("New-Item -Path 'HKCU:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\"
           "AppCompatFlags\\Layers' -Force | Out-Null; "
           "Set-ItemProperty -Path 'HKCU:\\SOFTWARE\\Microsoft\\Windows NT\\"
           "CurrentVersion\\AppCompatFlags\\Layers' -Name '%s' -Value '~ HIGHDPIAWARE'"
-          % exe_path)
+          % win)
     p = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True)
     if p.returncode != 0:
         raise SystemExit("не удалось поставить AppCompat-флаг: %s"
                          % p.stderr.decode("utf-8", "replace"))
-    print("appcompat ~ HIGHDPIAWARE -> %s" % exe_path)
+    print("appcompat ~ HIGHDPIAWARE -> %s" % win)
 
 
 def main():

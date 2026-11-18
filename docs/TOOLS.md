@@ -142,6 +142,26 @@ python3 tools/exe/apply_baseline.py --install          # копия baseline в 
 python3 tools/exe/disex.py                # disassembly-загрузчик (py3) — базовая загрузка EXE
 ```
 
+## ldhook (.pyd-хуки в памяти, tools/ldhook)
+
+```
+python3 tools/ldhook/fetch_headers.py   # Python 2.2.3 Include/ + pyconfig.h -> vendor/py223/include (untracked)
+python3 tools/ldhook/build.py           # MSVC x86 -> build/ldhook/ldhook.pyd (gitignored)
+python3 tools/ldhook/spike.py --baseline                    # scratch + baseline EXE 45e93d46 (сигнатуры сайтов целы)
+python3 tools/ldhook/spike.py                               # scratch + установленный cave-EXE (эталон exepatch12, хуки не встают)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/ldhook/probe_phase1.ps1 -GameRoot "<scratch>/ldhook/tree" -Tag phase1
+# Фаза 2 (site2+site3) — канонический зонд до оверленда:
+LD_GAME="<scratch>/ldhook/tree" LD_SCRATCH="<scratch>" LD_REPO="<repo>" `
+  powershell -NoProfile -ExecutionPolicy Bypass -File tools/probes/probe_exitcode.ps1 3840 2160 1 ldhook_p2 -Sub ldhook_p2
+```
+
+`ldhook.c` — расширение Python 2.2.3: `initldhook` ставит три хука в памяти
+(scan `.text` → `VirtualProtect` → `E9 rel32`): site1 `0x41ce31` (шрифт),
+site2 `0x40b494` (SetFont), site3 `0x47dd80` (world-проекция). Логика — порт
+`tools/exe/caves/fixall.s`, guard'ы `k==1` и `4h==3w` сохраняют 4:3 побитово.
+Лог — `<game>/ldhook_log.txt`; EXE на диске не меняется. Гейты и замеры —
+`docs/PLAN_proxy_dll.md` §4, `tools/ldhook/README.md`.
+
 ## Архивы
 
 ```
