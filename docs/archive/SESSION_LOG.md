@@ -421,3 +421,32 @@
   CODE 17 / EXCLUDED 4). Родная почва — в `original.7z` (pristine). Упоминания
   прежних накатов карт (remacri-3x, UpScayl 2x/4x с откатом) из STATE убраны как
   устаревшие: актуальна поставка через HD-пак.
+
+## Сессия 2026-11-18 (позже): профилирование тормозов боя
+
+- `[U]` «Тормозит когда начинается бой с вражеским существом на любом
+  разрешении; упирается в процессор». Игра запущена, загружен сейв, бой
+  воспроизводится по Escape→пробел (пауза/снятие).
+- `[P]` Инструментарий `tools/perf/` (в git): PowerShell-пробы (активация окна
+  AttachThreadInput, CPU, busiest tid, снимок окна), C#-семплеры (x86 csc:
+  `perf_sampler3` — листья главного потока посекундно; `perf_stack_sampler2` —
+  syscall callers), frida-хуки (`perf_frida3/5/6/7/8.js`) + драйвер
+  `perf_frida_hook.py`; парсеры PE (`pe_exports.py`, `pe_sections.py`).
+- `[P]` Замеры (бой, главный поток): ~100–105% одного ядра (GPU 0–22%), листья —
+  exe-код (`FUN_0045ce80` ~20%, `FUN_0047f800` ~23%, `FUN_00434bc0` ~5%) +
+  сисколлы (~21%). Тяжёлый долгий вызов — `FUN_0045e0a0`: патологический цикл
+  до ~4400 итераций / 71–73 мс (норма 2 итерации / 1 мс). Цепочка
+  `FUN_0044bdd0 → FUN_0045eee0 → FUN_0045e0a0 → FUN_0045ce80`, ~85% времени боя.
+- `[P]` Троттлинг `FUN_0044bdd0` (skip каждого 2-го вызова, frida) НЕ помог:
+  игра frame-rate-адаптивна (больше кадров, та же суммарная работа). Список
+  `this+0x6c` — движковый, не Python-фильтруем.
+- `[P]` План фикса (не реализован): cap итераций `FUN_0045e0a0` (32) —
+  detour на back-edge `0x45e167`, cave в `.rdata` zero-run VA 0x50ec70
+  (+exec-флаг), счётчик в `.data` BSS-области VA ~0x51d000+; валидация —
+  `perf_frida8.js` (имитация cap через `FUN_0045ce80`). Детали —
+  `docs/PERF_BATTLE.md`.
+- `[P]` Frida 17: ABI для thiscall — 4-й позиционный аргумент-строка
+  (`'thiscall'`); `Module.findBaseAddress` удалён (→ `Process.findModuleByName`).
+  Frida-хук с неверным ABI (cdecl вместо thiscall) → краш игры 0xC0000409
+  (stack buffer overrun), offset 0x19fddc — урок: thiscall = this в ECX + args
+  на стеке, callee чистит.

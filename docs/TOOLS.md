@@ -310,3 +310,14 @@ python3 tools/tex/hook_ground.py --tree <дерево> --restore   # ориги�
 - Проверка после прогонов: снапшот md5+mtime установки до/после (diff обязан быть
   нулевым; запуски игры дают известный дрейф `Lib/*.pyc`, `hd.cfg`, `hdlog.txt`,
   font-сайкары, `mm_bkg01.btf` — их убирают/не трогают), `--quick`/`--untouched` rc 0.
+
+## Профилирование (tools/perf)
+
+Сессия 18.11.2026, бой CPU-bound. Только чтение; игра гасится после прогонов.
+C#-семплеры собираются x86 (игра 32-битная): `csc /nologo /platform:x86
+/out:perf_sampler3.exe perf_sampler3.cs`; `perf_stack_sampler2` — аналогично.
+frida — Windows-интерпретатор с пакетом frida (`py -3.12 perf_frida_hook.py
+<pid> <сек> <js> <out.jsonl>`); ABI thiscall — 4-й арг строкой `'thiscall'`.
+PowerShell-пробы берут процесс по имени (`-Pid` — явно), `$env:LD_SCRATCH` —
+корень для снимков (`perf_shot.ps1 -Out`). Состав и замеры — `tools/perf/README.md`,
+`docs/PERF_BATTLE.md`.
