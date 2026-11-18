@@ -22,7 +22,8 @@
 ```
 python3 tools/ldhook/fetch_headers.py
 python3 tools/ldhook/build.py
-python3 tools/ldhook/spike.py
+python3 tools/ldhook/spike.py                      # спайк (EXE = установленный, cave)
+python3 tools/ldhook/spike.py --baseline           # Фаза 1: EXE = baseline 45e93d46 (cave нет)
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/ldhook/probe_spike.ps1 -GameRoot "<scratch>/ldhook/tree"
 ```
 
@@ -35,3 +36,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/ldhook/probe_spike.ps1
 
 Установка игры не меняется: всё в scratch-дереве (`game.install_dir` подменён
 только в `config.toml` спайка).
+
+## Дальше (Фаза 1, PLAN_proxy_dll.md §4)
+
+- `spike.py --baseline` — дерево с baseline EXE (`45e93d46…`, без cave-патча):
+  сигнатуры сайтов (`c641580159`, `898194020000`, `e8eb1bffff` из
+  `tools/exe/exepatch12.py`) есть только в нём; в установленном cave-EXE сайты
+  уже `E9 rel32` и скан их не найдёт.
+- `ldhook.pyd` → `ldhook_install()`: скан `.text` по сигнатурам, `VirtualProtect`,
+  `E9 rel32`; логика хуков — порт `tools/exe/caves/fixall.s` (guard `k==1` →
+  identity для 4:3).

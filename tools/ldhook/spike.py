@@ -8,11 +8,16 @@
    (сборка воркером 2.2.3, как в pyc-пайплайне).
 4. config.toml для scratch -> <scratch>/ldhook/config.toml (game.install_dir =
    scratch-дерево, остальные ключи — из основного config).
+5. Флаг --baseline: заменить LETHALDREAMS.EXE в дереве на baseline
+   (backup/LETHALDREAMS.EXE.pre4, md5 45e93d46…) — для Фазы 1 (хуки в памяти
+   ставятся сканом сигнатур, которые есть только в НЕcave-патченном EXE;
+   в установленном cave-версия сайтов = E9 rel32 и сигнатуры не находятся).
 
 Запуск игры: tools/ldhook/probe_spike.ps1 (снимок ОКНА + гашение).
 Гейт: <scratch>/ldhook/tree/ldhook_marker.txt существует (initldhook执行) и
 окно игры отрисовалось.
 """
+import hashlib
 import os
 import shutil
 import subprocess
@@ -28,6 +33,9 @@ import pycbuild  # noqa: E402
 
 PYD = os.path.join(_ROOT, "build", "ldhook", "ldhook.pyd")
 UI_SRC = os.path.join(_ROOT, "patches", "ui", "ui.py")
+# baseline EXE без cave-патча (для Фазы 1: сигнатуры сайтов ищутся в nhớ EXE)
+BASELINE = os.environ.get("LD_BAK") or os.path.join(_ROOT, "backup", "LETHALDREAMS.EXE.pre4")
+BASELINE_MD5 = "45e93d46aad6ceb3dfc17e86d04e4f82"
 
 SPIKE_BLOCK = """
 
@@ -123,10 +131,19 @@ def main():
     base = paths.scratch_dir("ldhook")
     tree = os.path.join(base, "tree")
     cfg_path = os.path.join(base, "config.toml")
+    use_baseline = "--baseline" in sys.argv[1:]
 
     if not os.path.isfile(PYD):
         raise SystemExit("нет артефакта сборки: %s\nсначала: python3 tools/ldhook/build.py"
                          % PYD)
+    if use_baseline:
+        if not os.path.isfile(BASELINE):
+            raise SystemExit("нет baseline EXE: %s (LD_BAK или backup/LETHALDREAMS.EXE.pre4)"
+                             % BASELINE)
+        with open(BASELINE, "rb") as fh:
+            got = hashlib.md5(fh.read()).hexdigest()
+        if got != BASELINE_MD5:
+            raise SystemExit("baseline md5 %s != %s" % (got, BASELINE_MD5))
     if os.path.isdir(base):
         print("清理 scratch: %s" % base)
         shutil.rmtree(base)
@@ -134,6 +151,10 @@ def main():
 
     print("копия установки: %s -> %s" % (src_root, tree))
     shutil.copytree(src_root, tree)
+    if use_baseline:
+        shutil.copyfile(BASELINE, os.path.join(tree, "LETHALDREAMS.EXE"))
+        print("EXE -> baseline %s (cave-патча нет; сигнатуры сайтов на месте)"
+              % BASELINE_MD5)
     shutil.copyfile(PYD, os.path.join(tree, "ldhook.pyd"))
     print("ldhook.pyd -> %s" % os.path.join(tree, "ldhook.pyd"))
     set_hidpi_flag(paths.win_path(os.path.join(tree, "LETHALDREAMS.EXE")))
