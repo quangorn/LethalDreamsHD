@@ -23,7 +23,7 @@
 
 `scratch_dir('<имя>')` и `cache_dir('<имя>')` в документах — рабочие директории из
 config (`scratch.dir`, `cache.dir` + подсказанная поддиректория). Снимки и логи
-прогонов (`scratch_dir('ld')/<tag>_win.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), `scratch_dir('ld')/<tag>_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), `scratch_dir('ld')/REPLACE_LOG.txt` (лог прогона; создаётся скриптами tools/archive/texture_qc/, в git не входит) и т. п.) — артефакты
+прогонов (`scratch_dir('ld')/<tag>_win.png` (снимок прогона), `scratch_dir('ld')/<tag>_overland.png` (снимок прогона), `scratch_dir('ld')/REPLACE_LOG.txt` (лог прогона) и т. п.) — артефакты
 прогона: они пересоздаются скриптами, в git не входят; ссылка вида
 `scratch_dir('ld')/<имя>` говорит, где их искать после прогона. Собираемые блобы
 (`fixall.bin`, `fontscale.bin`, `fontscale4x.bin`, `.o`) — в `cache_dir('cave')` после
@@ -141,6 +141,34 @@ python3 tools/exe/apply_baseline.py --output <файл>        # baseline -> ф�
 python3 tools/exe/apply_baseline.py --install          # копия baseline в install_dir
 python3 tools/exe/disex.py                # disassembly-загрузчик (py3) — базовая загрузка EXE
 ```
+
+## ldhook (.pyd-хуки в памяти, tools/ldhook)
+
+```
+python3 tools/ldhook/fetch_headers.py   # Python 2.2.3 Include/ + pyconfig.h -> vendor/py223/include (untracked)
+python3 tools/ldhook/build.py           # MSVC x86 -> build/ldhook/ldhook.pyd (gitignored)
+PYTHONDONTWRITEBYTECODE=1 LDHOOK_LOG=2 vendor/py223/python.exe tools/ldhook/smoke_api.py build/ldhook/ldhook.pyd  # API без игры
+python3 tools/ldhook/check_sites.py     # Фаза 4: аудит сайтов (installable/patched/UNEXPECTED, rc 1); после любой правки EXE
+python3 tools/ldhook/spike.py --baseline                    # scratch + baseline EXE 45e93d46 (сигнатуры сайтов целы)
+python3 tools/ldhook/spike.py                               # scratch + установленный cave-EXE (эталон exepatch12, хуки не встают)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/ldhook/probe_phase1.ps1 -GameRoot "<scratch>/ldhook/tree" -Tag phase1
+# Фаза 2 (site2+site3) — канонический зонд до оверленда:
+LD_GAME="<scratch>/ldhook/tree" LD_SCRATCH="<scratch>" LD_REPO="<repo>" `
+  powershell -NoProfile -ExecutionPolicy Bypass -File tools/probes/probe_exitcode.ps1 3840 2160 1 ldhook_p2 -Sub ldhook_p2
+# Фаза 3: уровень лога — env LDHOOK_LOG (0 off / 1 info / 2 debug), например:
+LDHOOK_LOG=2 LD_GAME=... powershell ... probe_exitcode.ps1 3840 2160 1 ldhook_p3 -Sub ldhook_p3
+```
+
+`ldhook.c` — расширение Python 2.2.3: `initldhook` ставит три хука в памяти
+(scan `.text` → `VirtualProtect` → `E9 rel32`): site1 `0x41ce31` (шрифт),
+site2 `0x40b494` (SetFont), site3 `0x47dd80` (world-проекция). Логика — порт
+`tools/exe/caves/fixall.s`, guard'ы `k==1` и `4h==3w` сохраняют 4:3 побитово.
+`.text` для скана берётся из PE-заголовков, не из констант.
+Лог — `<game>/hdlog.txt` (общий с Python-патчами; формат
+`ldhook: HH:MM:SS.mmm t<tid> I|D …`, дубль в `OutputDebugString`), уровень —
+env `LDHOOK_LOG` или `ldhook.set_level(n)`; ротация `hdlog.txt.1` после 8 MiB.
+EXE на диске не меняется. Гейты и замеры —
+`docs/PLAN_proxy_dll.md` §4, `tools/ldhook/README.md`.
 
 ## Архивы
 
@@ -310,6 +338,25 @@ python3 tools/tex/hook_ground.py --tree <дерево> --restore   # ориги�
 - Проверка после прогонов: снапшот md5+mtime установки до/после (diff обязан быть
   нулевым; запуски игры дают известный дрейф `Lib/*.pyc`, `hd.cfg`, `hdlog.txt`,
   font-сайкары, `mm_bkg01.btf` — их убирают/не трогают), `--quick`/`--untouched` rc 0.
+## Камера боя и релизные инструменты (18.11.2026)
+
+- `tools/probes/probe_camera.ps1 <W> <H> <F> <Tag>` — прогон боевой камеры: новая игра
+  (глиф «Вообразить» → скип ролика → глиф персонажа → Enter), скип обучения Enter'ом,
+  удержание W (эталон знака поворота), четыре MMB-протяжки (вправо/влево/вверх/вниз),
+  колесо вверх/вниз, снимки ТОЛЬКО окна игры (DPI-aware) в `scratch_dir('ld')/cam_probe`.
+  Флаги: `-NoMMB`, `-NoWheel`, `-LessonEnters N`, `-GameRoot <дерево>` (по умолчанию
+  scratch `tex_hook_tree`, НЕ установка), `-NoKill`. Мышь: `mouse_event` MMB down `0x20`,
+  up `0x40`, wheel `0x800` (delta 120 = щелчок); canvas→экран как в `probe_battleshot.ps1`.
+- `tools/release/update_entry.py <module>` — пересобирает `release/patches/<module>.patch`
+  (diff `decompiled_fixed/<m>.py` → `patches/<m>.py`) и запись code_tier в
+  `release/manifest.json` (py_md5/py_size, md5/size/crc32 .pyc, pyc_magic, state).
+  `installed_recorded_md5` не трогается. Флаги: `--note "...";`, `--mtime N`, `--no-patch`.
+  Канонический порядок: правка `patches/<m>.py` → `update_entry.py <m>` →
+  `apply_patch.py <m>` (гейт md5) → `install_patch.py <m> --install`.
+- `tools/release/tree_snapshot.py <install_dir> <out.json> [--diff <prev.json>]` —
+  снапшот дерева (md5+mtime по всем файлам, `__pycache__` пропускается) и diff к
+  предыдущему: `CHANGED/ADDED/REMOVED` + итог. Обязательный гейт перед/после любой
+  команды, пишущей в игру (AGENTS.md, правило 3).
 
 ## Профилирование (tools/perf)
 

@@ -8,23 +8,23 @@
 ## Где лежат файлы
 - Текстуры: `config[game.root]/data/textures/*.btf` (1258 файлов).
 - Манифесты-архивы (plain text, CRLF): `config[game.root]/data/*.tt`
-  (например `config[game.root]/data/menutextures.tt` (файл установленной игры, в git не входит)), строки вида:
-  `config[game.root]/data/textures/mm_bkg01.btf` (движок грузит texture по имени .bmp; бинар .btf лежит в установке, в git не входит) | textures\config[game.root]/data/textures/mm_bkg01.btf (файл установленной игры, в git не входит) — левое имя использует движок при загрузке,
+  (например `config[game.root]/data/menutextures.tt` (файл установки)), строки вида:
+  `config[game.root]/data/textures/mm_bkg01.btf` (движок грузит texture по имени .bmp; бинар .btf лежит в установке, в git не входит) | textures\config[game.root]/data/textures/mm_bkg01.btf (файл установки) — левое имя использует движок при загрузке,
   правое — путь к файлу `.btf`.
 
 ## Что известно о формате (`[P]` — проверено офлайн + runtime-зондом)
 1. Файл `.btf` начинается с ASCII-магии `LDPACKER\` (9 байт: `4C 44 50 41 43 4B 45 52 5C`),
-   далее 3 байта (у `config[game.root]/data/textures/mm_bkg01.btf` (файл установленной игры, в git не входит) = `30 00 E5 A0`), затем zlib-поток (magic `78 DA`
+   далее 3 байта (у `config[game.root]/data/textures/mm_bkg01.btf` (файл установки) = `30 00 E5 A0`), затем zlib-поток (magic `78 DA`
    / `78 9C` — стандартный zlib, декодрируется обычным `zlib.decompress`).
-   Пример: `config[game.root]/data/textures/mm_bkg01.btf` (файл установленной игры, в git не входит) — файл 696 565 байт, zlib начинается по offset 16.
+   Пример: `config[game.root]/data/textures/mm_bkg01.btf` (файл установки) — файл 696 565 байт, zlib начинается по offset 16.
 2. Распакованный payload = структура `mdf ` (4 байта `6D 64 66 20`), далее TLV-блоки
-   (u32 type, u32 value). Разбор `config[game.root]/data/textures/mm_bkg01.btf` (файл установленной игры, в git не входит) (offset — байты payload):
+   (u32 type, u32 value). Разбор `config[game.root]/data/textures/mm_bkg01.btf` (файл установки) (offset — байты payload):
    - `pos 4: type=1, value=116` (длина header-блока = 116 байт, т.е. 12 TLV-пар)
    - `pos 12: value=3145804, type=117` — total-размер payload после header
    - `pos 20: value=4, type=1` — bpp=4
    - `pos 28: type=118, value=48`
    - `pos 36..51` — имя файла ASCII (`config[game.root]/data/textures/mm_bkg01.btf` (движок грузит texture по имени .bmp; бинар .btf лежит в установке, в git не входит)), разбито по u32
-   - `pos 52: value=1024, pos 56: value=1024` (у mm_bkg01; у `config[game.root]/data/textures/ol_r_bkg.btf` (файл установленной игры, в git не входит) — `512, 512`)
+   - `pos 52: value=1024, pos 56: value=1024` (у mm_bkg01; у `config[game.root]/data/textures/ol_r_bkg.btf` (файл установки) — `512, 512`)
      → это размеры текстуры (w,h), закодированные ASCII-десятичными числами
    - `pos 60..83` — поля (0,1), `33554432` (=0x02000000) x2, 0
    - `pos 84: type=119, value=3145728` — длина pixel-blob'а
@@ -34,12 +34,12 @@
 3. Pixel-blob лежит в хвосте payload (после TLV-цепочки, длина из type=119), contiguous.
 4. Runtime-зонд движка подтверждает: `LoadMaterial('mm_bkg01.bmp')` даёт материал из `.btf`,
    текстура 1024x1024; Python API движка пиксели НЕ отдаёт, т.е. расшифровка офлайн обязательна.
-5. Предварительный раскод BGRA row-major (stride w*4) по blob'у `config[game.root]/data/textures/mm_bkg01.btf` (файл установленной игры, в git не входит) даёт канвас
+5. Предварительный раскод BGRA row-major (stride w*4) по blob'у `config[game.root]/data/textures/mm_bkg01.btf` (файл установки) даёт канвас
    с повторяющимися глифами-глазами; эти глифы совпадают с текстурами UI-кнопок меню
    (`mm_eye.tga` (утрачен: покрытия нет ни в git, ни в приватных архивах сессий Project/1-3.7z, 5.7z, 6.7z, 7.7z, original.7z, hd_pack.7z, python_libs.7z), `mm_r_*` из манифеста) → layout row-major корректен.
 
 ## Ключевая задача проверки
-Главный критерий корректности: после распаковки текстуры меню (`config[game.root]/data/textures/mm_bkg01.btf` (файл установленной игры, в git не входит)) она должна
+Главный критерий корректности: после распаковки текстуры меню (`config[game.root]/data/textures/mm_bkg01.btf` (файл установки)) она должна
 визуально совпадать с фоном меню в самой игре (движок отображает её как фон под UI).
 Кандидат раскода, ранее показанный в игре, не был принят. Если row-major BGRA не даёт
 правильную картинку — перебрать варианты: порядок байт канала (BGRA/RGBA/ABGR), stride
@@ -60,8 +60,8 @@
 2. Один за раз: CLI `unpack_btf.py <файл.btf> [-o выход.png]`, пакетный режим папкой.
 3. Кандидат записывать в temp-папку; не писать на рабочий стол; при переборе раскладок
    печатать отчёт с параметрами раскода (w, h, layout, порядок каналов).
-4. Проверка: раскод `config[game.root]/data/textures/mm_bkg01.btf` (файл установленной игры, в git не входит) визуально совпадает с фоном меню игры (сверка в игре);
-   раскод глифов кнопок (`config[game.root]/data/textures/mm_r_load.btf` (файл установленной игры, в git не входит), `mm_eye`) — recognizable глифы; размеры w/h из TLV
+4. Проверка: раскод `config[game.root]/data/textures/mm_bkg01.btf` (файл установки) визуально совпадает с фоном меню игры (сверка в игре);
+   раскод глифов кнопок (`config[game.root]/data/textures/mm_r_load.btf` (файл установки), `mm_eye`) — recognizable глифы; размеры w/h из TLV
    равны blob/(4*w*h) у всех проверенных файлов.
 
 ## Запреты

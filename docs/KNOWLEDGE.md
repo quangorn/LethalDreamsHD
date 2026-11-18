@@ -60,8 +60,10 @@
 
 - `dxwrapper` (сторонний) не входит в проект; borderless-механика описана
   в `docs/archive/PLAN_borderless.md`.
-- Игровая установка содержит `LD-diag.bat` (чистится), `LD-setup.bat`,
-  `hdlog.txt` (создаётся игрой, в git не входит), RE-дебрис `__pycache__/re.cpython-312.pyc` (чистится).
+- Игровая установка содержит `LD-diag.bat` (чистится), `hdlog.txt` (создаётся игрой, снимок прогона);
+  `LD-setup.bat` удалён из установки по решению пользователя (2026-11-18): в `original.7z` его нет,
+  копия есть только в snapshot `6.7z`. RE-дебрис
+  `__pycache__/re.cpython-312.pyc` (чистится).
 - Q-режим шрифтов (`gen_fontq.py` (утрачен: покрытия нет ни в git, ни в приватных архивах сессий Project/1-3.7z, 5.7z, 6.7z, 7.7z, original.7z, hd_pack.7z, python_libs.7z), PATCH_Q_MODE.md) — удалён как негодный
   (в игре Q-сайдкаров не было).
 
@@ -75,7 +77,7 @@
   декомпилята (с зондами); после отката к оригинальным `.pyc`
   (`tools/pyc/pycbuild.py uninstall ui/ui`, `ui/cursor`) — **курсор в порядке**. Клик по глифу работает и на декомпиляте.
   Вывод: правки поверх целых декомпилированных модулей ломают игру — декомпилят
-  (`cursor.py` (историческая ссылка; игровой модуль, база декомпилята — локальная, не в git) паритет 0.963) непригоден как база правок; база правок = **оригинальные
+  (`cursor.py` (историческая ссылка) паритет 0.963) непригоден как база правок; база правок = **оригинальные
   `.pyc` + минимальный собственный модуль**, не трогая UI-модули.
 
 
@@ -85,7 +87,7 @@
   - `InitBillboard(...)` → `BillBoard.Set(x, y, prior, w, h)` (+ `SetFont/SetTextLeading/
     SetTextRowSpacing/SetTextOffset`);
   - `SetPos(name, x, y, w, h)` → `billboard.Set(x, y, prior, w, h)` — все перемещения
-    (`cursor.py` (историческая ссылка; игровой модуль, база декомпилята — локальная, не в git), `mainmenu.py` (историческая ссылка; игровой модуль, база декомпилята — локальная, не в git), `bpref.py` (историческая ссылка; игровой модуль, база декомпилята — локальная, не в git) идут через него);
+    (`cursor.py` (историческая ссылка), `mainmenu.py` (историческая ссылка), `bpref.py` (историческая ссылка) идут через него);
   - `AutoPosition(name)` и `SetPrior(name, prior)` → `.Set(param['x'], param['y'], prior,
     param['w'], param['h'])`;
   - `CheckRefInPoint(name, x, y)` — hit-test движка;
@@ -102,8 +104,11 @@
   `wglGetProcAddress`, `wglChoosePixelFormatARB`, `glBegin`, «OpenGl init failure».
   Импорт-таблица EXE: WINMM, DSOUND(ordinal 1 = DirectSoundCreate), KERNEL32, USER32,
   GDI32, ADVAPI32, ole32, python22.dll — **никаких ddraw/d3d8/d3d9**.
-  `lethaldreams.dll` (движок окна/сплэша) — GDI+USER32, без DirectX; `BTexturer.dll`
-  — MSVC CRT, без DirectX.
+  `lethaldreams.dll` — **не используется в финальной сборке** (StarForce/SFORCE-протектор,
+    отключён): EXE её ни статически не импортирует, ни загружает в рантайме, игра работает
+    без неё (проверено 2026-11-18: запуск с удалённой DLL доходит до меню, в списке
+    загруженных модулей её нет). Удалена из установки (бэкап `backup_orig/lethaldreams.dll`,
+    оригинал в `original.7z`); `BTexturer.dll` — MSVC CRT, без DirectX.
 - `[P]` Fullscreen реализован самим движком: EXE импортирует `ChangeDisplaySettingsA` +
   `EnumDisplaySettingsA`; `SetDisplayMode(w,h,bpp,f)` при f=1 делает **реальную смену
   режима** (`ChangeDisplaySettingsA(&devmode, CDS_FULLSCREEN)`) и затем popup-окно
@@ -147,7 +152,7 @@
   **(676,103)**, **(349,658)**, **(676,658)**; кнопка «Начать» ≈ канвас **(512,569)**.
   Скрипт: `tools/archive/probes/probe_loadshot.ps1 <W> <H> <F> <Tag> -Mode new -SkipClicks 2 -CharX 349 -CharY 658 -EnterCount 2 -LoadWait 3`
  (после Enter снимает
-  `scratch_dir('ld')/<tag>_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) = бой).
+  `scratch_dir('ld')/<tag>_overland.png` (снимок прогона) = бой).
 
 
 ## Почва карт: `.tex` в `.map` (2026-11-17)

@@ -43,6 +43,35 @@ python_libs.7z; тот же мандат applies к истории сессий.
  5. `python3 tools/exe/exepatch_video43.py` — **эксперимент, откатён (16.11.2026)**: сайт-jmp (VA `0x49a322`, вызов `IVideoWindow::SetWindowPosition`) + пещера `tools/exe/caves/video43.s` в zero-run `.rdata` (VA `0x50ec70`) + флаг исполняемости `.rdata`. Игра падает (`0xc0000005`, адрес вне образа) — путь закрыт, см. `docs/PITFALLS.md`, «Пещера в `.rdata` для 4:3 роликов». `--install`/`--restore`; после отката EXE = эталон `171319bbc170…`.
 
 
+## ldhook-пайплайн (.pyd-хуки в памяти)
+
+1. `python3 tools/ldhook/fetch_headers.py` — официальные заголовки Python 2.2.3
+   в `vendor/py223/include/` (untracked; `*.LIB` уже в `vendor/py223/DLLs/`).
+2. `python3 tools/ldhook/build.py` — MSVC x86 (`/fp:precise`) →
+   `build/ldhook/ldhook.pyd` (gitignored). Смоук Python-API без игры:
+   `LDHOOK_LOG=2 vendor/py223/python.exe tools/ldhook/smoke_api.py
+   build/ldhook/ldhook.pyd`.
+3. `python3 tools/ldhook/spike.py --baseline` — полная копия установки в
+   `paths.scratch_dir('ldhook')/tree`, `ldhook.pyd` в корень, `ui/ui.pyc` =
+   `patches/ui/ui.py` + блок `imp.load_dynamic`, EXE заменён на baseline
+   `45e93d46…` (в установленном cave-EXE сигнатуры сайтов уже `E9`, скан их не
+   найдёт). Без `--baseline` — дерево с установленным cave-EXE (эталон
+   `exepatch12` для A/B; хуки не ставятся).
+4. Прогон: `tools/probes/probe_exitcode.ps1` (16:9 → оверленд, site2/site3;
+   4:3 → identity). Лог — `<scratch>/ldhook/tree/hdlog.txt` (общий с
+   Python-патчами; зонд копирует его в `<Tag>_hdlog.txt`), уровень — env
+   `LDHOOK_LOG` (`0` off, `1` info по умолчанию, `2` debug-трассировка).
+5. Гейт 16:9: `site3_impl` пишет `matrix[0] = 0x3F7987FA` (эталон exepatch12);
+   гейт 4:3: `guard 4h==3w -> identity` и `k==1.0 -> identity`, записей нет;
+   гейт Фазы 3: при `LDHOOK_LOG=1` в логе только `I`-строки, при `2` —
+   `D`-трассировка с троттлингом.
+   EXE на диске не модифицируется (только `VirtualProtect` в памяти).
+6. Аудит Фазы 4 (без игры, после любой правки EXE):
+   `python3 tools/ldhook/check_sites.py` — уникальность трёх сигнатур в `.text`;
+   `installable` (baseline) / `patched` (cave exepatch12) / `UNEXPECTED` (rc 1).
+   Решение: установка остаётся на cave, `ldhook.pyd` — путь следующих правок.
+
+
 ## btf-пайплайн (курсоры/иконки)
 
 `unpack_btf.py` (распаковка blob→PNG, canon top-down) → апскейл/перерисовка
@@ -127,7 +156,7 @@ baseline `45e93d46…` (`backup/LETHALDREAMS.EXE.pre4`) → exepatch12 (cave) =
   `tools/pyc/make_cfg.py` (SRC/GS_SRC) переведены на `decompiled_fixed/`.
 - `[P]` Гейт на новой базе: `python3 tools/pyc/pycbuild.py gate` -> **434 компилируются, 0 падают**.
   Паритет по новой базе показывает дельту my-build против УСТАНОВЛЕННОГО `.pyc`
-  (файл установленной игры, в git не входит) (cmd_parity
+  (файл установки) (cmd_parity
   сравнивает с game_pyc = установленным), т.е. числа вроде ui/ui 0.2968 = мои HD-правки,
   не дефект базы.
 - `[P]` Удалены папки `decompiled/` и `decompiled_snap/` (остался `decompiled_manifest.json` (историческая ссылка; рабочая директория, в git не входит)

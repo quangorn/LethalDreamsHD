@@ -101,6 +101,7 @@ tools/btf/              unpack/pack btf: курсоры и иконки
 tools/fonts/            unpack/pack шрифтов, пиксельные измерения и пересчёт
 tools/measure/          измерение скриншотов
 tools/exe/              патчи exe, cave-патч, базовая цепочка exe
+tools/ldhook/           .pyd-хуки в памяти (Python 2.2.3): сборка, логгер, аудит сайтов, scratch-дерево, probe
 tools/archive/        [ИСТОРИЧЕСКИЙ АРХИВ] рабочие скрипты сессий (см. README внутри)
 docs/                   документация: INDEX (указатель), STATE, VERIFY, PATCHES, PIPELINE,
                         TOOLS, KNOWLEDGE, OBSERVATIONS_ENGINE/UI/FONT/TEXTURE,
@@ -132,9 +133,10 @@ patches/                исходники скриптов-патчей (.py; .
 - Установленная игра проверяется по манифесту; два известных drift'а кодового яруса
   (`ui/cursor.pyc`, `ui/olmenu.pyc`, см. `docs/STATE.md`) — checker разбирает их и
   объясняет команду применения (`docs/VERIFY.md`).
-- 5097 файлов установки; неприкосновенные: 2968 pristine, 1379 HD Pack (включая
-  30 `.map` с 3x-почвой), 750 пользовательского бэкапа/исключений
-  (замеры: `docs/VERIFY.md`).
+- 5095 файлов установки; неприкосновенные: 2967 pristine, 1379 HD Pack (включая
+  30 `.map` с 3x-почвой), ALLOWED 728 (пользовательский бэкап/исключения)
+  (замеры: `docs/VERIFY.md`; `lethaldreams.dll` и `LD-setup.bat` удалены из установки
+  2026-11-18 по решению пользователя — см. `docs/KNOWLEDGE.md`).
 
 ## Документация
 

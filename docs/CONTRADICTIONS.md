@@ -51,7 +51,7 @@
 > Актуальный итог см. в разделе «SProtect опровергнута» ниже и в `docs/archive/TODO_FONT_WIDTH.md`.
 > Ниже — как было тогда, с пометками о том, что оказалось неверно.
 
-- `[P]` `приватный архив сессий Project/1.7z, entry LethalDreams/exepatch7.py` (исторический скрипт сессии; в git не входит) (x87 caves) и `приватный архив сессий Project/1.7z, entry LethalDreams/exepatch7int.py` (исторический скрипт сессии; в git не входит) (pure-int caves, K=4h/3w, NUM/DEN int в .data) —
+- `[P]` `приватный архив сессий Project/1.7z, entry LethalDreams/exepatch7.py` (исторический скрипт (не в git)) (x87 caves) и `приватный архив сессий Project/1.7z, entry LethalDreams/exepatch7int.py` (исторический скрипт (не в git)) (pure-int caves, K=4h/3w, NUM/DEN int в .data) —
   все кодировки сверены gcc (`tools/archive/cave_gen/enc3.s`, `tools/archive/cave_gen/enc4.s`). Бисекция: siteK(page 0x477)=краш 0xC000041D;
   siteA/siteW(page 0x41c)=краш 0xC0000005; caves в исполняемом zero-run .text 0x4ebf12 — тоже краш.
   Чистый baseline в 4K fullscreen живёт.
@@ -62,10 +62,10 @@
   → глифы обрезаются справа, текст нечитаем (`x7fdf_4k`). Годен только полный офлайн-рендер листов.
 - `[P]` **Рабочий результат: `tools/archive/font_gen/rescale_font5.py -k 0.75 --install`** — полный масштаб: pitch (38->28,
   25->18, 19->14, 16->12), полосы листа перекладываются с шагом new_pitch, ink×0.75 (якорь низ),
-  adv×0.75 floor; UV=cell консистентен (bandviol=0, bleed≤17). Снимок `scratch_dir('ld')/x7sheet_4k_dialog_nocursor.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит):
+  adv×0.75 floor; UV=cell консистентен (bandviol=0, bleed≤17). Снимок `scratch_dir('ld')/x7sheet_4k_dialog_nocursor.png` (снимок прогона):
   текст равномерно уменьшен обеими осями, читаем, ряды диалога на своих позициях (межряд. шаг ~78px — из UI-layout, не из pitch).
-- `[P]` 4:3-регрессия: активные файлы = `*_43` originals → снимок `scratch_dir('ld')/x7p43_dialog_nocursor.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) vs
-  `scratch_dir('ld')/p43_base_win.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит): meanDelta=0.44 over_tol=1746px — отличия только в зоне анимации кольца (центр),
+- `[P]` 4:3-регрессия: активные файлы = `*_43` originals → снимок `scratch_dir('ld')/x7p43_dialog_nocursor.png` (снимок прогона) vs
+  `scratch_dir('ld')/p43_base_win.png` (снимок прогона): meanDelta=0.44 over_tol=1746px — отличия только в зоне анимации кольца (центр),
   текстовые области = 0. Побитовая идентичность гарантирована files=originals.
 - `[P]` Состояние на диск **на тот момент** (сейчас: EXE патчен `exepatch9`, шрифты родные —
   см. «ТЕКУЩЕЕ СОСТОЯНИЕ»): EXE = чистый baseline; активные шрифты = 169-набор (k=0.75) через

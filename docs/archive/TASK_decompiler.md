@@ -17,7 +17,7 @@
 декомпиллятор печатает **индекс** константы как целое. Пример (оригинал vs декомпилят):
 
 ```
-Оригинал (dis оригинального игрового `.pyc` — файл установленной игры, в git не входит;
+Оригинал (dis оригинального игрового `.pyc` — файл установки;
 CBattlemenu.__init__):
   LOAD_CONST 750; 0; 244; 50; ui.GUI_TNORMAL; CONST7 ''(строка); 0;
   BUILD_LIST 8: inner = CONST7 ''(строка), CONST8 'ld_uncial12', FONT_H, CONST3 1, CONST2 0, CONST2 0
@@ -36,7 +36,7 @@ BM-B0EXC 'int' object has no attribute 'find'
 ```
 
 Последствие: создание боевого меню обрывается, **весь боевой HUD исчезает**
-(проверено снимками `scratch_dir('ld')/p4kbt_overland.png`, `scratch_dir('ld')/p43bt2_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит)).
+(проверено снимками `scratch_dir('ld')/p4kbt_overland.png`, `scratch_dir('ld')/p43bt2_overland.png` (снимок прогона)).
 
 ### Почему существующие инструменты не спасают
 
@@ -117,7 +117,7 @@ BM-B0EXC 'int' object has no attribute 'find'
 - В игру (`config[game.root]/data/scripts/`) **ничего не устанавливать**: живая игра
   сейчас содержит наши `.pyc` (патчи `gamescript`, `hd_res`, `hd_scale`, `ui/olmenu`),
   и `pycbuild.py parity <module>` сравнивает с **живым** файлом, а не с оригиналом —
-  для сравнения используй `backup_orig/ui/battlemenu.pyc` (пример: `tools/pyc/parity_vs.py` (источник в git; собираемые блобы — в paths.cache_dir('cave'))).
+  для сравнения используй `backup_orig/ui/battlemenu.pyc` (пример: `tools/pyc/parity_vs.py` (собираемый блоб)).
 - Игра запускается скриптом `probe_loadshot.ps1`; запускать её для этого задания **не нужно**.
 
 ## Приёмка (критерий готовности)

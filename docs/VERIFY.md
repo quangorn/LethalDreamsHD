@@ -44,17 +44,20 @@ co_filename; `docs/PATCHES.md`).
 префикса `LethalDreams/`) → SNAPSHOT; basename+(size,crc) fallback; basename
 (без контента) → REPO_BASENAME; UNCOVERED — репорт.
 
-Замер на установке (5097 файлов, без `__pycache__`, 18.11.2026):
+Замер на установке (5095 файлов, без `__pycache__`, 18.11.2026; `lethaldreams.dll` и
+`LD-setup.bat` удалены из установки по решению пользователя):
 
-- PRISTINE **2968**, HD_PACK **1379** (включая 30 `data/maps/*.map` с 3x-почвой),
-  ALLOWED **729**, CODE **17**, EXCLUDED **4**, UNCOVERED **0**;
+- PRISTINE **2967**, HD_PACK **1379** (включая 30 `data/maps/*.map` с 3x-почвой),
+  ALLOWED **728**, CODE **17**, EXCLUDED **4**, UNCOVERED **0**;
   `hd.cfg` классифицируется как REPO; `console.py` — REPO_BASENAME; — артефакт
   пайплайна, в git не входит
 - allowlist: `data/video/*.wmv` (glob) + `.log`-класс; отсутствие
   `boolat.wmv`, `russobit_r.wmv` — разрешено (присутствуют в archive, отсутствуют
   в установках; run без exclude это доказывает);
-- exclude-файлы (`check.exclude` из config) не репортятся; пустой allowlist
-  `absent_ok` доказывает glob-семантику.
+- `absent_ok`: `lethaldreams.dll` (удалён из установки как неиспользуемый StarForce-стаб,
+  см. `docs/KNOWLEDGE.md`) — не репортится как MISSING.
+- `LD-setup.bat` удалён из установки по решению пользователя (2026-11-18): snapshot-only
+  запись (в `original.7z` файла нет), MISSING не репортится; строка снята из allowlist'а.
 
 black-эксперимент: чёрные .btf в установку не входят (флагов нет, sidecar-черные
 только в snapshot) — ярус untouched их не требует.
@@ -63,7 +66,7 @@ black-эксперимент: чёрные .btf в установку не вх�
 
 1. real install `--quick`: 1 DRIFT (cursor) + fix_command, rc 1; снапшот diff 0;
 2. real install `--full`: rc 0, KNOWN-drift, diff 0;
-3. `--untouched`: rc 0 (PRISTINE 2968 / HD_PACK 1379 / ALLOWED 729 / CODE 17 /
+3. `--untouched`: rc 0 (PRISTINE 2967 / HD_PACK 1379 / ALLOWED 728 / CODE 17 /
    EXCLUDED 4 — без code-файлов), diff 0;
 4. fake game (полная копия, sabotaged: gamescript.pyc modified, white.btf deleted,
    zzz_inject.pyc (утрачен: покрытия нет ни в git, ни в приватных архивах сессий Project/1-3.7z, 5.7z, 6.7z, 7.7z, original.7z, hd_pack.7z, python_libs.7z) added): quick rc1 (DRIFT pyc + DRIFT registry), full rc1 — исторический прогон сессии, артефакты в git не входят
@@ -91,7 +94,7 @@ black-эксперимент: чёрные .btf в установку не вх�
 - `[P/U]` **4:3-регрессия пройдена (2026-11-14, пользователь подтвердил).** Прогон
   1920x1440 окно с установленными `gamescript.pyc` (hook) + `hd_scale.pyc`: — компиляты `.pyc` в установке, в git не входит
   лог даёт `k=1.0 dx=0.0`, пост-фиксы ни разу не сработали (identity-гарантура
-  обёрток), меню целое, курсор работает. Снимок `scratch_dir('ld')/c43_win.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) = база.
+  обёрток), меню целое, курсор работает. Снимок `scratch_dir('ld')/c43_win.png` (снимок прогона) = база.
 - `[U]` **16:9 fullscreen (3840x2160, hd7): все пункты ок** (фон без полос, глифы,
   диалог, курсор); остаток — лёгкая вертикальная вытянутость некоторых элементов
   («разберёмся потом»). `[P]` Того прогона семантика: движок Y мыши = P/s uniform
@@ -119,18 +122,20 @@ black-эксперимент: чёрные .btf в установку не вх�
   масштаба -> фон/мир на весь экран, UI-бокс 1024k x 768k по центру.
 - `[P]` Замер 16:9 (прогон hd5, 3840x2160 fullscreen): все UI-зоны переданы движку по
   `e = k*c + dx` (k=0.75, dx=128), полос 480 px; курсор-иконка следует за мышью с
-  точностью до пикселя по 5 OSPOS-точкам. Снимок `scratch_dir('ld')/hd5_win.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит).
+  точностью до пикселя по 5 OSPOS-точкам. Снимок `scratch_dir('ld')/hd5_win.png` (снимок прогона).
 - `[P]` Наблюдение: после fullscreen-прогонов окно 1920x1440 измерилось как
   1920x1440 физическое (без DWM-виртуализации), до — 1440x1080; снимать DPI-aware.
 
 
 ## Финальная верификация (2026-11-16)
 
-- `[P]` rc-модель после всех правок: `--quick` rc 1 (ровно два документированных дрейфа
-  `ui/cursor.pyc` — `4a8eb4bab413…` против опубликованной базы `60754a253515…`,
-  `ui/olmenu.pyc` — приватная историческая сборка), `--full` rc 0, `--untouched` rc 0;
-  установка 5097 файлов, md5-diff до/после всех прогонов = 0, EXE 1191936 B
-  `171319bbc170cf6e57c8d36a8ae5f50d`.
+- `[P]` rc-модель: `--quick` rc 1 (два известных дрейфа — `ui/cursor.pyc` `4a8eb4bab413…` против
+  base-печати `60754a253515…`, и историческая сборка `ui/olmenu.pyc`), `--full` rc 0, `--untouched` rc 0;
+  EXE установки `171319bbc170cf6e57c8d36a8ae5f50d` (1191936 B), md5-diff установок = 0.
+- `[P]` (2026-11-18) Из установки удалены `lethaldreams.dll` (неиспользуемый
+  StarForce/SFORCE-стаб; копия в `backup_orig/` и в `original.7z`) и `LD-setup.bat`
+  (копия только в snapshot `6.7z`). Установка 5095 файлов; `lethaldreams.dll` в
+  `absent_ok`, строка `ld-setup.bat` из allowlist'а снята. Ярусы — новых нарушений нет.
 - `[P]` Цепь EXE воспроизведена: pristine `7943036fbd1233a0dbd43228f129cfc7` → exepatch3
   `deed9cf640de1fe31ecec6deacad21bd` → +2 байта `6A 00`→`6A 01` на fileoff 632177..632178
   = baseline `45e93d46aad6ceb3dfc17e86d04e4f82` (`backup/LETHALDREAMS.EXE.pre4`, побайтно)
@@ -148,10 +153,6 @@ black-эксперимент: чёрные .btf в установку не вх�
   753 экспортов DLL. Импорты `MSVCRT` (162), `KERNEL32` (39), `ADVAPI32` (6), `USER32` (1),
   `SHELL32` (1) принадлежат `python22.dll`, не EXE. PE TimeDateStamp `python22.dll` =
   1054332733 = 2003-05-30 22:12 UTC; строка `2.2.3` в DLL есть, строки `30.05.2003` нет.
-- `[P]` Нейтрализация личных путей архива (104 файла): скан личных путей по всем
-  отслеживаемым файлам = 0 вхождений; AST: 48/49 core-`.py` парсятся (падает
-  документированный py2-only `tools/pyc/py22_worker.py`), 97/105 архивных `.py`
-  (8 py2-only, список — `tools/archive/README.md`); все 51 `.ps1` парсятся PowerShell
-  без ошибок; скан ссылок-токенов: 812 токенов, без адреса 0; нечётных inline-кодовых
-  строк 37 (унаследованные), новых дефектов 0. Состав SNAPSHOT_ONLY (741) исправлен в
-  `docs/STATE.md`: `data/scripts/*.pyc` = 10 (5 в корне `data/scripts` + 5 в `ui/`).
+- `[P]` Нейтрализация личных путей архива (104 файла): скан личных путей по отслеживаемым файлам = 0;
+  py2-only — `tools/pyc/py22_worker.py` (core) и 8 архивных (список `tools/archive/README.md`);
+  состав SNAPSHOT_ONLY в `docs/STATE.md`: `data/scripts/*.pyc` = 10 (5 в корне + 5 в `ui/`).

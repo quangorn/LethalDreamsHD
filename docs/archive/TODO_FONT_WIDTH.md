@@ -49,7 +49,7 @@
 
 ## Текущее состояние кода (что уже стоит)
 
-EXE (`приватный архив сессий Project/1.7z, entry LethalDreams/exepatch9.py` (исторический скрипт сессии; в git не входит), md5 `49976478943f0e2871872a2c6fb55f28`):
+EXE (`приватный архив сессий Project/1.7z, entry LethalDreams/exepatch9.py` (исторический скрипт (не в git)), md5 `49976478943f0e2871872a2c6fb55f28`):
 - сайт 1 `0x41ce31` (5 Б) → `cave1` = хвост `FUN_0041cc90` (ленивая нормировка UV):
   ставит флаг, считает `k` из `[0x51cc7c]+0x18/+0x1c`, `k>1` зажимает в 1.0,
   `pitch *= k`, все 256 advance'ов `*= k` с накоплением ошибки (carry);
@@ -57,7 +57,7 @@ EXE (`приватный архив сессий Project/1.7z, entry LethalDream
   после сохранённых байт зовёт `FUN_0041cc90(шрифт)`, чтобы шрифт был сжат ДО `SetText`
   (иначе перенос строк считался по несжатым advance'ам);
 - пещера: VA `0x4ebf12`, блоб 192 Б (`cave1` 0x00..0x7a, `cave2` 0x80..0xad, константы
-  0xb0/0xb8), сборка `sh tools/exe/build_cave.sh` из `tools/exe/caves/fontscale.s` (источник в git; собираемые блобы — в paths.cache_dir('cave'));
+  0xb0/0xb8), сборка `sh tools/exe/build_cave.sh` из `tools/exe/caves/fontscale.s` (собираемый блоб);
 - свободного места в zero-run осталось ~46 байт (регион `0x4ebf12..0x4ec000` = 238 Б).
 
 Python (`patches/hd_scale.py`, ставится `python install_patch.py hd_scale`):
@@ -146,12 +146,12 @@ python tools/measure/gyr2.py "scratch_dir('ld')/ng43_newgame.png"  1.25  0   1.2
 Цель: `sd` в 4K == `sd` в 4:3 (сейчас 4K больше на 2–3 %).
 
 Регресс 4:3: `python3 tools/measure/pngregdiff.py scratch_dir('ld')/base8_43_dialog_nocursor.png scratch_dir('ld')/<new>_43_dialog_nocursor.png 8`
-(снимки — снимок прогона съёмки; пересоздаётся скриптами, в git не входит)
+(снимки — снимок прогона)
 должен давать только дизеринг (`maxDelta` ≤ 15, `over_tol` ~0); сетки строк сверять
 `tools/measure/tb2.py` — совпадение до сотых.
 
-Полезные эталоны в `scratch_dir('ld')/`: `scratch_dir('ld')/ng43_newgame.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), `scratch_dir('ld')/ng4kc_newgame.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит)
-(после переноса шрифта на `SetFont`), `scratch_dir('ld')/base8_43_dialog_nocursor.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), `scratch_dir('ld')/pd_4k_dialog_nocursor.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит)
+Полезные эталоны в `scratch_dir('ld')/`: `scratch_dir('ld')/ng43_newgame.png` (снимок прогона), `scratch_dir('ld')/ng4kc_newgame.png` (снимок прогона)
+(после переноса шрифта на `SetFont`), `scratch_dir('ld')/base8_43_dialog_nocursor.png` (снимок прогона), `scratch_dir('ld')/pd_4k_dialog_nocursor.png` (снимок прогона)
 (диалог после `exepatch9`).
 
 ## Что НЕ надо повторять

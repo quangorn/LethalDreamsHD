@@ -43,7 +43,7 @@ caption-поля, спроецированный на экран (`x*sx`, `y*sy`
 
 - Референс 4:3 (`scratch_dir('ld')/ref43_dialog_nocursor.png`), регион `(19,69)+588x38`:
   полоса **21 px** при экранном rect 37.5 px (canvas rect 30, sx=sy=1.25) → доля **0.56**.
-- 4K fullscreen, родные листы (`scratch_dir('ld')/natk_dlg_nocursor.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит)), регион `(56,155)+1763x113`:
+- 4K fullscreen, родные листы (`scratch_dir('ld')/natk_dlg_nocursor.png` (снимок прогона)), регион `(56,155)+1763x113`:
   полоса **47 px** при экранном rect 84.4 px (canvas rect 30, `sy = 2160/768 = 2.8125`) → доля **0.557**.
 
 **Вывод: вертикальная доля текста при 4K на родных шрифтах уже совпадает с референсом.**
@@ -135,9 +135,9 @@ KERNEL32 (`FindFirstFileA`/`FindNextFileA`/`FindClose`), USER32 (`MessageBoxA`),
 - Меню показывается сразу после запуска (сплэша нет). Глиф «Изменить» — у самого низа кадра;
   при 4K fullscreen кликается точкой **(2378, 1856)**; он открывает диалог настроек.
 - `probe_dlgshot.ps1 -W .. -H .. -F .. -Tag .. -Sub ld -MenuSec N -NoClick` — пишет `hd.cfg`,
-  запускает, снимает окно (`scratch_dir('ld')/<tag>_hover.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит)), оставляет игру запущенной (pid в выводе).
+  запускает, снимает окно (`scratch_dir('ld')/<tag>_hover.png` (снимок прогона)), оставляет игру запущенной (pid в выводе).
 - `probe_clickshot.ps1 -Pid_ <pid> -Ax 2378 -Ay 1856 -Tag .. -Sub ld` — клик + снимок
-  (`scratch_dir('ld')/<tag>_pre.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), `scratch_dir('ld')/<tag>_dlg.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), `scratch_dir('ld')/<tag>_dlg_nocursor.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит)).
+  (`scratch_dir('ld')/<tag>_pre.png` (снимок прогона), `scratch_dir('ld')/<tag>_dlg.png` (снимок прогона), `scratch_dir('ld')/<tag>_dlg_nocursor.png` (снимок прогона)).
 - `measure_textrows.ps1 -Png <файл> -X0 -Y0 -W -H -T 170` — построчный профиль яркости и BANDS.
 - Накат python-патчей: `python3 tools/pyc/pycbuild.py install-min` (gamescript + hd_res),
   `python3 install_patch.py hd_scale`.
@@ -214,9 +214,9 @@ KERNEL32 (`FindFirstFileA`/`FindNextFileA`/`FindClose`), USER32 (`MessageBoxA`),
 после сжатия 6.14 vs 6.04 — в пределах 2%. Высота полосы при 4K не изменилась
 (58 px до и после) — вертикаль не тронута, как и требовалось.
 
-Диалог целиком: 4K `scratch_dir('ld')/f169b_dialog_nocursor.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), 2K `scratch_dir('ld')/r2k_dialog_nocursor.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит),
-4:3 `scratch_dir('ld')/r43new_dialog_nocursor.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) (свежий, без затухания — прежний
-`scratch_dir('ld')/ref43_dialog_nocursor.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) снят в момент fade-in и для замеров не годится).
+Диалог целиком: 4K `scratch_dir('ld')/f169b_dialog_nocursor.png` (снимок прогона), 2K `scratch_dir('ld')/r2k_dialog_nocursor.png` (снимок прогона),
+4:3 `scratch_dir('ld')/r43new_dialog_nocursor.png` (снимок прогона) (свежий, без затухания — прежний
+`scratch_dir('ld')/ref43_dialog_nocursor.png` (снимок прогона) снят в момент fade-in и для замеров не годится).
 
 ### Что осталось (не связано со шрифтами, было и до правки)
 
