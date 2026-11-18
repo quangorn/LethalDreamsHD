@@ -306,8 +306,8 @@
   ]
  },
  "game_install": {
-  "file_count": 5096,
-  "note": "5096 files after cleanup (lethaldreams.dll removed 2026-11-18 as unused StarForce stub; backup in backup_orig/, original in original.7z; absent_ok in allowlist); LD-setup.bat present (old version, snapshot-identical); hd.log/hdlog.txt is recreated by the game; the black-bg experiment is NOT installed (no *.flag in the install)"
+  "file_count": 5095,
+  "note": "5095 files: lethaldreams.dll and LD-setup.bat removed from the install by user decision 2026-11-18 (lethaldreams.dll backed up in backup_orig/, LD-setup.bat kept only in the 6.7z snapshot, absent from original.7z; LD-setup.bat dropped from the allowlist); hd.log/hdlog.txt is recreated by the game; the black-bg experiment is NOT installed (no *.flag in the install)"
  },
  "meta": {
   "generated": "2026-11-16, measured fresh over the real install and the three archives (original.7z, 6.7z snapshot, hd_pack.7z) by the authoring script; the checker recomputes every number from disk",

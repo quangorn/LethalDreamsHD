@@ -2,8 +2,9 @@
 
 ## Установленная игра (эталон проверки)
 
-- `game.root` (из config.toml): 5095 файлов (было 5097; `lethaldreams.dll` удалён 2026-11-18 как
-  неиспользуемый StarForce-стаб, `LD-setup.bat` отсутствует — восстановление из `original.7z`; см. `docs/KNOWLEDGE.md`).
+- `game.root` (из config.toml): 5095 файлов (было 5097; `lethaldreams.dll` и `LD-setup.bat`
+  удалены из установки 2026-11-18 по решению пользователя; `LD-setup.bat` есть только в snapshot
+  `6.7z`, в `original.7z` его нет; см. `docs/KNOWLEDGE.md`).
 - EXE md5 `171319bbc170cf6e57c8d36a8ae5f50d`, размер 1191936 — базовая пропатченная версия
  (pristine-EXE того же размера, md5 `7943036fbd12…`). Маппинг: fileoff = VA − 0x400000
  (cave VA 0x4ebf12 = fileoff 966418; 491308 — fileoff первой правки exepatch3).
@@ -103,12 +104,12 @@
 
 ## Замеры проверки (см. docs/VERIFY.md)
 
-Замер 18.11.2026 (`check_state --untouched`, установка 5095 файлов; `lethaldreams.dll` удалён
-2026-11-18, `LD-setup.bat` отсутствует — восстановление из `original.7z`):
+Замер 18.11.2026 (`check_state --untouched`, установка 5095 файлов; `lethaldreams.dll` и
+`LD-setup.bat` удалены из установки по решению пользователя):
 PRISTINE 2967, HD_PACK 1379, ALLOWED 728, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0.
-Покрытие allowlist'а не менялось (`release/allowlist.json`: `lib/*` 713, корневые `.pyc` 11,
-корневые бинары 6 — `LETHALDREAMS.EXE`, `python22.dll`, `msvcr70.dll`, `msvcp70.dll`,
-`msvcr70d.dll`, `ld-setup.bat`, `data/scripts/*.pyc` 10, `data/textures/mm_bkg01.btf` 1);
+Покрытие allowlist'а (`release/allowlist.json`: `lib/*` 713, корневые `.pyc` 11,
+корневые бинары 5 — `LETHALDREAMS.EXE`, `python22.dll`, `msvcr70.dll`, `msvcp70.dll`,
+`msvcr70d.dll`, `data/scripts/*.pyc` 10, `data/textures/mm_bkg01.btf` 1);
 `hd.cfg` классифицируется как REPO. — артефакт пайплайна, в git не входит
 
 ---

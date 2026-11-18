@@ -44,11 +44,11 @@ co_filename; `docs/PATCHES.md`).
 префикса `LethalDreams/`) → SNAPSHOT; basename+(size,crc) fallback; basename
 (без контента) → REPO_BASENAME; UNCOVERED — репорт.
 
-Замер на установке (5096 файлов, без `__pycache__`, 18.11.2026; `lethaldreams.dll`
-удалён 2026-11-18):
+Замер на установке (5095 файлов, без `__pycache__`, 18.11.2026; `lethaldreams.dll` и
+`LD-setup.bat` удалены из установки по решению пользователя):
 
 - PRISTINE **2967**, HD_PACK **1379** (включая 30 `data/maps/*.map` с 3x-почвой),
-  ALLOWED **729**, CODE **17**, EXCLUDED **4**, UNCOVERED **0**;
+  ALLOWED **728**, CODE **17**, EXCLUDED **4**, UNCOVERED **0**;
   `hd.cfg` классифицируется как REPO; `console.py` — REPO_BASENAME; — артефакт
   пайплайна, в git не входит
 - allowlist: `data/video/*.wmv` (glob) + `.log`-класс; отсутствие
@@ -56,6 +56,8 @@ co_filename; `docs/PATCHES.md`).
   в установках; run без exclude это доказывает);
 - `absent_ok`: `lethaldreams.dll` (удалён из установки как неиспользуемый StarForce-стаб,
   см. `docs/KNOWLEDGE.md`) — не репортится как MISSING.
+- `LD-setup.bat` удалён из установки по решению пользователя (2026-11-18): snapshot-only
+  запись (в `original.7z` файла нет), MISSING не репортится; строка снята из allowlist'а.
 
 black-эксперимент: чёрные .btf в установку не входят (флагов нет, sidecar-черные
 только в snapshot) — ярус untouched их не требует.
@@ -130,11 +132,10 @@ black-эксперимент: чёрные .btf в установку не вх�
 - `[P]` rc-модель: `--quick` rc 1 (два известных дрейфа — `ui/cursor.pyc` `4a8eb4bab413…` против
   base-печати `60754a253515…`, и историческая сборка `ui/olmenu.pyc`), `--full` rc 0, `--untouched` rc 0;
   EXE установки `171319bbc170cf6e57c8d36a8ae5f50d` (1191936 B), md5-diff установок = 0.
-- `[P]` (2026-11-18) `lethaldreams.dll` удалён из установки как неиспользуемый
-  StarForce/SFORCE-стаб (EXE её не импортирует и не грузит; игра работает без неё).
-  Установка теперь 5096 файлов; файл сохранён в `backup_orig/lethaldreams.dll`
-  и в `original.7z`, в `allowlist.json` добавлен в `absent_ok`. `--quick`/`--full`/
-  `--untouched` rc без новых нарушений.
+- `[P]` (2026-11-18) Из установки удалены `lethaldreams.dll` (неиспользуемый
+  StarForce/SFORCE-стаб; копия в `backup_orig/` и в `original.7z`) и `LD-setup.bat`
+  (копия только в snapshot `6.7z`). Установка 5095 файлов; `lethaldreams.dll` в
+  `absent_ok`, строка `ld-setup.bat` из allowlist'а снята. Ярусы — новых нарушений нет.
 - `[P]` Цепь EXE воспроизведена: pristine `7943036fbd1233a0dbd43228f129cfc7` → exepatch3
   `deed9cf640de1fe31ecec6deacad21bd` → +2 байта `6A 00`→`6A 01` на fileoff 632177..632178
   = baseline `45e93d46aad6ceb3dfc17e86d04e4f82` (`backup/LETHALDREAMS.EXE.pre4`, побайтно)
