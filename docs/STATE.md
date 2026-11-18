@@ -462,3 +462,21 @@ PRISTINE 2967, HD_PACK 1379, ALLOWED 729, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0
   Каталоги блоков: `scratch_dir('ld')/tex_tiles_ne/upscayl_png_{high-fidelity,upscayl-standard,remacri}-4x_3x`;
   собранные комплекты карт: `upscayl3x_hifi_tree` (выбранный), `upscayl3x_standard_tree`,
   `upscayl3x_tree` (remacri). Родная почва восстанавливается из `original.7z` (pristine).
+
+- `[P]` (18.11, вечер) **Спайк Фазы 0-бис: `.pyd`-путь доставки кода подтверждён**
+  (`docs/PLAN_proxy_dll.md`, §2A). Собран `ldhook.pyd` — расширение Python 2.2.3
+  (MSVC x86, `tools/ldhook/`): `initldhook` пишет маркер в каталог EXE +
+  `OutputDebugString` + `Py_InitModule` (хуков нет). Загружается из игрового
+  скрипта явным `imp.load_dynamic('ldhook', '<путь>/ldhook.pyd')` (блок в
+  `ui/ui.pyc` на scratch-дереве — полная копия установки в
+  `scratch_dir('ldhook')/tree`, ldhook.pyd в корне, AppCompat `~ HIGHDPIAWARE`
+  для scratch-пути). Гейт: маркер `ldhook_marker.txt` записан движком при
+  живом прогоне (окно `LethalDreamsWndClass` 3840x2161, процесс жив), rc=0 →
+  **`.pyd`-путь основной** (EXE не трогаем, `python22.dll` не подменяем);
+  прокси `python22.dll` — резерв. Грабля: `Py_InitModule(name, NULL)` в 2.2.3
+  падает (`0xC0000005` в `python22.dll`, `Py_InitModule4` разыменовывает
+  `methods` без проверки NULL) — передавать пустую таблицу методов
+  (`docs/PITFALLS.md`). Скриншот меню не подтверждён: GDI-захват отдавал
+  устаревший кадр (сессия заблокирована/монитор погашен, часы застыли на
+  16:20:12) — снимок нужно повторить при активном дисплее. Установка не
+  тронута (`check_state --quick` rc 1 = 2 известных дрейфа), игра погашена.

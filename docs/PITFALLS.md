@@ -621,3 +621,36 @@ tgz. Замеренное дерево и его состав — `docs/TOOLS.md
   `DRIFT cfg hd.cfg` (mtime 08:10 18.11, до сессии камеры). Это не следствие
   патчей камеры; при желании лечится копией `hd.cfg` из корня репозитория
   (`fix_command` чекера — `pycbuild.py install-min`).
+
+## Спайк `.pyd` (Фаза 0-бис, 18.11.2026): грабли расширений 2.2.3 и скриншотов
+
+- `[P]` **`Py_InitModule(name, NULL)` в 2.2.3 = `0xC0000005` внутри `python22.dll`.**
+  Симптом: `imp.load_dynamic` из игрового скрипта исполняет `initldhook`
+  (маркер записан), затем процесс падает; offset падения в `python22.dll`
+  `0x4e4de` (WER Application Error). Причина: `Py_InitModule4`
+  (`Python/modsupport.c`) разыменовывает `methods` без проверки NULL
+  (`for (ml = methods; ml->ml_name != NULL; ml++)`) — NULL-таблица читается по
+  адресу ~0. **Обход:** передавать пустую таблицу `{NULL, NULL, 0, NULL}`.
+  Локальный репро без игры: `vendor/py223/PYTHON.EXE -c "import imp;
+  imp.load_dynamic('ldhook', '<путь>/ldhook.pyd')"` (rc=139 до фикса, rc=0 после).
+- `[P]` **AppCompat-флаг `~ HIGHDPIAWARE` привязан к ПОЛНОМУ ПУТИ exe.**
+  Установка (`D:\Games\LethalDreams\LETHALDREAMS.EXE`) имеет флаг в
+  `HKCU\...\AppCompatFlags\Layers`; копия игры в scratch-дереве — нет, поэтому
+  окно игры масштабируется системой на 175%: `GetWindowRect` = 6720x3780
+  вместо 3840x2161, снимок через `CopyFromScreen` промахивается/ловит рабочий стол.
+  **Обход:** ставить тот же флаг для scratch-пути (PowerShell `Set-ItemProperty`,
+  Cygwin-python без `winreg`) + снимать с `SetProcessDpiAwareness(2)` ДО загрузки
+  `System.Drawing` (иначе WinForms кэширует логические координаты 2194x1234 и
+  `Screen.Bounds` врёт; границы экрана брать через `GetSystemMetrics(0/1)`).
+- `[P]` **Окно игры может быть свёрнуто в момент снимка** (игра стартует и
+  теряет фокус): `GetWindowRect` свёрнутого окна возвращает restore-rect, а
+  `CopyFromScreen` этого места снимает рабочий стол («на скриншоте игра свёрнута»).
+  **Обход:** перед снимком `IsIconic` → `ShowWindow(h, 9)` (SW_RESTORE),
+  `SetWindowPos(HWND_TOP)`, `SetForegroundWindow`, выдержка ~2 с, затем снимок
+  пересечения окна с экраном (`tools/ldhook/probe_spike.ps1`).
+- `[P]` **GDI-захват (`CopyFromScreen`) отдаёт УСТАРЕВШИЙ кадр при заблокированной
+  сессии/погасшем мониторе.** Симптом: два снимка с разницей в минуту показывают
+  одно и то же (часы на панели задач застыли, окно игры — foreground/topmost/visible
+  по Win32 — на снимке отсутствует). Проверка: кроп часов tasks — время не
+  двигается. **Обход:** снимать только при активном разблокированном дисплее;
+  `PrintWindow` для GL-окна игры даёт чёрный кадр (36 КБ на 3840x2161) — не спасает.
