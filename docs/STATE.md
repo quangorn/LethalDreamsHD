@@ -75,6 +75,14 @@
   **Установлен в игру 17.11.2026** (`install_patch.py battlecamera --install`),
   installed md5 = base-печать `ddb3e6fa629e…`, state `MATCH`. `[U]` Подтверждение
   в бою после установки патченной сборки в scratch-дереве: «всё работает».
+- `[P]` **Обновление 18.11.2026 (MMB-обзор + зум колесом):** base-печать
+  `battlecamera` = md5 `91be96e74662…` (27536 B, crc32 `e143e240`, `.py` md5
+  `5f757d07164f…` 25459 B, `pyc_source_mtime` 1794778203), pristine-копия
+  `9efdb4d1dae9…` = `installed_recorded_md5` (не менялась); патч
+  `release/patches/battlecamera.patch` (5 ханков). **Установлено в игру 18.11.2026**,
+  installed md5 = base-печать `91be96e74662…`, state `MATCH`; снапшот до/после —
+  diff ровно одна замена. Разбор — `docs/PATCHES.md`, «Боевая камера: MMB-обзор и
+  зум колесом».
 - Известные дрейфы кодового яруса (manifest `state`):
   `ui/cursor.pyc` = `DRIFT_RELEASE_AHEAD` (в установке патч курсоров версии 6,
   md5 `4a8eb4bab413` vs base-печать `60754a253515`).

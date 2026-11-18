@@ -310,3 +310,22 @@ python3 tools/tex/hook_ground.py --tree <дерево> --restore   # ориги�
 - Проверка после прогонов: снапшот md5+mtime установки до/после (diff обязан быть
   нулевым; запуски игры дают известный дрейф `Lib/*.pyc`, `hd.cfg`, `hdlog.txt`,
   font-сайкары, `mm_bkg01.btf` — их убирают/не трогают), `--quick`/`--untouched` rc 0.
+## Камера боя и релизные инструменты (18.11.2026)
+
+- `tools/probes/probe_camera.ps1 <W> <H> <F> <Tag>` — прогон боевой камеры: новая игра
+  (глиф «Вообразить» → скип ролика → глиф персонажа → Enter), скип обучения Enter'ом,
+  удержание W (эталон знака поворота), четыре MMB-протяжки (вправо/влево/вверх/вниз),
+  колесо вверх/вниз, снимки ТОЛЬКО окна игры (DPI-aware) в `scratch_dir('ld')/cam_probe`.
+  Флаги: `-NoMMB`, `-NoWheel`, `-LessonEnters N`, `-GameRoot <дерево>` (по умолчанию
+  scratch `tex_hook_tree`, НЕ установка), `-NoKill`. Мышь: `mouse_event` MMB down `0x20`,
+  up `0x40`, wheel `0x800` (delta 120 = щелчок); canvas→экран как в `probe_battleshot.ps1`.
+- `tools/release/update_entry.py <module>` — пересобирает `release/patches/<module>.patch`
+  (diff `decompiled_fixed/<m>.py` → `patches/<m>.py`) и запись code_tier в
+  `release/manifest.json` (py_md5/py_size, md5/size/crc32 .pyc, pyc_magic, state).
+  `installed_recorded_md5` не трогается. Флаги: `--note "...";`, `--mtime N`, `--no-patch`.
+  Канонический порядок: правка `patches/<m>.py` → `update_entry.py <m>` →
+  `apply_patch.py <m>` (гейт md5) → `install_patch.py <m> --install`.
+- `tools/release/tree_snapshot.py <install_dir> <out.json> [--diff <prev.json>]` —
+  снапшот дерева (md5+mtime по всем файлам, `__pycache__` пропускается) и diff к
+  предыдущему: `CHANGED/ADDED/REMOVED` + итог. Обязательный гейт перед/после любой
+  команды, пишущей в игру (AGENTS.md, правило 3).
