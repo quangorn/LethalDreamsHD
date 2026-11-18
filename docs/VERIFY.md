@@ -44,17 +44,18 @@ co_filename; `docs/PATCHES.md`).
 префикса `LethalDreams/`) → SNAPSHOT; basename+(size,crc) fallback; basename
 (без контента) → REPO_BASENAME; UNCOVERED — репорт.
 
-Замер на установке (5097 файлов, без `__pycache__`, 18.11.2026):
+Замер на установке (5096 файлов, без `__pycache__`, 18.11.2026; `lethaldreams.dll`
+удалён 2026-11-18):
 
-- PRISTINE **2968**, HD_PACK **1379** (включая 30 `data/maps/*.map` с 3x-почвой),
+- PRISTINE **2967**, HD_PACK **1379** (включая 30 `data/maps/*.map` с 3x-почвой),
   ALLOWED **729**, CODE **17**, EXCLUDED **4**, UNCOVERED **0**;
   `hd.cfg` классифицируется как REPO; `console.py` — REPO_BASENAME; — артефакт
   пайплайна, в git не входит
 - allowlist: `data/video/*.wmv` (glob) + `.log`-класс; отсутствие
   `boolat.wmv`, `russobit_r.wmv` — разрешено (присутствуют в archive, отсутствуют
   в установках; run без exclude это доказывает);
-- exclude-файлы (`check.exclude` из config) не репортятся; пустой allowlist
-  `absent_ok` доказывает glob-семантику.
+- `absent_ok`: `lethaldreams.dll` (удалён из установки как неиспользуемый StarForce-стаб,
+  см. `docs/KNOWLEDGE.md`) — не репортится как MISSING.
 
 black-эксперимент: чёрные .btf в установку не входят (флагов нет, sidecar-черные
 только в snapshot) — ярус untouched их не требует.
@@ -131,6 +132,11 @@ black-эксперимент: чёрные .btf в установку не вх�
   `ui/olmenu.pyc` — приватная историческая сборка), `--full` rc 0, `--untouched` rc 0;
   установка 5097 файлов, md5-diff до/после всех прогонов = 0, EXE 1191936 B
   `171319bbc170cf6e57c8d36a8ae5f50d`.
+- `[P]` (2026-11-18) `lethaldreams.dll` удалён из установки как неиспользуемый
+  StarForce/SFORCE-стаб (EXE её не импортирует и не грузит; игра работает без неё).
+  Установка теперь 5096 файлов; файл сохранён в `backup_orig/lethaldreams.dll`
+  и в `original.7z`, в `allowlist.json` добавлен в `absent_ok`. `--quick`/`--full`/
+  `--untouched` rc без новых нарушений.
 - `[P]` Цепь EXE воспроизведена: pristine `7943036fbd1233a0dbd43228f129cfc7` → exepatch3
   `deed9cf640de1fe31ecec6deacad21bd` → +2 байта `6A 00`→`6A 01` на fileoff 632177..632178
   = baseline `45e93d46aad6ceb3dfc17e86d04e4f82` (`backup/LETHALDREAMS.EXE.pre4`, побайтно)

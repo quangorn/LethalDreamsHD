@@ -102,8 +102,11 @@
   `wglGetProcAddress`, `wglChoosePixelFormatARB`, `glBegin`, «OpenGl init failure».
   Импорт-таблица EXE: WINMM, DSOUND(ordinal 1 = DirectSoundCreate), KERNEL32, USER32,
   GDI32, ADVAPI32, ole32, python22.dll — **никаких ddraw/d3d8/d3d9**.
-  `lethaldreams.dll` (движок окна/сплэша) — GDI+USER32, без DirectX; `BTexturer.dll`
-  — MSVC CRT, без DirectX.
+  `lethaldreams.dll` — **не используется в финальной сборке** (StarForce/SFORCE-протектор,
+    отключён): EXE её ни статически не импортирует, ни загружает в рантайме, игра работает
+    без неё (проверено 2026-11-18: запуск с удалённой DLL доходит до меню, в списке
+    загруженных модулей её нет). Удалена из установки (бэкап `backup_orig/lethaldreams.dll`,
+    оригинал в `original.7z`); `BTexturer.dll` — MSVC CRT, без DirectX.
 - `[P]` Fullscreen реализован самим движком: EXE импортирует `ChangeDisplaySettingsA` +
   `EnumDisplaySettingsA`; `SetDisplayMode(w,h,bpp,f)` при f=1 делает **реальную смену
   режима** (`ChangeDisplaySettingsA(&devmode, CDS_FULLSCREEN)`) и затем popup-окно

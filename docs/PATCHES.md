@@ -132,9 +132,12 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
   md5: оригинал `7943036fbd1233a0dbd43228f129cfc7`, патченный
   `ce79027f48d5092f31abea1421cf7305`; бэкап `backup_orig/LETHALDREAMS.EXE.orig`.
   Скрипт патча: `scratch_dir('ld')/exepatch2.py`.
-- `[P]` `lethaldreams.dll` упакована (секция `.sforce`, кода в файле нет,
-  FF15-ссылок на IAT ноль) — статический патч DLL невозможен; все оконные вызовы
-  находятся в EXE.
+- `[P]` `lethaldreams.dll` — **не используется в финальной сборке** (StarForce/SFORCE-протектор,
+  секция `.sforce`, кода в файле нет, FF15-ссылок на IAT ноль). Проверено 2026-11-18: EXE её
+  ни статически не импортирует (в import-таблице только WINMM/DSOUND/KERNEL32/USER32/GDI32/
+  ADVAPI32/ole32/python22.dll), ни загружает в рантайме (frida: в списке 81 модуля её нет),
+  а игра с удалённой DLL доходит до меню. Удалена из установки (бэкап
+  `backup_orig/lethaldreams.dll`, оригинал в `original.7z`); все оконные вызовы находятся в EXE.
 
 
 

@@ -1,5 +1,10 @@
 {
- "absent_ok": [],
+ "absent_ok": [
+  {
+   "note": "lethaldreams.dll is an unused StarForce (SFORCE) protector stub in the final game build: the EXE neither statically imports it nor loads it at runtime, and the game runs fine without it (verified 2026-11-18: running the install with the DLL removed reaches the menu; the live module list never contains lethaldreams.dll). Removed from the install on purpose; the file is preserved in backup_orig/ and the pristine archive original.7z still holds the original.",
+   "pristine_entry": "lethaldreams.dll"
+  }
+ ],
  "black_experiment_note": "data/textures/mm_bkg01_black_169.btf and mm_bkg01_black_43.btf exist only in the snapshot archive (['data/textures/mm_bkg01_black_169.btf', 'data/textures/mm_bkg01_black_43.btf']); they are absent from the install on purpose (no data/blackbg.flag), so --untouched reports nothing for them; they are not pristine entries, so the MISSING rule does not apply",
  "check_exclude": [
   "data/video/**"
