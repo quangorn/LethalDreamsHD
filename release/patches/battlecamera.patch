@@ -1,6 +1,6 @@
 --- a/battlecamera.py
 +++ b/battlecamera.py
-@@ -146,6 +146,30 @@
+@@ -146,6 +146,32 @@
          self.shake_time_left = 0
          self.shake_power = 0
          self.PrevPos = []
@@ -27,11 +27,13 @@
 +        self.zoom_up = self.max_up
 +        self.up_min = self.min_up
 +        self.up_max = 33.5
-+        self.zoom_step = 3.0
++        # шаг зума на щелчок колеса (120 ед.); 1.0 = в 3 раза слабее исходных 3.0
++        # по просьбе пользователя (18.11.2026)
++        self.zoom_step = 1.0
          return 0
          return
  
-@@ -279,7 +303,31 @@
+@@ -279,7 +305,31 @@
          return
  
      def h_MouseWheel(self, x, y, btns, wheel):
@@ -63,7 +65,7 @@
          return
  
      def h_MouseMove(self, x, y, flags):
-@@ -287,11 +335,39 @@
+@@ -287,11 +337,39 @@
              self.ms_lastx = x
              self.ms_lasty = y
              return 1
@@ -103,7 +105,7 @@
          return
  
      def hB_Update(self, time):
-@@ -302,15 +378,45 @@
+@@ -302,15 +380,45 @@
          if len(self.PrevPos):
              self.cam.SetPos(self.PrevPos[0], self.PrevPos[1], self.PrevPos[2])
          if self.ms_wheel_delta:
@@ -155,7 +157,7 @@
          if self.is_pitch != 0:
              pitch = self.is_pitch * time * self.pitch_speed
              if self.cur_pitch + pitch >= self.max_pitch:
-@@ -328,24 +434,39 @@
+@@ -328,24 +436,39 @@
              prevYDelta = self.max_up
          if prevYDelta < self.min_up:
              prevYDelta = self.min_up
