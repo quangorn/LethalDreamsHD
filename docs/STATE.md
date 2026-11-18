@@ -2,8 +2,8 @@
 
 ## Установленная игра (эталон проверки)
 
-- `game.root` (из config.toml): 5096 файлов (было 5097; `lethaldreams.dll` удалён
-  2026-11-18 как неиспользуемый StarForce-стаб — см. `docs/KNOWLEDGE.md`).
+- `game.root` (из config.toml): 5095 файлов (было 5097; `lethaldreams.dll` удалён 2026-11-18 как
+  неиспользуемый StarForce-стаб, `LD-setup.bat` отсутствует — восстановление из `original.7z`; см. `docs/KNOWLEDGE.md`).
 - EXE md5 `171319bbc170cf6e57c8d36a8ae5f50d`, размер 1191936 — базовая пропатченная версия
  (pristine-EXE того же размера, md5 `7943036fbd12…`). Маппинг: fileoff = VA − 0x400000
  (cave VA 0x4ebf12 = fileoff 966418; 491308 — fileoff первой правки exepatch3).
@@ -29,9 +29,9 @@
    cave md5 `bf3fc99b796c9d42629db62e37829aba` 236 B; три sites вызова (VA, fileoff = VA −
    0x400000): 0x41ce31 (патч 5 байт, сигнатура 5), 0x40b494 (патч 6 байт = jmp+nop, сигнатура 6),
    0x47dd80 (патч 5 байт, сигнатура 5); cave-код `paths.cache_dir('cave')/fixall.bin`
- (символьная ре-матрица шрифта), `paths.cache_dir('cave')/fontscale.bin` (собираемый артефакт, в git не входит) 192 B md5
+ (символьная ре-матрица шрифта), `paths.cache_dir('cave')/fontscale.bin` (собираемый артефакт) 192 B md5
    `546fd954343f87623cbd37a264622db8` (масштаб 1,25×),
-   `paths.cache_dir('cave')/fontscale4x.bin` (собираемый артефакт, в git не входит) 224 B md5 `f320fcb6e1a39e9fe0c729d716c923f4` (масштаб 4×).
+   `paths.cache_dir('cave')/fontscale4x.bin` (собираемый артефакт) 224 B md5 `f320fcb6e1a39e9fe0c729d716c923f4` (масштаб 4×).
    `.bin/.o` — собираемые артефакты, в git не входят. Исходники: `tools/exe/caves/*.s`,
    сборка `sh tools/exe/build_cave.sh`.
 5. результат = установленный exe `171319bbc170…`.
@@ -61,46 +61,19 @@
  (2497 B, md5 `fc524b6139c0…`; manifest `state` = `GENERATED`, собирается пайплайном
   из `hd.cfg`). В `data/scripts/ui/` их нет. Патч к ним не применяется.
 - Патчи: `release/patches/*.patch` (`tools/apply_patch.py`).
-- `[P]` Новый кодовый модуль (17.11.2026): `data/scripts/ui/olcamera.pyc` —
-  base-печать md5 `f67ae9904032…` (11910 B, crc32 `25112d1b`, `.py` md5
-  `4bf8df324ee6…` 8671 B), pristine-копия установки md5 `ba346c67b543…` (10669 B)
-  = manifest `installed_recorded_md5`; патч `release/patches/ui_olcamera.patch`
-  (краевой скролл оверленда) — `docs/PATCHES.md`, «Краевой скролл оверленда».
-  **Установлен в игру 17.11.2026** (`install_patch.py ui/olcamera --install` после
-  подтверждения пользователя), installed md5 = base-печать `f67ae9904032…`, state `MATCH`.
-- `[P]` Второй модуль той же правки (17.11.2026): `data/scripts/battlecamera.pyc` —
-  base-печать md5 `ddb3e6fa629e…` (25320 B, crc32 `d3218ac8`, `.py` md5
-  `63990fd1eeb4…` 19049 B), pristine-копия установки md5 `9efdb4d1dae9…` (23289 B)
-  = manifest `installed_recorded_md5`; патч `release/patches/battlecamera.patch`
-  (краевой скролл боевой камеры) — тот же раздел `docs/PATCHES.md`.
-  **Установлен в игру 17.11.2026** (`install_patch.py battlecamera --install`),
-  installed md5 = base-печать `ddb3e6fa629e…`, state `MATCH`. `[U]` Подтверждение
-  в бою после установки патченной сборки в scratch-дереве: «всё работает».
-- `[P]` **Обновление 18.11.2026 (MMB-обзор + зум колесом):** base-печать
-  `battlecamera` = md5 `91be96e74662…` (27536 B, crc32 `e143e240`, `.py` md5
-  `5f757d07164f…` 25459 B, `pyc_source_mtime` 1794778203), pristine-копия
-  `9efdb4d1dae9…` = `installed_recorded_md5` (не менялась); патч
-  `release/patches/battlecamera.patch` (5 ханков). **Установлено в игру 18.11.2026**,
-  installed md5 = base-печать `91be96e74662…`, state `MATCH`; снапшот до/после —
-  diff ровно одна замена. Разбор — `docs/PATCHES.md`, «Боевая камера: MMB-обзор и
-  зум колесом».
-- `[P]` **Ослабление зума колесом (18.11.2026, ночь):** одна константа
-  `zoom_step` (`h_MouseWheel`) — итерации `3.0` → `0.75` (в 4 раза слабее) →
-  **`1.0`** (в 3 раза слабее, по просьбе пользователя; оставленная сборка).
-  Полный ход зума 27 ед.: 9 → 36 → **27** щелчков. Base-печать
-  `battlecamera` = md5 `c7d3150409af…` (27536 B, crc32 `816f0d64`, `.py` md5
-  `8e64086fcdde…` 25651 B), патч `release/patches/battlecamera.patch`
-  (11029 B, 212 строк). **Установлено в игру**, installed md5 = base-печать
-  `c7d3150409af…`, state `MATCH`; снапшот до/после каждой записи — diff ровно
-  одна замена. Проверку делает пользователь; разбор — `docs/PATCHES.md`,
-  «Ослабление зума колесом (18.11.2026) — итог `zoom_step = 1.0`».
-- Известные дрейфы кодового яруса (manifest `state`):
-  `ui/cursor.pyc` = `DRIFT_RELEASE_AHEAD` (в установке патч курсоров версии 6,
-  md5 `4a8eb4bab413` vs base-печать `60754a253515`).
-  `ui/olmenu.pyc` с 18.11.2026 = каноническая сборка (md5 `af176d4859a1…`,
-  state `MATCH`); прежний `DRIFT_KNOWN` (приватное дерево `3d96162df727…` /
-  base-печать `5cb5cc88ddc8…`) закрыт пересборкой из опубликованного дерева
-  вместе с фиксом Esc (см. сессию 18.11).
+- `[P]` Новый кодовый модуль (17.11.2026): `data/scripts/ui/olcamera.pyc` — base-печать md5
+  `f67ae9904032…`, pristine-копия установки `ba346c67b543…` = `installed_recorded_md5`;
+  патч (краевой скролл оверленда) `release/patches/ui_olcamera.patch` — `docs/PATCHES.md`; установлен, state `MATCH`.
+- `[P]` Второй модуль той же правки: `data/scripts/battlecamera.pyc` — pristine-копия
+  `9efdb4d1dae9…` = `installed_recorded_md5`; патч (краевой скролл боевой камеры)
+  `release/patches/battlecamera.patch` — тот же раздел `docs/PATCHES.md`; установлен, state `MATCH`.
+- `[P]` Текущая сборка `battlecamera` (18.11.2026): MMB-обзор + зум колесом шагом
+  `zoom_step = 1.0` (`h_MouseWheel`, `patches/battlecamera.py`); установленный md5 = base-печать
+  `c7d3150409af…`, state `MATCH`; разбор — `docs/PATCHES.md` («Боевая камера: MMB-обзор и зум колесом», «Ослабление зума колесом»).
+- Известные дрейфы кодового яруса (manifest `state`): `ui/cursor.pyc` = `DRIFT_RELEASE_AHEAD`
+  (в установке патч курсоров версии 6, md5 `4a8eb4bab413` vs base-печать `60754a253515`);
+  `ui/olmenu.pyc` (md5 `af176d4859a1…`, state `MATCH`) — каноническая сборка с фиксом Esc×2:
+  шестой элемент `ShowMainmenu` = `2` (ResumeGame) в `patches/ui/olmenu.py`.
 
 ## Ярус ассетов
 
@@ -110,7 +83,7 @@
 - Шрифты: `data/fonts/` из `tools/fonts/gen_font4x.py` (изображения-эскизы
   приватны, не в git).
 - HD Pack ассеты (1379, из них 30 `.map` с 3x-почвой — `docs/OBSERVATIONS_TEXTURE.md`,
-  «Почвенные текстуры карт») и pristine-ассеты (2968) — неприкосновенны.
+  «Почвенные текстуры карт») и pristine-ассеты (2967) — неприкосновенны.
 - Пользовательский бэкап (729+12 allowlist) — неприкосновенен.
 
 ## Python-слой (обязательная часть базы)
@@ -130,9 +103,9 @@
 
 ## Замеры проверки (см. docs/VERIFY.md)
 
-Замер 18.11.2026 (`check_state --untouched`, установка 5096 файлов; `lethaldreams.dll`
-удалён 2026-11-18):
-PRISTINE 2967, HD_PACK 1379, ALLOWED 729, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0.
+Замер 18.11.2026 (`check_state --untouched`, установка 5095 файлов; `lethaldreams.dll` удалён
+2026-11-18, `LD-setup.bat` отсутствует — восстановление из `original.7z`):
+PRISTINE 2967, HD_PACK 1379, ALLOWED 728, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0.
 Покрытие allowlist'а не менялось (`release/allowlist.json`: `lib/*` 713, корневые `.pyc` 11,
 корневые бинары 6 — `LETHALDREAMS.EXE`, `python22.dll`, `msvcr70.dll`, `msvcp70.dll`,
 `msvcr70d.dll`, `ld-setup.bat`, `data/scripts/*.pyc` 10, `data/textures/mm_bkg01.btf` 1);
@@ -140,519 +113,62 @@ PRISTINE 2967, HD_PACK 1379, ALLOWED 729, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0
 
 ---
 
-Срез зафиксирован дословно (даты сохранены). Он описывает состояние до exepatch12:
-актуальная цепочка exe — раздел «Цепочка бинарных патчей exe» выше; патч-реализация — `docs/PATCHES.md`.
+Ниже — сжатые записи сессий по датам; актуальная цепочка exe и константы — разделы выше,
+хроника — `docs/archive/SESSION_LOG.md`.
 
+## Шрифт, геометрия UI и мира (состояние)
 
-## ТЕКУЩЕЕ СОСТОЯНИЕ (2026-11-15, вечер) — читать первым
-
-- `[P]` **Шрифт в 16:9 уменьшается при отрисовке патчем EXE; листы/таблицы шрифтов — РОДНЫЕ.**
-  `config[game.root]/LETHALDREAMS.EXE` md5 `49976478943f0e2871872a2c6fb55f28` =
-  baseline + `приватный архив сессий Project/1.7z, entry LethalDreams/exepatch9.py` (исторический скрипт сессии; в git не входит). Откат: `python3 приватный архив сессий Project/1.7z, entry LethalDreams/exepatch9.py (исторический скрипт сессии; в git не входит) restore` (берёт
-  `backup/LETHALDREAMS.EXE.pre4`, md5 `45e93d46aad6ceb3dfc17e86d04e4f82`).
-  Построение пещеры: `sh tools/exe/build_cave.sh` (`tools/exe/caves/fontscale.s` (источник в git; собираемые блобы — в paths.cache_dir('cave')) → `paths.cache_dir('cave')/fontscale.bin` (собираемый артефакт, в git не входит)).
-- `[P]` **«EXE нельзя патчить» — неверно, таких ограничений нет.** Статический патч `.text`
-  (сайты `0x41ce31`, `0x40b494`, пещера в zero-run `0x4ebf12`) работает; проверок
-  целостности/упаковки в EXE нет (см. раздел «SProtect опровергнута»). Краши ранних
-  попыток (`exepatch6/7`) были ошибками самих пещер.
-- `[P]` Python-слой: `patches/hd_scale.py` (ставится `python tools/pyc/install_patch.py hd_scale`),
-  ключевое: `HD_FNT_PATCHED = 1` и `RowS_new = round(k*RowS)` — метрики шрифта уже
-  k-сжаты движком, компенсация pitch не нужна.
-- `[P]` **Листы шрифтов для 16:9 — 4x-сайдкары (2026-11-15, позже)**: `tools/archive/exe_patch/exepatch10.py`
-  (md5 EXE `51f69974e1dada6e7b191961e853a1ef`) + `tools/fonts/gen_font4x.py`. Сборка пещеры:
-  `tools/archive/cave_gen/build_cave4x.py` (источник в git; собираемые блобы — в paths.cache_dir('cave')) (`tools/exe/caves/fontscale4x.s` (источник в git; собираемые блобы — в paths.cache_dir('cave'))). Откат: `python tools/archive/exe_patch/exepatch10.py restore`.
-  Ширина строки теперь совпадает с 4:3 (sd 108.53 против 108.22, было 110.32) —
-  см. раздел «4x-листы шрифтов + коэффициент A».
-- `[P]` Проверено: 4K — межстрочный шаг в круге персонажа = 16.0 канвасных (как 4:3),
-  диалог настроек без лишних переносов; 4:3 — раскладка идентична эталону.
-- `[P]` **Остаток по ширине закрыт**: в 16:9 ширина строк была больше 4:3 из-за
-  целочисленного межбуквенного интервала (`RowS`); лечится коэффициентом `A` в пещере.
-  Разбор: **`docs/archive/TODO_FONT_WIDTH.md`**.
-- Состояние на диск: `hd.cfg` = `3840 2160 32 1`; шрифты = родные (`tools/fonts/restore_fonts.py`);
-  игра остановлена. Снимки/логи: `scratch_dir('ld')/`.
-- `[P]` **Панели оверленда придвинуты к краям экрана в 16:9 (2026-11-15, ночь)** — см. раздел
-  «Панели оверленда: сдвиг к краям экрана». Установлен `patches/ui/olmenu.py`; снят первый
-  контрольный прогон (загрузка сейва), 4:3 побитово прежняя. Визуальную проверку делает
-  пользователь (4K fullscreen). Пользователь подтвердил: «всё ок».
-- `[P]` **Live-подтверждён фикс геометрии мира в 16:9 (2026-11-15, вечер)** — см. раздел
-  «Геометрия мира: aspect зашит в матрицу проекции». Формула live-патча: в матрице
-  проекции `matrix[0] = matrix[5] * h/w` (w,h = ctx+0x18/+0x1c). Замер ratio кольца
-  домена: baseline 1.4035 → patch5 **1.0575** (4:3 = 1.06); гексы ровные, мир заполняет
-  окно, UI цел. Статический EXE-патч ещё НЕ сделан.
-- `[P]` **Правило сдвига к краю экрана обобщено** (`hd_scale.HD_Shift`/`HD_EdgeFix`) и
-  применено к боевому HUD (`patches/ui/battlemenu.py`: левый BHUD-блок + колонка кнопок
-  + battle-консоль влево, миникарта/`bhud_frame_r`/зона сброса заклинаний вправо).
-  Установлено: `hd_scale.pyc`, `ui/olmenu.pyc`, `ui/battlemenu.pyc`. Боевой HUD в 4K — компиляты `.pyc` в установке, в git не входит
-  проверяет пользователь; baseline боя (до патча) ещё не снят.
-
-
-Срез зафиксирован дословно; текущие константы установок — разделы выше. Последовательность
-`exepatch9 → exepatch10 → exepatch12` зафиксирована в `docs/PATCHES.md`.
-
+- `[P]` Шрифт в 16:9 уменьшается при отрисовке патчем EXE (`exepatch12`), листы шрифтов —
+  4x-сайдкары `*_169` + родные `*_43` (`tools/fonts/gen_font4x.py`); межстрочный шаг в Python-слое:
+  `HD_FNT_PATCHED = 1`, `RowS_new = round(k*RowS)` (`patches/hd_scale.py`). Остаток по ширине — коэффициент `A`, разбор `docs/archive/TODO_FONT_WIDTH.md`.
+- `[P]` Правило сдвига к краю экрана обобщено: `hd_scale.HD_Shift`/`HD_EdgeFix`, вызывается из
+  `patches/ui/olmenu.py` (панели оверленда) и `patches/ui/battlemenu.py` (левый BHUD-блок, колонка
+  кнопок, консоль — влево; миникарта, `bhud_frame_r`, зона сброса заклинаний — вправо).
+- `[P]` Геометрия мира: aspect зашит в матрицу проекции, правка `matrix[0] = matrix[5]*h/w` с
+  guard'ом `4h==3w` (site3 `0x47dd80`) — `docs/OBSERVATIONS_ENGINE.md`.
 
 ## Публикация (2026-11-16)
 
-- `[P]` Репозиторий опубликован: `https://github.com/quangorn/LethalDreamsHD` (public), ветка
-  `master`; чистый initial commit `85ec7b9d…` из дерева HEAD, поверх него publish-коммит
-  `45ccb09` (видео-измерения и отказ от 4:3 video-window патча); 272 файла, игровых бинаров 0,
-  личных путей 0, `config.toml` не отслеживается. Полная локальная история (39 коммитов, ветка-копия
-  `local-history`) удалена по просьбе пользователя (2026-11-17): в репозитории только publish-цепочка.
-  Хроника — `docs/archive/SESSION_LOG.md`.
+- `[P]` Репозиторий опубликован: `https://github.com/quangorn/LethalDreamsHD` (public), ветка `master`;
+  publish-цепочка `85ec7b9d…` → `45ccb09`; 272 файла, игровых бинаров 0, личных путей 0, `config.toml`
+  не отслеживается; локальная история (`local-history`) удалена по просьбе пользователя.
 
 ## Интерпретатор 2.2.3 (2026-11-17)
 
-- `[U]` Пользователь: temp-каталог для интерпретатора не годится, нужен untracked каталог
-  внутри проекта; вопрос «из архивов игровых поставок его не взять?» закрыт замером.
-- `[P]` Архивы игровых поставок интерпретатор **не содержат**: переписаны все листинги
-  приватных архивов (`python_libs.7z` 727 записей, `original.7z` 4460, `hd_pack.7z` 1355) —
-  exe/dll **0** (в `python_libs.7z` есть `python22.dll`, исполняемых файлов нет).
-- `[P]` Интерпретатор взят из официального архива python.org и собран в
-  `vendor/py223/` (untracked, `.gitignore`; состав и замеры импортов — `docs/TOOLS.md`,
-  «Тулчейн», пункт «Дерево интерпретатора»): `python.exe` banner
-  `Python 2.2.3 (#42, May 30 2003, 18:12:08) [MSC 32 bit (Intel)] on win32`,
-  `python22.dll` побитово = игровой (`4ee79da1533f…`), startup-`import site` проходит,
-  `imp.get_magic()` = `[45, 237, 13, 10]` (`2ded0d0a`).
-- `[P]` После переноса `config[py223.dir]` в `vendor/py223/` ярусы чекера восстановлены
-  дословно: `--quick` rc 1 (два известных дрейфа), `--full` rc 0, `--untouched` rc 0;
-  установка 5097 файлов, md5-diff 0 после всех read-прогонов.
-- `[P]` Компи-путь восстановлен: `python3 tools/pyc/pycbuild.py gate` → **434 компилируются,
-  0 падают**; `python3 tools/pyc/install_patch.py hd_scale` (без `--install`) → `BUILD-OK`,
-  magic `2ded0d0a`, size 23781 B, кодовая секция побитово равна установленному
-  `data/scripts/hd_scale.pyc` (`dd4123fbc19c`); `hd_tex` → 1382 B, кодовая секция равна
-  установленному (`b69dfa3799da`). Запись в игру не тронута (diff 0).
+- `[P]` Архивы игровых поставок интерпретатор **не содержат** (exe/dll 0 во всех листингах);
+  дерево собрано из официальных архивов python.org в `vendor/py223/` (untracked, `.gitignore`):
+  `python22.dll` побитово = игровой (`4ee79da1533f…`), `imp.get_magic()` = `[45, 237, 13, 10]`;
+  состав и замеры импортов — `docs/TOOLS.md`, «Дерево интерпретатора».
 - `[P]` Грабля плоского дампа установщика (регистр имени модуля, `case_ok`) —
   `docs/PITFALLS.md`, раздел «Импорт 2.2.3 чувствителен к регистру имени модуля».
-- `[P]` Повторные замеры тулчейна после переноса (2026-11-17): паритет
-  `python3 tools/pyc/parity_file.py config[game.root]/data/scripts/hd_scale.pyc patches/hd_scale.py`
-  (установка читается) → **code objects 43/43, близость 1.0000, sig=0 ops=0**;
-  `python3 tools/exe/exepatch12.py` (без флага, scratch) из baseline
-  `45e93d46…` → md5 **`171319bbc170…`** = установленный EXE; cave-блобы из
-  `sh tools/exe/build_cave.sh` сверяются с `docs/STATE.md` (fixall 236 B
-  `bf3fc99b796c…`, fontscale 192 B `546fd954343f…`, fontscale4x 224 B `f320fcb6e1a3…`);
-  `sh tools/exe/build_cave.sh video43` даёт пещеру **49 B** (docstring
-  `tools/exe/exepatch_video43.py` исправлен с 48 B на измеренное), прогон
-  `python3 tools/exe/exepatch_video43.py` (scratch, игра не тронута) воспроизводит
-  патченный EXE md5 `aab6454ca501…`; `python3 tools/exe/exepatch_frame1.py` (scratch)
-  воспроизводит правку байта fileoff 149932 (`00 → 80`, md5 scratch
-  `7c4036a07850…`). Установка после всех прогонов: 5097 файлов, md5-diff 0.
-- `[P]` Воспроизведены сканы публикационного ядра: tracked-файлов 272, личных путей вне
-  `tools/archive/**` **0**, игровых бинаров/`.pyc` в git **0**, `vendor/**` не отслеживается;
-  AST core `.py` (вне архива) = 51, парсится Python 3 = 50, py2-only = 1
-  (`tools/pyc/py22_worker.py`, задокументировано в `docs/TOOLS.md`); AST `tools/archive/**` `.py`
-  = 105, парсится = 97, py2-only = 8 — список имён в `tools/archive/README.md`
-  (абзац «8 архивных скриптов не парсятся Python 3»).
-## Сессия 2026-11-18 (ночь): зависание ввода после Esc×2 из оверленда
+- `[P]` Публикационное ядро: tracked-файлов 272, личных путей 0, игровых бинаров/`.pyc` в git 0,
+  `vendor/**` не отслеживается; AST core `.py` = 51 (py2-only 1 — `tools/pyc/py22_worker.py`),
+  AST `tools/archive/**` = 105 (py2-only 8, список — `tools/archive/README.md`).
+## Зависание ввода после Esc×2 из оверленда (18.11.2026)
 
-- `[U]` Баг: загрузка с сохранения → Esc (главное меню) → Esc ещё раз → курсор
-  «прилипает», мышь почти не реагирует, клавиатура мертва; при новой игре не
-  воспроизводится.
-- `[P]` Канал диагностики — движковый `PythonLogFile`
-  (`Documents\Boolat Games\Lethal Dreams\PythonLogFile`): `KeyError` в `cursor.Set`
-  через `cursor.SetScene(None, …)` ← `battlemenu.ShowBattlemenu` ←
-  `mainmenu.ResumeBattle`, затем каждый кадр `AttributeError: 'NoneType' …
-  SetPickFilter` из `olmenu.Update`. Причина — наш патч: `OL_MainMenu` звонил
-  `mainmenu.ShowMainmenu(1, [2,2,2,2,2,3])`; шестой элемент `3` = ResumeBattle, а в
-  оверленде `BattlemenuScene is None` (при новой игре меню не пересоздаётся —
-  отсюда невоспроизводимость).
-- `[P]` Фикс: шестой элемент = `2` (ResumeGame) в `patches/ui/olmenu.py`;
-  `release/patches/ui_olmenu.patch` (+комментарий), манифест пересобран канонически
-  (`ui/olmenu` md5 `af176d4859a1…`, size 38421, state `MATCH`). Установлено
-  `install_patch.py ui/olmenu --install`.
-- `[P]` Живая проверка (`D:/tmp/cygwin/opencode/ld/probe_esc_save.ps1`, окно
-  1920x1440, загрузка SLOT по Recall→строка→Enter): Esc → меню, Esc → оверленд,
-  курсор игры ходит за мышью, R/F1 открывают окна; `PythonLogFile` без трейсбеков
-  (только доброкачественные ImportError ol_hex/mini_domain01).
-  Ярусы: `--quick` rc 1 (только известный cursor), `--full` rc 0, `--untouched` rc 0.
-- `[P]` Грабля прогонов: движок при выходе переписывает базовые шрифты установки
-  (`data/fonts/*.fdf`, `data/textures/ld_*.btf`) родным содержимым → `--full`
-  печатает 7 `DRIFT hd_pack … size`. Восстановление — `7z x` этих 8 файлов из
-  `config[assets.hd_pack]`; зафиксировано в `docs/PITFALLS.md`.
+- `[P]` Фикс: шестой элемент `ShowMainmenu` = `2` (ResumeGame) в `patches/ui/olmenu.py`; каноническая
+  сборка `ui/olmenu.pyc` md5 `af176d4859a1…` — `docs/PATCHES.md`. Причина: в оверленде `BattlemenuScene is None`,
+  пункт ResumeBattle (`3`) вёл к `KeyError` в `cursor.Set` и мёртвому вводу; при новой игре не воспроизводится.
 
-## Сессия 2026-11-17 (вечер): тултипы у курсора в 16:9
+## Почва карт: HD-комплект (17–18.11.2026)
 
-- `[U]` «Тултипы в 16:9 возникают в верху экрана, а не под курсором»;
-  «достаточно сделать так, чтобы тултипы были рядом с курсором, попиксельная
-  точность не нужна».
-- `[P]` Причина — `ui/ui.CalcPopupPos` (канвасный бокс `(0,0,1024,768)` при
-  сдвинутых EdgeFix-панелях); правка — обёртка в `patches/hd_scale.py` (видимый
-  бокс `x = -HD_DX/HD_K .. (1024-HD_DX)/HD_K`, кламп к курсору; identity при
-  `HD_K==1`). Замер и установка: `docs/PATCHES.md`, раздел «Тултипы у курсора
-  в 16:9». Установлено: `data/scripts/hd_scale.pyc` md5 `12d38f093d2c…`
-  (25618 B), манифест перечислен по новой сборке; снапшот до/после — diff
-  ровно этот файл.
-- `[P]` Ярусы после записи: `--quick` rc 1 (два известных дрейфа: cursor
-  DRIFT_RELEASE_AHEAD, olmenu DRIFT_KNOWN), `--full` rc 0, `--untouched` rc 0.
-- `[P]` Новый канонический зонд: `tools/probes/probe_hovershot.ps1`
-  (наведение курсора + съёмка окна; см. `docs/TOOLS.md`). Реестр: значения
-  HIGHDPIAWARE для scratch-деревьев тестов добавлялись на время прогонов
-  (`scroll_fix` — осталось, `tt_fix` — снято после тестов); для установки —
-  штатное значение. После финального прогона из установки `hdlog.txt` (его
-  пересоздаёт игра при каждом запуске) убран из дерева — `--untouched` rc 0;
-  `hd.cfg` = `3840 2160 32 1` (записан последним прогоном).
+- `[P]` Почва в установке и в `config[hd_pack]` = **High Fidelity 3x**: 44 записи `.tex` ×3 (1024→3072 … 32→96),
+  max blob 28 311 552 B; атлас = сетка блоков 32×32, блок = `<stem>__tx<col>_ty<row>.png`. Родная почва — из `original.7z` (pristine).
+- `[P]` Ограничение движка: blob ≤ 32 MiB, NPOT допустим (3072 подтверждён грузящим); записи с изменённым w/h
+  грузятся только при исправленных TLV-заголовках и `rec_bin` без `name_len`-префикса — `docs/KNOWLEDGE.md`,
+  `docs/OBSERVATIONS_TEXTURE.md`, `docs/PITFALLS.md`; пайплайн и инструменты — `docs/PIPELINE.md`, `docs/TOOLS.md`.
 
+## ldhook `.pyd` (18.11.2026)
 
-## Сессия 2026-11-17 (день): почвенные текстуры карт (`.tex` из `.map`)
+- `[P]` **EXE установки не трогаем**: установка остаётся на cave `exepatch12` (`171319bb…`), `ldhook.pyd` в поставку
+  не входит; `.pyd` (хуки site1/site2/site3 + логгер `hdlog.txt`) — проверенный путь следующих правок движка,
+  dev-прогоны на baseline scratch. Критерии перехода — `docs/PLAN_proxy_dll.md`, состояние и вход — `docs/HANDOFF_ldhook.md`.
+- `[P]` Правило: после любой правки EXE — `python3 tools/ldhook/check_sites.py` (скан `.text` по `VirtualSize`).
+  Грабли расширений 2.2.3 (`Py_InitModule(name, NULL)` падает) и привязка AppCompat-флага к пути EXE — `docs/PITFALLS.md`.
 
-- `[P]` План `docs/TASK_tex_unpacker.md`, фазы A–D: 44 записи `.tex` из 30 `.map`
-  (гейт сканера OK, сумма blob'ов 41732096 B); канон раскода = raw interleaved
-  RGB (bpp 3) / RGBA (bpp 4), строки top-down (тот же канон, что `.btf`);
-  round-trip blob→PNG→blob побитово **44/44** (`tools/tex/qc_tex.py`).
-  Раскод 44 PNG: `scratch_dir('ld')/tex_src/` + `MANIFEST.txt`.
-- `[P]` Новые инструменты (регистрация — `docs/TOOLS.md`, «tex-пайплайн»; пайплайн —
-  `docs/PIPELINE.md`, «tex-пайплайн»): `tools/tex/scan_tex.py`, `unpack_tex.py`,
-  `qc_tex.py`, `tile_match.py`, `test_pattern.py`, `patch_map_pattern.py`,
-  `hook_ground.py`, `realcopy_tree.py`; хук-материалы
-  `patches/tex_hook_opaque.py`, `patches/tex_hook_alpha.py`.
-- `[P]` Known-answer по отображению (scratch-дерево `D:/tmp/cygwin/opencode/ld/tex_hook_tree`,
-  полная копия установки): подмена blob'ов `.tex` паттерном даёт решётку тайлов на
-  земле (`scratch_dir('ld')/taxpat_overland.png`, `taxband_overland.png`,
-  `taxbandb_overland.png` (снимки прогона съёмки; пересоздаются скриптами,
-  в git не входят)); полоса у верхнего края записи = дальние/левые рёбра тайлов.
-  Стартовая карта новой игры — `portal_domain`. Подмена `.btf`-ресурса (`mm_bkg01.btf`)
-  движком не проходит (ресурс пересоздаётся при запуске, текстура в материале 2048²).
-- `[P]` Дерево после тестов восстановлено (`patch_map_pattern.py --restore`,
-  `hook_ground.py --restore`: 30 `.map` и 92 почвенных материала из backup).
-  Реестр: `~ HIGHDPIAWARE` для `D:\tmp\cygwin\opencode\ld\tex_hook_tree\LETHALDREAMS.EXE`
-  — осталось.
-- `[P]` Установка не изменена инструментами: снапшот md5+mtime до/после — дрейф только
-  игровых артефактов запуска (`Lib/*.pyc` 9, `hd.cfg`, `hdlog.txt`, font-сайкары
-  `.fdf`/`ld_*.btf`, `mm_bkg01.btf`); `hdlog.txt` из дерева убран. Ярусы:
-  `--quick` rc 0 (файлов 5097, 2 известных дрейфа), `--untouched` rc 0 (нарушений 0).
+## Прочие принятые правки сессий
 
-
-## Сессия 2026-11-17 (после коммита): круг на земле и альфа-плоскости `.tex`
-
-- `[P]` Режим круга: `tools/tex/test_pattern.py --circle red --bg yellow --frac 0.5`
-  (диаметр = доля стороны; превью 64x64 с кругом d=32 — `scratch_dir('ld')/tex_64_yellow_red.png`),
-  `tools/tex/patch_map_pattern.py --circle … --frac 0.5 --alpha keep|opaque|zero`.
-- `[P]` Гипотеза «не все текстуры кодируются одинаково» проверена: поля шапки всех 44
-  записей различаются только `w,h,alpha,blob_len` (9 сигнатур), единый raw-раскод.
-  Различается семантика альфа-плоскости 12 bpp4-записей (5 полностью прозрачных,
-  5 с общим набором альфа 137..216, остальные индивидуальные) — см.
-  `docs/OBSERVATIONS_TEXTURE.md`.
-- `[P]` Отображение: при `--alpha keep` в дальней области земля = решётка красных
-  эллипсов на жёлтом (`scratch_dir('ld')/taxcircle2_overland.png`, кроп `circle_far.png`),
-  в ближней — красные четырёхугольники целых тайлов (`circle_near.png`). Контроль
-  `--alpha zero` (альфа-пасс прозрачен): красные четырёхугольники остаются — они от
-  opaque-прохода, крупный тайл = выборка в точке, ~25% тайлов красные; гладкая решётка
-  эллипсов в дальней зоне создаётся альфа-проходом с родной альфа-плоскостью. Первый прогон
-  (`--alpha` из паттерна = 255) дал «жёлтое с красными квадратами» — альфа-пасс стал
-  непрозрачным overlay; это свойство движка, не кодировки записей.
-- `[P]` После прогонов карты дерева восстановлены (`--restore`), установка: diff = 9
-  известных дрейфов `Lib/*.pyc` запуска игры, `--quick` rc 0, игра закрыта.
-
-
-## Сессия 2026-11-17 (вечер): Lanczos-2x и отказ движка на изменённые w/h
-
-- `[P]` `tools/tex/upscale_tex.py` — Lanczos-3 апскейл 2x всех 44 PNG
-  (`scratch_dir('ld')/tex_up2x`). `patch_map_pattern.py --up2x [--maxsrc N]` пересобирает
-  записи с удвоенными w/h/blob_len (plen/clen правятся, round-trip побитовый).
-  Режимы сглаживания (`--smooth`, `--frompng`) откатаны по указанию пользователя
-  `[U]`, scratch-каталог `tex_smooth` удалён.
-- `[P]` Краш: при загрузке стартовой карты игра закрывается, если хоть одна запись
-  имеет изменённый размер — полная 2x, ограниченный (--maxsrc 512), и минимальный
-  (одна запись 32²→64² в portal_domain.map). Same-size патчи грузятся. Протокол,
-  проверки контейнера и план REA-разбора: `docs/ISSUE_tex_upscale.md`.
-- `[P]` В payload карты парные копии w,h нет (пара только в шапке записи).
-- `[P]` Новый штатный проб съёмки боя: `tools/probes/probe_battleshot.ps1`
-  (новая игра, скип уроков Enter'ом, клики по канвасу, `SCENE battle` из hdlog).
-- `[P]` После всех прогонов дерево восстановлено (`--restore`), игра закрыта;
-  установка — дрейф только 9 известных `Lib/*.pyc`, `--quick` rc 0.
-
-
-## Сессия 2026-11-17 (ночь): краш при изменённом w/h разобран, патч грузится
-
-- `[P]` **Сигнатура отказа**: ExitCode `0xC0000005`; WER fault offset `0x67f54` =
-  `MOV EDX,[ESI]` в диспетчере `FUN_00467eb0` (`0x467f54`), `ESI` = возврат
-  FACT `FUN_00495720` (NULL при отказе разбора). Зонд сигнатуры —
-  `tools/probes/probe_exitcode.ps1` (ExitCode + faulting module/RVA из журнала
-  Application/WER).
-- `[P]` **Причины — только в данных, патч EXE не нужен.** (1) `rec_bin` собирался с
-  дублирующим `name_len` u32-префиксом: поля записи сдвигались на +4, 2-байтная
-  short-проверка (`FUN_00495300`) читала мусор → FACT NULL. (2) TLV-размеры наружных
-  заголовков (внешний заголовок записи u32 по `name_off-28`, секция цепочки ADV
-  `type=130` @2986660) не росли вместе с blob'ом: `FUN_0049bf70` сбивал координаты
-  потока, краш переезжал на `0x467566` (`FUN_00467540`, обход тайлов почвы).
-- `[P]` **Механизм**: payload ходит ADV по цепочке `(type,size)` (содержимое
-  `pos+8..pos+8+size`); размер каждого заголовка = длина содержимого, ADV сверяет
-  `ftell == pos+8` и при рассинхроне гасит флаг потока `+0x28`; FACT даёт NULL.
-  Цепочка `portal_domain.map`: @8 `142/24`, @40 `135/2986612`, @2986660 `130/3150006`
-  (секция почвенных текстур), записи @2986692 (`size=3145811`) и @6132487
-  (`type=116 size=4179`).
-- `[P]` **Исправление** `tools/tex/patch_map_pattern.py`: `rec_bin = имя+шапка+blob`
-  (без префикса) + `chain_headers(payload, start=8)` и
-  `fix_chain(payload, recs, deltas)` — дельта blob'а (+/−) во все накрывающие
-  заголовки с пересчётом позиций после вставок. Новый CLI:
-  `--rescale self --num N --den D --record <stem>`.
-- `[P]` **Гейты** (scratch-дерево, probe_exitcode/probe_clicks):
-  `--rescale self --num 2 --den 1 --record portal_domain_1` (32²→64²), полный `--up2x`
-  (rec0 1024²→2048² + rec1 64², plen 20088896), даунскейл `--num 1 --den 2` (16²),
-  не-POT `--num 3 --den 4` (24²) — все: `ALIVE after enter2+15s`, `ExitCode=00000000`.
-  Оверленд снимается (`scratch_dir('ld')/ld/up2x_gate2_overland.png`, кроп 4:3
-  `up2x_gate2_overland_43.png`): terrain, учебный диалог, геометрия 4:3 сохранена.
-- `[P]` Frida-контур: attach по pid после shell-запуска (`launch_game.ps1` →
-  `game_pid.txt`), клики `frida_click3.ps1`, лог только через `send()`; стрим-параметр
-  FACT/ADV — u32 по `sp+4`. Зонд-хук `hook_ground.py --native [--only <map>]` грузит
-  родную `.tex` и логирует w/h до/после AddTexture (`TEXHOOK PRE/POST`); хуки надо
-  снимать (`--restore`) перед съёмкой оверленда — они дают диалог
-  «Texture not found».
-- `[P]` Итоги ярусов: дерево восстановлено (30 `.map`, 92 материалов); diff дерева
-  против `scratch_dir('ld')/ld/tree_snap_pre_phase1.json` — изменён только `hdlog.txt`;
-  установка: дрейф только 2 известных (`ui/cursor.pyc`, `ui/olmenu.pyc`),
-  `--untouched` rc 0; игра закрыта, все Frida-сессии закрыты.
-  Регистрация: `docs/ISSUE_tex_upscale.md` («РЕШЕНИЕ»),
-  `docs/OBSERVATIONS_TEXTURE.md` (разбор чтения движком), `docs/KNOWLEDGE.md`,
-  `docs/PITFALLS.md`, `docs/CONTRADICTIONS.md` (п. 12–13),
-  `docs/TOOLS.md`/`docs/PIPELINE.md` (CLI `--rescale`, `--native`, `probe_exitcode.ps1`).
-
-- `[P]` (позже) Полный Lanczos-2x патч на дереве после `fix_chain` грузится и виден на земле (снимки `up2xsh_*`, бой = стартовая сцена новой игры, `KNOWLEDGE.md`). Дерево восстановлено, установка — дрейф 9 `Lib/*.pyc`, `--quick` rc 0 с 2 известными дрейфами.
-
-- `[P]` `upscale_tex.py --factor N` (произвольный целый множитель Lanczos-3). Для 4K: растяжка канвас->4K = 2.8125 (y) / 3.75 (x); лимит blob'а 32 MiB: 1024² при 4x не влезает (50 MB bpp3), подтвержденный грузящий максимум — сторона 2048. Группы: 9 записей 1024² -> 2x (`scratch_dir('ld')/tex_up2x_big`), 35 записей <=512² -> 4x (`tex_up4x_small`, максимум 2048²); списки `big_names.txt`/`small_names.txt`, параллельный прогон — 4 сбалансированных потока (`g1..g4.txt`).
-
-- `[P]` `patch_map_pattern.py` получил явный `--install` (запись в установку по
-  запросу пользователя; path-guard снят только с флагом, оригиналы `.map` уходят в
-  `<tree>/data/maps_ground_backup`, откат `--install --restore`).
-
-## Сессия 2026-11-18: блоки 32x32 почвенных `.tex` (нарезка и сборка)
-
-Анализ + инструменты; установка не менялась, игра не запускалась.
-
-- `[P]` Декод `.tex` (`scan_tex.py`/`unpack_tex.py`) проверен по движку и данным:
-  blob уходит в `glTexImage2D` без перестановок (`FUN_00495300` → `FUN_004772e0`),
-  атлас = сетка блоков 32x32, UV меша ссылаются ровно на непустые блоки
-  (world_heart 6/6, atlantis 19/19, bald_hill 116/116, portal_domain 632/632,
-  ссылок в пустые 0). Мозаика/пустые зоны — свойство упаковки патчей
-  (`BTexturer.dll`, `TexturizeIt`), переставлять блоки не нужно.
-- `[P]` Новый `tools/tex/tex_tiles.py`: имя блока `<stem>__tx<col>_ty<row>.png`
-  (позиция в атласе), `split_record`/`glue_rows`/`blob_tile_empty`, CLI `glue`.
-  `unpack_tex.py --batch … --tiles DIR [--skip-empty]` — 44 записи → 13490 блоков
-  (7438 пустых; с `--skip-empty` пишется 6052). `patch_map_pattern.py --tiles DIR`
-  собирает атлас (сторона блока 32*f → запись f*w x f*h) и пишет в дерево.
-- `[P]` Гейты: f=1 сборка всех 44 записей побитово = `unpack_tex.py`; запись в
-  scratch-дерево при f=1 даёт payload, идентичный установочному (payload equal:
-  world_heart 9239857 B, portal_domain 10639424 B, blob'ы побитово); f=2 на
-  world_heart (256²) и portal_domain (2048² + 64²) — round-trip внутри патчера и
-  цепочка TLV до EOF. Потеря непустого блока — ошибка, `--allow-missing` заливает
-  пустым слотом. Установка не тронута, игра закрыта.
-
-- `[P]` (18.11, позже) `patch_map_pattern.py --tiles` получил `--maxside N`
-  (пропуск записей, где f*w > N: блоки 4x дают для 1024² сторону 4096 и 50 MB blob'а
-  при лимите 32 MiB). Прогон UpScayl-4x по блокам (`tex_tiles_ne/upscayl_png_remacri-4x_4x`,
-  блок 128x128) собран в отдельное дерево `scratch_dir('ld')/upscayl4x_tree`:
-  26 карт / 35 записей x4 (512²→2048², 256²→1024², 128²→512², 64²→256², 32²→128²),
-  max blob 12582912 B; 9 записей 1024² оставлены родными (4096² не влезает),
-  4 карты с только-1024² записями побайтно равны установке
-  (battlefield, chichen_itza, stone_of_souls, watchmaker_tower).
-  Контроль: blob `bald_hill_0` в карте == сборка из блоков (12 582 912 B побитово),
-  цепочка TLV всех 30 карт доходит до EOF. Установка не тронута, игра не запускалась.
-
-- `[P]` (18.11) **Полный 3x-комплект грузится**: блоки UpScayl
-  (`tex_tiles_ne/upscayl_png_remacri-4x_3x`, 96x96 = 32*3) собраны во все 30 карт /
-  44 записи: 1024→3072, 512→1536, 256→768, 128→384, 64→192, 32→96; максимальный
-  blob 28 311 552 B (27.0 MB) при лимите 33 554 432 B, записей сверх лимита 0.
-  Гейт в игре (scratch-дерево, `probe_exitcode.ps1 3840 2160 1 tex3x -Mode new`):
-  новая игра загрузилась, оверленд снят (`scratch_dir('ld')/ld/tex3x_overland.png`),
-  terrain без чёрных провалов, Application-лог пуст, игра погашена.
-  **Подтверждённый максимум стороны теперь 3072** (было 2048): ограничение движка —
-  blob ≤ 32 MiB, NPOT допустим (3072 не степень двойки). Дерево после прогона
-  восстановлено (30 `.map` == установке), установка не тронута.
-  4x-вариант (сторона 4096, blob 50 MB) в лимит не влезает — `--maxside` его пропускает;
-  каталог `scratch_dir('ld')/upscayl4x_tree` удалён по просьбе пользователя.
-
-- `[P]` (18.11) **Почва в HD-паке: High Fidelity 3x.** Из трёх собранных 3x-вариантов
-  (`remacri`, `upscayl-standard`, `high-fidelity`) выбран **high-fidelity**; его 30 `.map`
-  (44 записи ×3: 1024→3072 … 32→96, max blob 28 311 552 B при лимите 32 MiB) лежат
-  в установке и в `config[hd_pack]` (`D:/For Games/Lethal Dreams/hd_pack.7z`:
-  1379 записей, из них 30 `data/maps/*.map`, размер карт == установке побитово).
-  Проверки: `check_state --full` rc 0 (`hd_pack: 1379/1379` побитово),
-  `--untouched` rc 0 (HD_PACK 1379), `--quick` rc 1 = 2 известных pyc-дрейфа.
-  В игре: `probe_exitcode 3840 2160 1 tex3x_inst -Mode new` — новая игра грузится,
-  terrain 3x отрисован (`scratch_dir('ld')/ld/tex3x_inst_overland.png`),
-  Application-лог пуст, игра погашена.
-  Каталоги блоков: `scratch_dir('ld')/tex_tiles_ne/upscayl_png_{high-fidelity,upscayl-standard,remacri}-4x_3x`;
-  собранные комплекты карт: `upscayl3x_hifi_tree` (выбранный), `upscayl3x_standard_tree`,
-  `upscayl3x_tree` (remacri). Родная почва восстанавливается из `original.7z` (pristine).
-
-- `[P]` (18.11, вечер) **Спайк Фазы 0-бис: `.pyd`-путь доставки кода подтверждён**
-  (`docs/PLAN_proxy_dll.md`, §2A). Собран `ldhook.pyd` — расширение Python 2.2.3
-  (MSVC x86, `tools/ldhook/`): `initldhook` пишет маркер в каталог EXE +
-  `OutputDebugString` + `Py_InitModule` (хуков нет). Загружается из игрового
-  скрипта явным `imp.load_dynamic('ldhook', '<путь>/ldhook.pyd')` (блок в
-  `ui/ui.pyc` на scratch-дереве — полная копия установки в
-  `scratch_dir('ldhook')/tree`, ldhook.pyd в корне, AppCompat `~ HIGHDPIAWARE`
-  для scratch-пути). Гейт: маркер `ldhook_marker.txt` записан движком при
-  живом прогоне (окно `LethalDreamsWndClass` 3840x2161, процесс жив), rc=0 →
-  **`.pyd`-путь основной** (EXE не трогаем, `python22.dll` не подменяем);
-  прокси `python22.dll` — резерв. Грабля: `Py_InitModule(name, NULL)` в 2.2.3
-  падает (`0xC0000005` в `python22.dll`, `Py_InitModule4` разыменовывает
-  `methods` без проверки NULL) — передавать пустую таблицу методов
-  (`docs/PITFALLS.md`). Скриншот меню не подтверждён: GDI-захват отдавал
-  устаревший кадр (сессия заблокирована/монитор погашен, часы застыли на
-  16:20:12) — снимок нужно повторить при активном дисплее. Установка не
-  тронута (`check_state --quick` rc 1 = 2 известных дрейфа), игра погашена.
-
-## Сессия 2026-11-18 (вечер): ldhook Фазы 1–2 — три хука в .pyd
-
-- `[P]` **Фаза 1 (site1, шрифт)**: `tools/ldhook/ldhook.c` получил
-  `install_site1` (скан `c641580159` в `.text` baseline-EXE, `VirtualProtect`,
-  `E9 rel32`) и `site1_hook`/`site1_impl` — порт cave1 (`k==1` → identity,
-  иначе `k_eff=k*0.25`, pitch/advance с carry). Лог: `ldhook_log.txt` рядом с
-  EXE (дубль `OutputDebugString`). Гейт: на scratch-дереве с baseline
-  `45e93d46…` site1 найден, хук FIRED; 4:3 — identity. Новый зонд —
-  `tools/ldhook/probe_phase1.ps1`.
-- `[P]` **Фаза 2 (site2 + site3)**: `install_site2/3` ставят `E9` на
-  0x40b494 (6 байт: `E9 rel32`+`nop`) и 0x47dd80 (5 байт). site2 — naked
-  трамплин + C-тело (`site2_impl`): сохранённые байты `mov [this+0x294],font;
-  inc [font+0x24]`, затем при `byte[font+0x58]==0` и `[font+0x44]!=0` зовёт
-  `FUN_0041cc90(font)` (thiscall, `ecx=font`, вызов в `__asm`, `ret 8`).
-  site3 — naked трамплин + C-guard/лог (`site3_impl`) + `site3_fp` (naked x87:
-  `fild h; fild w; fdivp; fmul m32 matrix[5]; fstp m32 matrix[0]`); цель
-  сеттера и продолжение берутся из `call rel32` самого сайта. EXE на диске
-  не меняется; всё в памяти.
-- `[P]` **Гейт 16:9** (`3840 2160 32 1`, scratch baseline): все три сайта
-  found (0x41ce31/0x40b494/0x47dd80), `site1/2/3_impl` FIRED. site3:
-  `matrix[0] 1.29904 (0x3FA646F1) -> 0.974731 (0x3F7987FA)`,
-  `m5=0x3FDDB3ED` — **биты точно равны** эталону `exepatch12`
-  (target 0.9747310876 = 0x3F7987FA). site2 срабатывает на SetFont и зовёт
-  `FUN_0041cc90` (в логе `site1_impl`). Игра доходит до оверленда без крашей.
-- `[P]` **Гейт 4:3** (`1440 1080 32 1`): `site3_impl: guard 4h==3w ->
-  identity`, `site1_impl: k==1.0 -> identity (4:3)` — записей нет; оверленд
-  рисуется (1440x1080), крашей нет.
-- `[P]` **Кольцо домена / A/B**: эталонные снимки воспроизводятся
-  `measure_disc.ps1` (регион `1540 1040 700 540`): `a169d_overland.png`
-  baseline = **1.4035** (633x451), `p12b_overland.png` exepatch12 = **1.0531**
-  (476x452). На одном сейве/камере hook-дерево = 486x451 (ratio 1.0776),
-  cave-дерево (установленный EXE) = 485x453 (1.0706), центр совпадает
-  `(2780,1309)` — отличие 1–2 px, геометрия идентична. Абсолютная разница с
-  1.0531 — панорама камеры (~900 px вправо), не хук.
-- `[P]` A/B с cave-EXE: в scratch-дереве с установленным `171319bb…` сигнатуры
-  не находятся (`signature NOT found` для всех трёх) — хуки не ставятся, игра
-  работает на `exepatch12`; это и безопасный fallback, и эталон для A/B.
-- `[P]` Документация: `docs/PLAN_proxy_dll.md` (Фазы 1–2 выполнены),
-  `tools/ldhook/README.md` (файлы/команды/гейт), `docs/PIPELINE.md`/
-  `docs/TOOLS.md` (ldhook-пайплайн), `docs/PATCHES.md` (in-memory эквивалент
-  exepatch12).
-- `[P]` **Установка не тронута**: файлы игры не писались (EXE установки
-  `171319bb…` MD5 MATCH, `--untouched` rc 0, 5096 файлов). Игра погашена.
-  При проверке обнаружено, что у EXE установки пропал AppCompat-флаг
-  `~ HIGHDPIAWARE` (в реестре остался только scratch-путь) — это документ-
-  состояние (`docs/VERIFY.md`, `check_state` expected): флаг восстановлен
-  `Set-ItemProperty` в `HKCU\...\AppCompatFlags\Layers` (та же запись, что
-  делает `tools/archive/probes/set_layer.ps1`). После восстановления
-  `--quick` rc 1 = 2 известных дрейфа (`hd.cfg` с пользовательской строкой
-  `#1280 960 32 0`, `cursor` DRIFT_RELEASE_AHEAD), `--full` rc 1 = 1
-  (`hd.cfg`), `--untouched` rc 0. `hd.cfg` установки не переписывался.
-
-## Сессия 2026-11-18 (вечер): ldhook Фаза 3 — логгер и отладка
-
-- `[P]` **Логгер** (`tools/ldhook/ldhook.c`): единый `hdlog.txt` в каталоге EXE
-  (тот же файл пишут Python-патчи; `probe_exitcode.ps1` копирует его хвост в
-  `<Tag>_hdlog.txt`), отдельный `ldhook_log.txt` Фаз 1–2 упразднён. Формат:
-  `ldhook: HH:MM:SS.mmm t<tid> I|D <текст>` + дубль в `OutputDebugStringA`.
-  Дескриптор кэшируется (site3 зовётся каждый кадр), запись под
-  `CRITICAL_SECTION`; ротация `hdlog.txt.1` после 8 MiB.
-- `[P]` **Флаг** — env `LDHOOK_LOG`: `0`/`off` (файл не создаётся, ODS молчит),
-  `1` (дефолт — диагностика), `2`/`debug` (трассировка). `ldhook.set_level(n)`
-  из игрового скрипта перекрывает env на лету; добавлены `ldhook.log(msg)` и
-  `ldhook.stats()` → `(site1, site2, site3, level)`. Уровни: info — загрузка
-  (`pid`, база, диапазон `.text`, уровень), установка сайтов, guard identity,
-  первый вызов хука; debug — числовая трассировка 16:9-ветки с троттлингом
-  (site1 4+1024, site2 4+1024, site3 3+300). В 4:3 при дефолтном уровне —
-  только info-строки.
-- `[P]` **`.text` из PE-заголовков** (VA + VirtualSize) вместо констант
-  `0x1000/0xeaf12`: модуль грузится под `vendor/py223/PYTHON.EXE` без выхода за
-  секцию (локальный самотест API: `log`/`set_level`/`stats` rc 0, уровень 0 не
-  создаёт файл, маркер пишется всегда, ротация проверена на 9 MiB), а сдвиг
-  `.text` будущими правками EXE не ломает установку хуков — иначе info-строка
-  и пропуск хуков.
-- `[P]` **Гейт 16:9** (`3840 2160 32 1`, baseline scratch, `LDHOOK_LOG=1`):
-  9 строк, все `I`; три сайта `found` (0x41ce31/0x40b494/0x47dd80),
-  `site3_impl` FIRED `matrix[0] 1.29904 (0x3FA646F1) -> 0.974731 (0x3F7987FA)`
-  — биты эталона `exepatch12`; `site2_impl`/`site1_impl` FIRED
-  (`k=0.750347 -> keff=0.187587`); оверленд снят, Application-лог пуст.
-- `[P]` **Гейт debug** (`LDHOOK_LOG=2`): 27 строк, `D`-трассировка site3
-  (`call 1..3`, затем 300/600/900/…), site2 (`norm=1/0`), site1
-  (`pitch 76 -> 14`, `carry=0.239905`); троттлинг виден по номерам вызовов.
-- `[P]` **Гейт 4:3** (`1440 1080 32 1`, `LDHOOK_LOG=1`): только `I`-строки,
-  `site3_impl: guard 4h==3w -> identity`, `site1_impl: k==1.0 -> identity
-  (4:3)` — записей нет; оверленд 1440x1080 снят (средняя яркость 0.271 против
-  0.268 на 4K), крашей нет, игра погашена.
-- `[P]` `probe_phase1.ps1` читает `hdlog.txt` (фильтр строк `ldhook:`);
-  документация — `docs/PLAN_proxy_dll.md` (Фаза 3 выполнена),
-  `tools/ldhook/README.md`, `docs/PIPELINE.md`, `docs/TOOLS.md`.
-- `[P]` Установка не тронута (все прогоны — scratch `scratch_dir('ldhook')/tree`
-  с baseline EXE; `hd.cfg` репозитория не переписывался: зонд шёл с `LD_REPO`
-  в scratch), игра погашена. `--quick` rc 1 = 2 известных дрейфа (`hd.cfg`,
-  `cursor.pyc`); `--untouched` rc 0 (5096 файлов). При проверке у EXE установки
-  снова отсутствовал AppCompat-флаг `~ HIGHDPIAWARE` (в реестре был только
-  scratch-путь) — документ-состояние восстановлено тем же `set_layer.ps1`
-  (`docs/VERIFY.md`), после чего `--quick` снова показывает ровно 2 дрейфа.
-
-## Сессия 2026-11-18 (вечер): ldhook Фаза 4 — решение по EXE
-
-- `[P]` **Решение: EXE установки не трогаем.** Установка остаётся на cave
-  `exepatch12` (`171319bb…`), `ldhook.pyd` в поставку не входит, `exepatch12.py`
-  — эталон/откат; `.pyd` — проверенный путь следующих правок движка. Критерии
-  §5 (`docs/PLAN_proxy_dll.md`) не выполнены: 4-й правки нет, логика остаётся
-  простой, потребность в отладке закрыта логгером Фазы 3 без смены установки
-  (dev-прогоны — baseline scratch).
-- `[P]` Новый инструмент **`tools/ldhook/check_sites.py`** (без игры, rc 0):
-  скан `.text` по `VirtualSize` (ровно как в `ldhook.pyd`, zero-run пещеры за
-  `VirtualSize` не попадает — иначе `site2`-сигнатура «находилась» бы в блобе
-  на 0x4ebf91). Установка: `patched` (0 сигнатур, на всех трёх сайтах `E9`);
-  baseline `45e93d46…`: `installable` (по одному вхождению на
-  `0x41ce31/0x40b494/0x47dd80`). Негативный тест (битый байт в site1) —
-  `UNEXPECTED`, rc 1. Правило: после любой правки EXE — `check_sites.py`.
-- `[P]` **Живая матрица стабильности** (baseline scratch, `probe_exitcode`
-  `LDHOOK_LOG=1`, `-Sub ldhook_p4`): 4:3 `1920x1440` и `2880x2160` — все три
-  сайта `found` по тем же VA, `site3_impl: guard 4h==3w -> identity`
-  (w/h из лога), `site1_impl: k==1.0 -> identity (4:3)`, записей нет; 16:9
-  `3840x2160` (повтор) — те же VA и те же биты `0x3FA646F1 -> 0x3F7987FA`
-  (`m5=0x3FDDB3ED`), `k=0.750347 -> keff=0.187587`; вместе с Фазой 3 покрыты
-  все четыре рабочих режима (1920x1440, 1440x1080, 2880x2160, 3840x2160).
-  Оверленд снят во всех прогонах, Application-лог пуст, игра погашена.
-- `[P]` Чек-лист перехода на `.pyd` в установке записан в §4 Фаза 4 плана:
-  baseline EXE вместо cave, `ldhook.pyd` в `release/allowlist.json`,
-  `ui/ui.pyc` с `imp.load_dynamic`, исключение `hdlog.txt`/`hdlog.txt.1`/
-  `ldhook_marker.txt` из проверок, гейт (`check_sites` + биты site3 +
-  identity 4:3 + кольцо `measure_disc` 1–2 px). Fallback А1 (статические
-  `E9`, тело в DLL) — если будущая правка унесёт сигнатуры.
-- `[P]` Документация: `docs/PLAN_proxy_dll.md` (Фазы 0-бис–4 выполнены,
-  §5 вердикт, §7 вопросы 2 и 5 закрыты), `docs/PATCHES.md` (решение),
-  `tools/ldhook/README.md` (аудит + матрица), `docs/PIPELINE.md`,
-  `docs/TOOLS.md`, `README.md`.
-- `[P]` Установка не тронута: `--quick` rc 1 = 2 известных дрейфа (`hd.cfg`,
-  `cursor.pyc`), `--untouched` rc 0 (5096 файлов), `ldhook.pyd`/`hdlog.txt` в
-  установке отсутствуют.
-
-## Сессия 2026-11-18 (ночь): зум колесом ослаблен (итог `zoom_step = 1.0`)
-
-- `[U]` «Сделай чтобы зум был в 4 раза слабее (чтобы надо было в 4 раза больше
-  скроллов колёсика для того же зума). Я сам проверю. Если ок — оставим новую версию».
-  Позже: «`self.zoom_step` поставь всё-таки 1.0».
-- `[P]` Правка одной константы в `patches/battlecamera.py` (`h_MouseWheel`):
-  `zoom_step` `3.0` → `0.75` (в 4 раза слабее) → **`1.0`** (в 3 раза слабее,
-  итог). Всё остальное в зум-механике (`zoom_active`, старт от текущей высоты,
-  `[up_min, up_max] = [min_up=6.5, 33.5]`, terrain following) и MMB-обзор —
-  без изменений. Полный ход зума 27 ед.: 9 щелчков (3.0) → 36 (0.75) →
-  **27** (1.0).
-- `[P]` Канонический пайплайн на каждую итерацию: `tools/release/update_entry.py
-  battlecamera` (итог: `.patch` 11029 B / 212 строк + манифест) → гейт
-  `tools/apply_patch.py battlecamera` (`.py` md5 `8e64086fcdde…` 25651 B,
-  `.pyc` md5 `c7d3150409af…` 27536 B == манифест) →
-  `install_patch.py battlecamera --install`. Установка:
-  `data/scripts/battlecamera.pyc` `91be96e74662…` (3.0) → `6fdad7c6c0ea…`
-  (0.75, 27537 B, crc32 `9bd9014b`) → `c7d3150409af…` (1.0, crc32 `816f0d64`).
-  Снапшот md5+mtime до/после каждой записи: diff = ровно одна замена
-  (changed 1, added 0, removed 0), файлов 5096. Живая сверка значения —
-  marshal-чтение `co_consts` установленного `.pyc` через
-  `vendor/py223/python.exe`: `zoom_step` = `1.0`, `3.0`/`0.75` в константах
-  нет, кламп `33.5` на месте.
-- `[P]` Ярусы после записей: `--quick` rc 1 (2 известных дрейфа: `hd.cfg` с
-  пользовательской строкой, `cursor.pyc` DRIFT_RELEASE_AHEAD; `battlecamera` —
-  `state MATCH`), `--full` rc 1 (только `hd.cfg`), `--untouched` rc 0
-  (PRISTINE 2967 / HD_PACK 1379 / ALLOWED 729 / CODE 17 / EXCLUDED 4 /
-  UNCOVERED 0).
-- `[P]` Игра не запускалась, пользователю отдаётся установленная сборка на
-  самостоятельную проверку. Откат при отказе: вернуть нужное значение
-  `zoom_step` и прогнать тот же пайплайн.
+- `[P]` Тултипы у курсора в 16:9: обёртка `ui/ui.CalcPopupPos` в `patches/hd_scale.py` (кламп к курсору,
+  identity при `HD_K==1`); установлено `data/scripts/hd_scale.pyc` md5 `12d38f093d2c…` — `docs/PATCHES.md`, «Тултипы у курсора в 16:9».
+- `[P]` Альфа-плоскость `.tex` задаёт отдельный альфа-проход движка: гладкая решётка эллипсов в дальней зоне создаёт
+  она, opaque-проход даёт четырёхугольники тайлов; семантика по 12 bpp4-записям — `docs/OBSERVATIONS_TEXTURE.md`.

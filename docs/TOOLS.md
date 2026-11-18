@@ -23,7 +23,7 @@
 
 `scratch_dir('<имя>')` и `cache_dir('<имя>')` в документах — рабочие директории из
 config (`scratch.dir`, `cache.dir` + подсказанная поддиректория). Снимки и логи
-прогонов (`scratch_dir('ld')/<tag>_win.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), `scratch_dir('ld')/<tag>_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), `scratch_dir('ld')/REPLACE_LOG.txt` (лог прогона; создаётся скриптами tools/archive/texture_qc/, в git не входит) и т. п.) — артефакты
+прогонов (`scratch_dir('ld')/<tag>_win.png` (снимок прогона), `scratch_dir('ld')/<tag>_overland.png` (снимок прогона), `scratch_dir('ld')/REPLACE_LOG.txt` (лог прогона) и т. п.) — артефакты
 прогона: они пересоздаются скриптами, в git не входят; ссылка вида
 `scratch_dir('ld')/<имя>` говорит, где их искать после прогона. Собираемые блобы
 (`fixall.bin`, `fontscale.bin`, `fontscale4x.bin`, `.o`) — в `cache_dir('cave')` после

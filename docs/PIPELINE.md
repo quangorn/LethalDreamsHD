@@ -156,7 +156,7 @@ baseline `45e93d46…` (`backup/LETHALDREAMS.EXE.pre4`) → exepatch12 (cave) =
   `tools/pyc/make_cfg.py` (SRC/GS_SRC) переведены на `decompiled_fixed/`.
 - `[P]` Гейт на новой базе: `python3 tools/pyc/pycbuild.py gate` -> **434 компилируются, 0 падают**.
   Паритет по новой базе показывает дельту my-build против УСТАНОВЛЕННОГО `.pyc`
-  (файл установленной игры, в git не входит) (cmd_parity
+  (файл установки) (cmd_parity
   сравнивает с game_pyc = установленным), т.е. числа вроде ui/ui 0.2968 = мои HD-правки,
   не дефект базы.
 - `[P]` Удалены папки `decompiled/` и `decompiled_snap/` (остался `decompiled_manifest.json` (историческая ссылка; рабочая директория, в git не входит)

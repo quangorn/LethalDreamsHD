@@ -20,13 +20,13 @@
   `[512,256,512,512]`, `ol_r_bkg.tga` (утрачен: покрытия нет ни в git, ни в приватных архивах сессий Project/1-3.7z, 5.7z, 6.7z, 7.7z, original.7z, hd_pack.7z, python_libs.7z). Создаются ONE place: `build/ui/olmenu.py:607`
   `bgui.CreateFromTemplate(gui_templates.olmenu_dlg, self.ModifyCallBack)`; во времени панели
   не двигаются. Кнопки/текст — дети с `BGCS_CHILD_COORD` (`rect = rect родителя + локальный
-  offset`). load-имена: `config[game.root]/data/menutextures.tt (файл установленной игры, в git не входит)` 52/62 → `config[game.root]/data/textures/ol_l_bkg.btf (файл установленной игры, в git не входит)`, `config[game.root]/data/textures/ol_r_bkg.btf (файл установленной игры, в git не входит)`
+  offset`). load-имена: `config[game.root]/data/menutextures.tt (файл установки)` 52/62 → `config[game.root]/data/textures/ol_l_bkg.btf (файл установки)`, `config[game.root]/data/textures/ol_r_bkg.btf (файл установки)`
   (после установки 2x: 512x1024 и 1024x1024).
 - `[P]` Причина смещения: панели не попадают под правило фона (`_is_bg`: w>=1000 and h>=700),
   поэтому их rect идёт через обёртку `hd_scale.InitBillboard`: при 3840x2160 fullscreen
   (k=0.7503, dx=127.82, s=3.75) левая панель = движковый x 128..320 = экран **480..1200 px**,
   правая = 512..896 = экран **1920..3360 px** (полосы 480 px с обеих сторон), по Y обе до
-  нижнего края (движковый y 192..576 = экран 720..2160). Замерено по снимку `scratch_dir('ld')/base4k_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит).
+  нижнего края (движковый y 192..576 = экран 720..2160). Замерено по снимку `scratch_dir('ld')/base4k_overland.png` (снимок прогона).
 - `[P]` Контрольный прогон (загрузка сейва) — новый тулчейн:
   `tools/archive/probes/probe_loadshot.ps1 <W> <H> <F> <Tag> -SlotX 280 -SlotY 161`: пишет hd.cfg, запускает игру,
   кликает по КАНВАСНЫМ точкам (пересчёт `экран_x = sy*Cx + DX*(w/1024)`, `экран_y = sy*Cy`),
@@ -39,8 +39,8 @@
 - `[P]` 4:3-регрессия (`tools/measure/region_diff.py`, зоны панелей): статичные зоны побитово те же —
   `eot_btn`, `turn_box`, `right_frame_top`, `right_bottom_art`, `left_btns` mean≈0 max=0;
   расходятся только анимированные `mana_boxes` (mean 2.2) и искры/миникарта. Снимки:
-  baseline `scratch_dir('ld')/base43_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит)/`scratch_dir('ld')/base4k_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), после патча `scratch_dir('ld')/p169b_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) (4K),
-  `scratch_dir('ld')/p43b_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) (4:3).
+  baseline `scratch_dir('ld')/base43_overland.png` (снимок прогона)/`scratch_dir('ld')/base4k_overland.png` (снимок прогона), после патча `scratch_dir('ld')/p169b_overland.png` (снимок прогона) (4K),
+  `scratch_dir('ld')/p43b_overland.png` (снимок прогона) (4:3).
 - Следующий шаг: обобщить правило (другие меню тоже не по краям) — возможно вынести
   `HD_PanelFix` в общий модуль и применять по списку имён/rect'ов шаблонов.
 
@@ -69,7 +69,7 @@
 ## Боевой HUD: сдвиг к краям экрана и общий паттерн (2026-11-15, поздняя ночь)
 
 - `[U]` «Теперь по аналогии надо исправить `bhud_frame_l` и `bhud_frame_r`. Но ты поищи
-  сразу в `olmenu.py` (историческая ссылка; игровой модуль, база декомпилята — локальная, не в git), по этому паттерну наверное ещё что-то отрисовывается?»
+  сразу в `olmenu.py` (историческая ссылка), по этому паттерну наверное ещё что-то отрисовывается?»
 - `[P]` **Правило вынесено в общий модуль**: `patches/hd_scale.py` —
   `HD_Shift()` = `int(HD_DX/HD_K + 0.5)` (при k>=1 -> 0, 4:3 нет правок) и
   `HD_EdgeFix(templ, left_names, right_names)`: сдвиг `bb[0]` у контролов из СПИСКА имён
@@ -116,7 +116,7 @@
   `co_consts` целиком, а индексы 7,8,3,2,2 совпадают с уже имеющимися мелкими
   int-константами того же кодового объекта -> `sig=0`, близость 0.9950 при
   потерянных строках. Для сравнения с ДО-патченным оригиналом:
-  `python3 tools/pyc/parity_vs.py (источник в git; собираемые блобы — в paths.cache_dir('cave')) ui/battlemenu backup_orig/ui/battlemenu.pyc`
+  `python3 tools/pyc/parity_vs.py (собираемый блоб) ui/battlemenu backup_orig/ui/battlemenu.pyc`
   (`tools/pyc/pycbuild.py parity <m>` сравнивает с ЖИВОЙ игрой, где уже накатан патч).
 - `[P]` Съёмка боя: `gamemodule.GameManager_GetScene().GetName()` **не существует**
   (первая версия лога дала `SCENE ?`). Имя сцены определяем по живым спискам UI:
@@ -124,7 +124,7 @@
   (`len(olmenu.OLmenu)` / `len(battlemenu.Battlemenu)`), на событиях мыши.
   `tools/archive/probes/probe_loadshot.ps1` получил `-BattleWait N -BattleSettle S`: после загрузки сейва
   скрипт до N секунд ждёт строку `SCENE battle` в `hdlog.txt` (приватный архив сессий 5.7z, entry LethalDreams/hdlog.txt; в git не входит) (пользователь руками
-  входит в бой) и снимает `scratch_dir('ld')/<tag>_battle.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), затем гасит игру.
+  входит в бой) и снимает `scratch_dir('ld')/<tag>_battle.png` (снимок прогона), затем гасит игру.
 - Следующий шаг: пользователь сам проверяет боевой HUD в 4K; снятие baseline боя (до
   патча) — через `-BattleWait`, сравнение зон `tools/measure/region_diff.py` по статичным областям
   (рамка, кнопки, миникарта).
@@ -136,7 +136,7 @@
 
   В первом бою поверх центра висит учебный диалог «1: Игровая камера и панели»
   («Далее») — зоны BHUD (низ-лево/низ-право) он не закрывает.
-- `[P]` **Baseline 4K (`scratch_dir('ld')/base4kbt3_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), родной `ui/battlemenu.pyc`)**: левый
+- `[P]` **Baseline 4K (`scratch_dir('ld')/base4kbt3_overland.png` (снимок прогона), родной `ui/battlemenu.pyc`)**: левый
   BHUD-блок (красная зона движения, шкалы, кнопки) экран x **340..1120**, y 1440..2160;
   миникарта (рамка `bhud_frame_r`) экран x **2780..3350**; battle-консоль (canvas
   `x<0`, `ol_mc_black.tga` (утрачен: покрытия нет ни в git, ни в приватных архивах сессий Project/1-3.7z, 5.7z, 6.7z, 7.7z, original.7z, hd_pack.7z, python_libs.7z)) — чёрный прямоугольник у верхнего левого края экрана
@@ -157,7 +157,7 @@
   «в учебном диалоге после текста большая пустая область — его можно сделать короче»;
   «все патчи делать по аналогии с существующими HD-патчами»;
   «оконный режим в 16:9 не поддерживается».
-- `[P]` Контрольные снимки: 4:3 `scratch_dir('ld')/bt43n_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) (1920x1440), 16:9 `scratch_dir('ld')/bt4kn_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит)
+- `[P]` Контрольные снимки: 4:3 `scratch_dir('ld')/bt43n_overland.png` (снимок прогона) (1920x1440), 16:9 `scratch_dir('ld')/bt4kn_overland.png` (снимок прогона)
   (3840x2161) — путь «Вообразить» (-Mode new -SkipClicks 2 -CharX 349 -CharY 658
   -EnterCount 3). Первый кадр 16:9: плавающая green-II при канвас x≈112, учебный диалог
   выше эталона 4:3 (пустота после текста).
@@ -167,15 +167,15 @@
   только `billboardmain`, яркая hover-иконка оставалась на старом месте. Правка:
   `HD_EdgeFix` сдвигает hover-rect тем же delta (`HDMOVEH` в логе). После правки
   плавающий кластер исчез, teal-кластеры только в зоне сдвинутой панели
-  (btn_pause center канвас (-54,633)). Снимок проверки `scratch_dir('ld')/bt4kn2_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит).
-- `[P]` **Учебный диалог** (`btutorial.py` (историческая ссылка; игровой модуль, база декомпилята — локальная, не в git), `t_wnd_w=384`): runtime h_text = 456 канвас в 4:3
+  (btn_pause center канвас (-54,633)). Снимок проверки `scratch_dir('ld')/bt4kn2_overland.png` (снимок прогона).
+- `[P]` **Учебный диалог** (`btutorial.py` (историческая ссылка), `t_wnd_w=384`): runtime h_text = 456 канвас в 4:3
   (BTRECT bottom=646), в 16:9 602.99 (4K) / 603.56 (2K-F1) — коробка в 1.322 раза выше
   эталона. Зонды: движковый `GetTextHeight` при k=0.75 даёт величину, не зависящую от s.
   Калибровка в обёртке `hd_scale.GetRealTextHeight`: коэффициент `HD_GTH_F = 0.7563`
   (456/603.3), ветка k==1 identity. Зонд-лог `BTRECT` в `patches/ui/btutorial.py`
   (ApplyText; паритет sig=0, ops=1 — только зонд). После: BTRECT h=456.04, bottom=646.0
-  как в 4:3; панель кончается сразу за текстом, «Далее» под ним (`scratch_dir('ld')/bt4kn6_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит)).
-- `[P]` Регрессия 4:3 (`scratch_dir('ld')/bt43n3_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) vs `scratch_dir('ld')/bt43n_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), region_diff battle):
+  как в 4:3; панель кончается сразу за текстом, «Далее» под ним (`scratch_dir('ld')/bt4kn6_overland.png` (снимок прогона)).
+- `[P]` Регрессия 4:3 (`scratch_dir('ld')/bt43n3_overland.png` (снимок прогона) vs `scratch_dir('ld')/bt43n_overland.png` (снимок прогона), region_diff battle):
   `left_bhud`, `left_btns`, `console_strip`, `center_battle` = mean=0 max=0 (побитово),
   minimap — только анимация (mean 0.44). Состояние: `hd_scale.pyc` (EdgeFix+hover+GTH_F, — компилят `.pyc` в установке, в git не входит
   HD_LOG=0), `ui/btutorial.pyc` (зонд), `ui/battlemenu.pyc`, `ui/olmenu.pyc`.

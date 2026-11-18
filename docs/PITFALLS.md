@@ -130,7 +130,7 @@
   чтобы модель восстановила силуэт глифа (в RGBA-прогоне альфу ресемплит не модель).
   Маски: `tools/archive/font_gen/fontmask_export.py` → `scratch_dir('fonts_alpha_src')`
   (8-бит grayscale, белый = штрих). Результаты: `..._alpha_dst/{remacri,high-fidelity}-4x`.
-- `[P]` **QC (`tools/archive/font_gen/maskqc.py` (источник в git; собираемые блобы — в paths.cache_dir('cave')), оригинал = alpha из `paths.btf_backup_dir()/*_orig.btf (родной бэкап оригинала (восстанавлируется из архивов: `python3 tools/extract_pristine.py templates`), в git не входит)`)** — контроль: та же маска,
+- `[P]` **QC (`tools/archive/font_gen/maskqc.py` (собираемый блоб), оригинал = alpha из `paths.btf_backup_dir()/*_orig.btf (родной бэкап оригинала (восстанавлируется из архивов: `python3 tools/extract_pristine.py templates`), в git не входит)`)** — контроль: та же маска,
   Lanczos-4x локально (`gm convert -filter Lanczos -resize 400%`):
 
   | вариант | mass | cov | dcy (px ориг.) | soft | bleed% | dA1x | inkpx |
@@ -173,7 +173,7 @@
 
 
 
-- `[P]` Грабля сравнения: после pruning из `scratch_dir('ld')/MANIFEST.txt` (лог прогона; создаётся скриптами tools/archive/texture_qc/, в git не входит) удалены строки установленных
+- `[P]` Грабля сравнения: после pruning из `scratch_dir('ld')/MANIFEST.txt` (лог прогона) удалены строки установленных
   текстур, и «installed» распознавать по манифесту нельзя — эталонный размер надо
   восстанавливать как `dims_dst_png / 2`. Классификатор, сравнивающий только с манифестом,
   даёт ложное «installed 0».
@@ -220,9 +220,9 @@ w,h по байтовым офсетам заголовка, которые па
   побайтовое совпадение с апскейлом **646/646** (0 расхождений), 598 batch-1 файлов
   сверены только по dims (их PNG удалены), `game-unparsable` 5 = ровно кривые 5,
   `untouched-original` 5 (базы шрифтов + `mm_bkg01`), sidecar'ы 12, `canon-unparsable` 4
-  индексированных глифа. Полный список: `scratch_dir('ld')/all_check.txt` (лог прогона; создаётся скриптами tools/archive/texture_qc/, в git не входит).
+  индексированных глифа. Полный список: `scratch_dir('ld')/all_check.txt` (лог прогона).
 - `[U]` «удали из `LethalDreams_textures_src` все файлы кроме этих 5» — `[P]` удалено 784
-  объектов (`scratch_dir('ld')/MANIFEST.txt` (лог прогона; создаётся скриптами tools/archive/texture_qc/, в git не входит), `README.md`, `bmp/borders`, `bmp/textures`, `tmp`, 629 PNG);
+  объектов (`scratch_dir('ld')/MANIFEST.txt` (лог прогона), `README.md`, `bmp/borders`, `bmp/textures`, `tmp`, 629 PNG);
   в `src` остались только `paths.assets_dir('<релатив>')/fire01.png` (эскиз апскейла, приватный каталог assets.base, в git не входит), `paths.assets_dir('<релатив>')/mm_ng_tt_transmuter.png` (эскиз апскейла, приватный каталог assets.base, в git не входит), `paths.assets_dir('<релатив>')/mm_tt_save.png` (эскиз апскейла, приватный каталог assets.base, в git не входит),
   `paths.assets_dir('<релатив>')/msg_btm_alt.png` (эскиз апскейла, приватный каталог assets.base, в git не входит), `paths.assets_dir('<релатив>')/ship_deck01.png` (эскиз апскейла, приватный каталог assets.base, в git не входит). Всё удалённое восстанавливается из
   `LethalDreams_textures_original_btf2x` + `tools/btf/unpack_btf.py` (канонические dims).
@@ -287,7 +287,7 @@ BM-B0EXC 'int' object has no attribute 'find'
   первого расхождения все потоки токенов расходятся. `fixlits` (`reconstruct_literals`)
   ловит только простые `self.X = литерал`/`x['k']=v`, списочные литералы он не восстанавливает.
 - `[P]` Диагностика выравнивания: `tools/archive/tmp_scratch/fixints_debug.py` (A=126, B=124, кандидатов 3);
-  `tools/pyc/parity_vs.py (источник в git; собираемые блобы — в paths.cache_dir('cave')) <module> <orig.pyc>` — паритет против оригинала из `backup_orig`
+  `tools/pyc/parity_vs.py (собираемый блоб) <module> <orig.pyc>` — паритет против оригинала из `backup_orig`
   (`tools/pyc/pycbuild.py parity <m>` сравнивает с ЖИВОЙ игрой, где уже накатан наш патч!).
 - `[P]` В `tools/pyc/py22_worker.py` добавлен режим `litfix2`: печатает `CODE side idx имя`,
   `CONST side idx hexrepr`, `TOK side idx j tok`, `SLINE idx j line` — позволяет
@@ -323,7 +323,7 @@ BM-B0EXC 'int' object has no attribute 'find'
     проверки GetScreenSize + `h+1` (фикс мигания alt+tab = +1 пиксель вертикали) и
     не было `hd_res.Prepare()`, добавлен зонд hp1.
   - `hd_res.Prepare()` (в игре hd_res.pyc, мой модуль `build/hd_res.py` (историческая ссылка; рабочая директория build/, в git не входит)): копирует активные
-    ресурсы по режиму: `mm_bkg01_{43,169}.btf`/`mm_bkg01_black_*` -> `config[game.root]/data/textures/mm_bkg01.btf` (файл установленной игры, в git не входит),
+    ресурсы по режиму: `mm_bkg01_{43,169}.btf`/`mm_bkg01_black_*` -> `config[game.root]/data/textures/mm_bkg01.btf` (файл установки),
     и для ld_uncial12/ld_uncial20/ld_tahoma11/ld_numbers15 `.btf_43/_169` и `.fdf_43/_169` ->
     активные. Без Prepare активные шрифты/фон остаются от ПРОШЛОГО режима ->
     масштаб меню в 4:3-окне ломается, ролики/фон не отмасштабированы.
@@ -337,7 +337,7 @@ BM-B0EXC 'int' object has no attribute 'find'
   cursor cur_table consts = good; hd_scale/battlemenu/btutorial/olmenu дельты = 16:9-фиксы
   (hover-сдвиг EdgeFix, HD_GTH_F, console-границы/-sh, console в EdgeFix) + зонды, identity при k=1.
 - `[P]` Съёмки после перенкатывания: 4:3 `bt43chk_*` - окно 1920x1440, Prepare применил `_43`
-  (md5 ld_uncial12.fdf == _43, config[game.root]/data/textures/mm_bkg01.btf (файл установленной игры, в git не входит) == _43); 4K `bt4kchk2_*` - окно 3840x**2161** (+1 px
+  (md5 ld_uncial12.fdf == _43, config[game.root]/data/textures/mm_bkg01.btf (файл установки) == _43); 4K `bt4kchk2_*` - окно 3840x**2161** (+1 px
   восстановлен), Prepare применил `_169`; tab1..3 (Enter x12, Tab x3) - журнал боя открывается
   прижатым к левому краю, закрывается тонкой полоской у края (16:9-фиксы живы).
 - Состояние: EXE = exepatch12 (md5 171319bb...), игра закрыта, hd.cfg = 3840 2160 32 1.
@@ -416,7 +416,7 @@ BM-B0EXC 'int' object has no attribute 'find'
   написаны для 2.2.3/2.x. Обход: запускать тем интерпретатором, которому они принадлежат, или
   читать как документацию; список — `tools/archive/README.md`, абзац «8 архивных скриптов
   не парсятся Python 3» (8 имён: 4 `disasm/disdiff*.py`, 3 `decompile/*`, `tmp_scratch/bm_patch_backup.py`).
-- **Чёрный фон (`config[game.root]/blackbg.flag` (артефакт прогона/эксперимента; в текущей установке отсутствует, в git не входит); историческая ссылка, в установке отсутствует)** — включение black-сайдкаров требовало файла
+- **Чёрный фон (`config[game.root]/blackbg.flag` (в установке отсутствует); историческая ссылка, в установке отсутствует)** — включение black-сайдкаров требовало файла
   в корне игры; ярус untouched его не требует (замер — `docs/VERIFY.md`), black-пары живут только
   в snapshot-архиве. Обход: не рассчитывать на black-фон в установке.
 - **`mm_bkg01.btf` в игре побитово равен hd_pack `mm_bkg01_169.btf`**: ярус assets сверяет .btf по

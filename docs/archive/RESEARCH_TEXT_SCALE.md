@@ -99,7 +99,7 @@ Cave-B: `adv = round(adv * kx)` в `[esp+0xc]`, затем штатные `mov [
 - Console-overlay (`FUN_004134f0`, debug FPS) тоже рисует через d020 — получает тот же
   kx, согласован.
 - Точки патча заданы для текущего EXE (патченный набор `exepatch3.py`,
-  md5 `45e93d46aad6ceb3dfc17e86d04e4f82`). Новый скрипт — `приватный архив сессий Project/1.7z, entry LethalDreams/exepatch4.py` (исторический скрипт сессии; в git не входит), бэкапы по схеме
+  md5 `45e93d46aad6ceb3dfc17e86d04e4f82`). Новый скрипт — `приватный архив сессий Project/1.7z, entry LethalDreams/exepatch4.py` (исторический скрипт (не в git)), бэкапы по схеме
   `backup_orig/`.
 
 ## 6. Инструменты для верификации (есть в проекте)

@@ -5,15 +5,15 @@
 
 
 ## Ресурсы текстур (`[P]` расшифковано офлайн)
-- Архивы `.tt` (plain text, CRLF): `config[game.root]/data/menutextures.tt` (файл установленной игры, в git не входит) = список
+- Архивы `.tt` (plain text, CRLF): `config[game.root]/data/menutextures.tt` (файл установки) = список
   `имя.bmp | textures\имя.btf`; движок грузит `data/textures/<name>.btf`.
 - `.btf` = `LDPACKER\` + `<u32 заголовка>` + zlib(zlib, magic 78 DA) поток;
   распакованный payload = `mdf ` (u32), блоки TLV: `(type=1, count=116)`,
   `(type=117, total)`, `(1,bpp=4)`, type 118: fields w,h (u32, при 1024x768: 1024,1024 и h=768)
   — пиксельный blob BGRA 1024x768 = 3145728 байт лежит в конце payload
   (`payload[-W*H*4:]`), header перед ним.
-- Фон меню = `config[game.root]/data/textures/mm_bkg01.btf` (движок грузит texture по имени .bmp; бинар .btf лежит в установке, в git не входит) (mainmenu.py (историческая ссылка; игровой модуль, база декомпилята — локальная, не в git):190, `BActionElement([0,0,1024,1024,...,'mm_bkg01.bmp', BBlend_Replace])`)
-  = `config[game.root]/data/textures/mm_bkg01.btf` (файл установленной игры, в git не входит); раскодирован и положен на рабочий стол
+- Фон меню = `config[game.root]/data/textures/mm_bkg01.btf` (движок грузит texture по имени .bmp; бинар .btf лежит в установке, в git не входит) (mainmenu.py (историческая ссылка):190, `BActionElement([0,0,1024,1024,...,'mm_bkg01.bmp', BBlend_Replace])`)
+  = `config[game.root]/data/textures/mm_bkg01.btf` (файл установки); раскодирован и положен на рабочий стол
   (`scratch_dir('desktop')/mm_bkg01.png`, 1024x768 RGBA).
 - Отдельный 16:9-фон (решение пользователя): файл делает внешний агент;
   запакуем обратно в `LDPACKER+zlib+mdf` и подменим в архиве.
@@ -21,11 +21,11 @@
   «16:9 сам не делай, я попрошу другого агента».
 
 ## Подтверждение раскода `.btf` (`[P]`)
-- Раскод `config[game.root]/data/textures/mm_bkg01.btf` (файл установленной игры, в git не входит) (row-major, stride W*4, BGRA, blob в хвосте payload) даёт
+- Раскод `config[game.root]/data/textures/mm_bkg01.btf` (файл установки) (row-major, stride W*4, BGRA, blob в хвосте payload) даёт
   канвас с глифами-глазами; эти же глифы = `mm_eye.tga` (утрачен: покрытия нет ни в git, ни в приватных архивах сессий Project/1-3.7z, 5.7z, 6.7z, 7.7z, original.7z, hd_pack.7z, python_libs.7z)/`mm_r_*` (кнопки меню из
-  `config[game.root]/data/menutextures.tt` (файл установленной игры, в git не входит)) -> layout раскода согласуется с UI-текстурами, раскод корректен.
-- Фон меню при отрисовке = `config[game.root]/data/textures/mm_bkg01.btf` (движок грузит texture по имени .bmp; бинар .btf лежит в установке, в git не входит) (mainmenu.py (историческая ссылка; игровой модуль, база декомпилята — локальная, не в git):190, BBlend_Replace, [0,0,1024,1024]);
-  движок берёт `config[game.root]/data/textures/mm_bkg01.btf` (файл установленной игры, в git не входит) (путь из `.tt`-манифеста).
+  `config[game.root]/data/menutextures.tt` (файл установки)) -> layout раскода согласуется с UI-текстурами, раскод корректен.
+- Фон меню при отрисовке = `config[game.root]/data/textures/mm_bkg01.btf` (движок грузит texture по имени .bmp; бинар .btf лежит в установке, в git не входит) (mainmenu.py (историческая ссылка):190, BBlend_Replace, [0,0,1024,1024]);
+  движок берёт `config[game.root]/data/textures/mm_bkg01.btf` (файл установки) (путь из `.tt`-манифеста).
 
 
 
@@ -45,7 +45,7 @@
   R>G>B), `treant01` (зелёные кроны), `mm_eye` (кольцо), `ld_uncial20` (шрифт читается).
 - Охват парсера: 1251/1258 (705×32bit, 546×24bit, фейлов 0); 7 мелких UI-глифов с
   blob < w*h (поле `'x'`) — отдельная задача.
-- `config[game.root]/data/textures/qrs_battle.btf` (файл установленной игры, в git не входит) лежит зеркально ([P]: текст читается только при `--flip`); движок
+- `config[game.root]/data/textures/qrs_battle.btf` (файл установки) лежит зеркально ([P]: текст читается только при `--flip`); движок
   отзеркаливает при blit. В packer — PNG подавай зеркальный.
 - Движковый лимит текстуры: поле `33554432` в заголовке = 32 MiB blob.
 - Ориентация контента: `mm_bkg01` содержит реальные чёрные строки сверху (~230 строк,
@@ -57,8 +57,8 @@
 - **Размер берётся из PNG** (upscale поддержан); round-trip unpack→pack побайтово lossless
   (24-bit mm_bkg01, 32-bit treant01).
 - `[P]` 16:9-фон `paths.assets_dir('<релатив>')/16_9.png` (эскиз апскейла, приватный каталог assets.base, в git не входит) (2048x2048) запакован и проверен в игре (`[U]` «всё ок»):
-  ресурс `config[game.root]/data/textures/mm_bkg01_169.btf` (файл установленной игры, в git не входит) лежит как отдельный файл `config[game.root]/data/textures/mm_bkg01_169.btf` (файл установленной игры, в git не входит)
-  (оригинал `config[game.root]/data/textures/mm_bkg01.btf` (файл установленной игры, в git не входит) восстановлен), копия из архива
+  ресурс `config[game.root]/data/textures/mm_bkg01_169.btf` (файл установки) лежит как отдельный файл `config[game.root]/data/textures/mm_bkg01_169.btf` (файл установки)
+  (оригинал `config[game.root]/data/textures/mm_bkg01.btf` (файл установки) восстановлен), копия из архива
   распаковывается в `cache/hd_pack/data/textures/mm_bkg01_169.btf`
   (`python3 tools/extract_pristine.py extract`).
 - Бэкапы оригиналов: `paths.btf_backup_dir()/` (родные бэкапы оригиналов; восстанавливаются из архивов: python3 tools/extract_pristine.py templates, в git не входит).
@@ -103,7 +103,7 @@
 - `[P]` Выгружено: **1249** текстур `data/textures/*.btf` → `scratch_dir('textures_src')/`
   (702 трёхканальных+альфа, 547 24-бит; ~98 МБ) + `bmp/borders/` (24) и `bmp/textures/` (120)
   из `data/wrender/figures/`. Скрипты: `tools/archive/texture_qc/export_textures.py`, `tools/archive/texture_qc/export_bmp.py`
- (раскодер `tools/btf/unpack_btf.py`, canon: top-down, RGB/RGBA). В папке `scratch_dir('ld')/MANIFEST.txt` (лог прогона; создаётся скриптами tools/archive/texture_qc/, в git не входит)
+ (раскодер `tools/btf/unpack_btf.py`, canon: top-down, RGB/RGBA). В папке `scratch_dir('ld')/MANIFEST.txt` (лог прогона)
   (`имя w h bpp blob`) и `README.md`. Все 1393 PNG сверены с манифестом (размер/RGBA/filter 0) — 0 расхождений.
 - `[P]` Пропущено 17 файлов: сайдкары `config[game.root]/data/textures/*_43.btf` и
   `config[game.root]/data/textures/*_169.btf` (sidecar-пара в установке; создаёт пайплайн
@@ -126,8 +126,8 @@
   заголовок с w=h=bpp=0 (размер берётся из `.fgr`), не конвертированы.
 - `[P]` Не раскодируются текущим парсером 4 файла — индексированные глифы с внешней
   палитрой (blob < w*h, поле `'x'`), та же открытая задача, что и «7 мелких UI-глифов»:
-  `config[game.root]/data/textures/ol_mc_black.btf` (файл установленной игры, в git не входит), `config[game.root]/data/textures/ol_mc_rt.btf` (файл установленной игры, в git не входит) (w=h=16, blob 217), `config[game.root]/data/textures/re_manadn.btf` (файл установленной игры, в git не входит) (blob 9),
-  `config[game.root]/data/textures/ui_scrollbar_hlcnt.btf` (файл установленной игры, в git не входит) (blob 102).
+  `config[game.root]/data/textures/ol_mc_black.btf` (файл установки), `config[game.root]/data/textures/ol_mc_rt.btf` (файл установки) (w=h=16, blob 217), `config[game.root]/data/textures/re_manadn.btf` (файл установки) (blob 9),
+  `config[game.root]/data/textures/ui_scrollbar_hlcnt.btf` (файл установки) (blob 102).
 - `[P]` Ограничение апскейла по размеру: поле лимита blob = **32 MiB**. 1024x1024 источников
   56 (все `qrs_*`, `re_bkg`, `sb_bkg`, `ter_fort01`); 2x влезает, 4x 24-бит (~50 МБ) — нет.
   Классы размеров: 256x256=391, 64x64=282, 32x32=232, 128x128=210, 1024x1024=56, 512x512=12
@@ -151,7 +151,7 @@
   ringing на изолированных точках — `minimap_pt03` (cov 1.048, полупрозрачных пикселей
   141 против 23) и `minimap_pt04` (cov 0.9655, 288 против 80). Билинейный
   `-filter Triangle` хуже: cov 1.13/1.00, speck 181/324 → оставлен Lanczos.
-  Превью: `tools/archive/texture_qc/lc_preview.py` → `scratch_dir('ld')/lc_*.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит)
+  Превью: `tools/archive/texture_qc/lc_preview.py` → `scratch_dir('ld')/lc_*.png` (снимок прогона)
  (orig слева, апскейл справа, nearest 8x).
 - `[P]` **Перепись `data/textures` (`tools/archive/texture_qc/game_census.py`)** — состояние перед второй
   установкой: `installed-2x` (dims 2x) **604**, `original-size` **650** (это текущий набор
@@ -159,7 +159,7 @@
     апскейл), `qrs_stats`/`st_char_verition`/`white`/`minimap_pt02` = родные размеры
     (mtime 2002–2003).
 - `[P]` Установка второй партии (650 из `dst`, включая 5 Lanczos) — скрипт
-  `tools/archive/texture_qc/replace_textures.py --names scratch_dir('ld')/pending.txt` (лог прогона; создаётся скриптами tools/archive/texture_qc/, в git не входит)
+  `tools/archive/texture_qc/replace_textures.py --names scratch_dir('ld')/pending.txt` (лог прогона)
  (pack + побайтовая
   проверка + запись в игру). Итог: pack+verified 637, записано 637, ложных пролов 13
   (`mm_tt_resume`, 7 `mm_ttr_*`, `msg_btm`, `msg_top`, `pc_death01`, `spellshield01`,
@@ -168,12 +168,12 @@
   Дописаны стендовыми файлами режимом `--copy --names` → 650 записано, пролов 0.
   Ожидаемое состояние после установки: installed-2x 604+650 = **1254**, sidecar 10,
   не парсятся 6. Финальная проверка `tools/archive/texture_qc/final_check.py` (w,h по офсетам стенда,
-  blob по байтам, md5 game==staged по всем 650) — `scratch_dir('ld')/final_check.txt` (лог прогона; создаётся скриптами tools/archive/texture_qc/, в git не входит).
+  blob по байтам, md5 game==staged по всем 650) — `scratch_dir('ld')/final_check.txt` (лог прогона).
 - `[U]` Pruning исходников для установленных 650 **не делать**: `LethalDreams_textures_src`
   остаётся полным эталоном оригиналов (пригодится для 4x/пересъёма апскейла),
-  `scratch_dir('ld')/MANIFEST.txt` (лог прогона; создаётся скриптами tools/archive/texture_qc/, в git не входит) не трогать.
+  `scratch_dir('ld')/MANIFEST.txt` (лог прогона) не трогать.
 - `[P]` Финальная проверка второй партии: **650/650 OK** (w,h по офсетам заголовка,
-  blob побайтово == PNG, md5 game == staged) — `scratch_dir('ld')/final_check.txt` (лог прогона; создаётся скриптами tools/archive/texture_qc/, в git не входит).
+  blob побайтово == PNG, md5 game == staged) — `scratch_dir('ld')/final_check.txt` (лог прогона).
 - `[P]` Перепись после второй установки: `installed-2x` 637 + «other» 13 (те же 13: парсер
   читает квадратную пару dims, blob = 262144/1048576/196608/6291456 = размеры апскейла,
   mtime 2026-11-15) = **1254 установленных** из 1270; `no-reference` 604 (первая партия,
@@ -185,8 +185,8 @@
 ## Lanczos-2x курсоров и иконок (`data/cursors`) (2026-11-15)
 - `[U]` «Давай сделаем upscale всего, что находится в папке data\cursors в игре в 2 раза
   при помощи фильтра lanczos»; `.cur` не трогаем.
-- `[P]` Содержимое: 10 курсорных `.btf` (32x32 RGBA, manifest `config[game.root]/data/common.tt` (файл установленной игры, в git не входит)),
-  64 иконки `icons/*.btf` (32x32 RGBA, `config[game.root]/data/menutextures.tt` (файл установленной игры, в git не входит)), 5 `.cur`
+- `[P]` Содержимое: 10 курсорных `.btf` (32x32 RGBA, manifest `config[game.root]/data/common.tt` (файл установки)),
+  64 иконки `icons/*.btf` (32x32 RGBA, `config[game.root]/data/menutextures.tt` (файл установки)), 5 `.cur`
   (Windows CUR, 32x32 16 цветов, по 2 иконки; в манифестах нет) — `.cur` не тронуты.
 - `[P]` Пайплайн тот же, что для текстур: `unpack_btf --batch` →
   `gm convert -filter Lanczos -resize 200%` → `pack_btf` шаблоном оригинала.
@@ -202,7 +202,7 @@
 - `[P]` Установка: бэкап 74 оригиналов (md5 в `scratch_dir('ld')/cursors_stand/INSTALL_LOG.txt` (стенд прогона; пересоздаётся скриптами, в git не входит))
   в `paths.btf_backup_dir()/cursors_orig/{,icons/}`; записано 74 в игру, побайтовая
   проверка game==staged, финальная поверка из игры: 74/74 dims 64x64, blob=16384.
-- `[P]` Превью: `scratch_dir('ld')/cursors_preview.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) (789x874: оригинал nearest2x | Lanczos).
+- `[P]` Превью: `scratch_dir('ld')/cursors_preview.png` (снимок прогона) (789x874: оригинал nearest2x | Lanczos).
 - `[P]` Открытый вопрос закрыт: движок рисует 2x-текстуры корректно (курсоры и иконки
   не вылезают за ячейки), проверка в игре пользователем — «всё ок» (2026-11-15).
 - `[U]` «Сделал ai-апскейлинг в папках out_upscale и out_icons_upscale. Давай их

@@ -199,23 +199,23 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
   `HKCU\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers`:
   `config[game.root]/LETHALDREAMS.EXE = ~ HIGHDPIAWARE`. Без слоя окно 3840x2160
   при системном масштабе 75% было бы физически 2880x1620 (borderless бы не получился).
-- `[P]` dxwrapper вынесен из игры (`config[game.root]/dxwrapper.dll` (артефакт прогона/эксперимента; в текущей установке отсутствует, в git не входит), `config[game.root]/dxwrapper.ini` (артефакт прогона/эксперимента; в текущей установке отсутствует, в git не входит), `dsound_stub.bak`,
-  `config[game.root]/dxwrapper-lethaldreams.log` (артефакт прогона/эксперимента; в текущей установке отсутствует, в git не входит) -> `scratch_dir('removed')/`); звук — системный dsound.
+- `[P]` dxwrapper вынесен из игры (`config[game.root]/dxwrapper.dll` (в установке отсутствует), `config[game.root]/dxwrapper.ini` (в установке отсутствует), `dsound_stub.bak`,
+  `config[game.root]/dxwrapper-lethaldreams.log` (в установке отсутствует) -> `scratch_dir('removed')/`); звук — системный dsound.
 - `[P]` Проверка `tools/archive/probes/probe_f1.ps1` (прогон f1b, `hd.cfg = 3840 2160 32 1`):
   `MODE before/during/after_switch_out/after_switch_back` = `3840x2160 bpp=32 hz=120`
   (режим не меняется); `WINDOW rect=3840x2160 at (0,0) style=0x94000000`
   (= WS_POPUP|WS_VISIBLE|WS_CLIPSIBLINGS) `exstyle=0x00040000` (APPWINDOW);
-  `ALT-TAB` в notepad 1 ms, назад 75 ms. Снимки `scratch_dir('ld')/f1b_win.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), `scratch_dir('ld')/f1b_desktop.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит).
+  `ALT-TAB` в notepad 1 ms, назад 75 ms. Снимки `scratch_dir('ld')/f1b_win.png` (снимок прогона), `scratch_dir('ld')/f1b_desktop.png` (снимок прогона).
 - `[?]` За пользователем: визуально подтвердить отсутствие мигания при alt-tab/выходе и
   «точку строго под пальцем» в F=1 (`MY = m/k`).
-- `[P]` Фон 16:9 (`config[game.root]/data/textures/mm_bkg01_169.btf` (файл установленной игры, в git не входит)) = 2048x2048, арт в строках 896..2047 (замер офлайн
+- `[P]` Фон 16:9 (`config[game.root]/data/textures/mm_bkg01_169.btf` (файл установки)) = 2048x2048, арт в строках 896..2047 (замер офлайн
   по payload: first-non-black=896, last=2044). **Исправлено 2026-11-14: `_bg_fix` =
   pass-through** (фон передаётся движку без пересчёта, канвас 1024x1024). В F=1 движок
   растягивает текстуру по rect единым `s=w/1024` и клиппит по окну, blit инвертирует
   строки (как `qrs_battle`): видимые канвас-строки 0..h/s = арт заполняет окно ровно,
   aspect един (3840/2160 = 2048/1152), чёрного прямоугольника снизу нет.
   Старое `sy2 = HD_SY^2` сжатие давало неединый Y-масштаб (x=1.875, y~1.05) и чёрную
-  полосу ~945 px снизу. Замер снимка `scratch_dir('ld')/bgpt_5s_win.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) (`tools/archive/probes/measure_bgrows.ps1`):
+  полосу ~945 px снизу. Замер снимка `scratch_dir('ld')/bgpt_5s_win.png` (снимок прогона) (`tools/archive/probes/measure_bgrows.ps1`):
   top-black=6 (art-виньетка, совпадает с 3 чёрными строками texture*1.875), bottom-black=1
   (лишний px окна за экраном), арт во всех строках 6..2159; лог `HDBGINIT BG ('MainBB', 0, 0, 1024, 1024)`.
   В окне (F=0) и при k=1 — identity, 4:3-регрессия не затронута.
@@ -241,9 +241,9 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
   4K родные 483x58 (8.33, = 1.38 x — растяжение `sx/sy`=1.333 подтверждено);
   4K `_169` 356x58 (6.14, +1.7%); 2K `_169` 237x~40. Высота полосы при 4K не
   изменилась (58 px) — вертикаль не тронута.
-- `[U]` Прежний референс `scratch_dir('ld')/ref43_dialog_nocursor.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) снят в момент fade-in
+- `[U]` Прежний референс `scratch_dir('ld')/ref43_dialog_nocursor.png` (снимок прогона) снят в момент fade-in
   (текст тёмный) -> замер «доля 0.56» по нему неточен. Свежий эталон:
-  `scratch_dir('ld')/r43new_dialog_nocursor.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) (1280x960, родные листы).
+  `scratch_dir('ld')/r43new_dialog_nocursor.png` (снимок прогона) (1280x960, родные листы).
 
 ## Центрирование и межстрочный шаг 16:9 (2026-11-14, ночь)
 - `[P]` Движок фиксирует ширину текстовой раскладки в `InitBillboard` (SetText/SetFont);
@@ -282,7 +282,7 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
   ink height 0.850/0.850/0.838/0.846, advance 1.0000 (не тронут) — цели 5% и 15% точно.
 - `[P]` Офлайн-превью глифов: `tools/fonts/font_preview.py` (собирает строку из глифов листа по `.fdf`,
   коды = cp1251; Cyrillic в uncial-листах под кодами 0xC0..0xFF, в tahoma11 — %128..%255).
-  Сравнение родной/новый лист: `scratch_dir('ld')/cmp_nast20.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), `scratch_dir('ld')/cmp_tahoma_body.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), `scratch_dir('ld')/cmp_numbers.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит).
+  Сравнение родной/новый лист: `scratch_dir('ld')/cmp_nast20.png` (снимок прогона), `scratch_dir('ld')/cmp_tahoma_body.png` (снимок прогона), `scratch_dir('ld')/cmp_numbers.png` (снимок прогона).
 - `[P]` Живые замеры (`tools/archive/probes/measure_caption.ps1` — полосы + ink bbox, `tools/archive/probes/stack_crops.ps1` — base/new):
   - 4K `newgamemenu`: межстрочный шаг 45 px (не изменился), высота текстовой строки
     28 -> 24 px (**0.857**), позиции строк те же; ширина строк ink не изменилась.
@@ -290,7 +290,7 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
     ink x-бокс строки идентичен (ширина строки прежняя).
   - 2K диалог: левый заголовок 36 -> 30 px (**0.833**), ink x 625..809 (ширина та же).
   - 4:3 (`1280 960 32 0`): load-имена = родные `*_43`, diff со свежим эталоном
-    `scratch_dir('ld')/r43new_dialog_nocursor.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит): meanDelta 0.35, шум дизеринга — побитово прежнее.
+    `scratch_dir('ld')/r43new_dialog_nocursor.png` (снимок прогона): meanDelta 0.35, шум дизеринга — побитово прежнее.
 - Инструменты: `tools/archive/font_gen/rescale_font4.py` (генератор + `--install`), `tools/fonts/font_stats.py`,
   `tools/fonts/font_preview.py`, `tools/archive/probes/measure_inkbox.ps1`, `tools/archive/probes/measure_caption.ps1`, `tools/measure/crop_rect.ps1`,
   `tools/archive/probes/stack_crops.ps1`, `tools/measure/downscale.ps1`, `tools/measure/pngdiff.py`.
@@ -301,7 +301,7 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
 
 ## Патч EXE: глифы UI (сессия 2026-11-15)
 - `[P]` Живая линия отрисовки глифов найдена: сайт `0x470932` — `push edi; push 0x1403; push ecx; push edx; call [0x51cd90] (glDrawElements)`; возврат `0x470938`; функция заканчивается `pop edi; pop esi; ret 0x14`. Запись вершины: база `esi+0xc`, stride `0x20`, **x = float@+0xc, y = float@+0x10**; индексы — ushort по `edi`, count = `ecx`.
-- `[P]` Live-мутация ×0.75 вокруг центра квада на этом сайте доказана: цифровая полоса интро 87→57 px (`scratch_dir('ld')/scale75_win.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит)) — рычаг работает.
+- `[P]` Live-мутация ×0.75 вокруг центра квада на этом сайте доказана: цифровая полоса интро 87→57 px (`scratch_dir('ld')/scale75_win.png` (снимок прогона)) — рычаг работает.
 - `[P]` Ранние encoding'ы cave (из прошлой сессии) были **неверны семантически**:
   `d8 04 24` = FIADD (целочисленное сложение), `d9 1c 24` = FSTP m32int,
   `6b db 20` = `imul ebx,ebx`; movzx писал не в тот регистр, и fld/fstp грузили/писали 8-байтовые double поверх 4-байтовых float полей x/y. Cave исполнялся (8496 хитов), координаты глифов становились мусором →screen серый, глифы улетали за экран. Это объясняет «серый снимок».
@@ -313,7 +313,7 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
   падает `0xC0000005` за ~1 с; ведущая гипотеза — SProtect-проверка целостности `.text` при
   загрузке». **Гипотеза неверна:** проверки целостности/упаковки в EXE нет, падения были
   багами самих пещер (`exepatch6/7`), а статические патчи `.text` (сайты `0x41ce31`,
-  `0x40b494`, пещера `0x4ebf12`) работают — см. `приватный архив сессий Project/1.7z, entry LethalDreams/exepatch9.py` (исторический скрипт сессии; в git не входит).
+  `0x40b494`, пещера `0x4ebf12`) работают — см. `приватный архив сессий Project/1.7z, entry LethalDreams/exepatch9.py` (исторический скрипт (не в git)).
 - `[P]` Состояние на диск **на тот момент** (сейчас EXE патчен — см. «ТЕКУЩЕЕ СОСТОЯНИЕ»):
   `config[game.root]/LETHALDREAMS.EXE` = чистый `backup/LETHALDREAMS.EXE.pre4`
   (md5 `45e93d46aad6ceb3dfc17e86d04e4f82`). Игра остановлена.
@@ -339,13 +339,13 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
   после неё умножить `slot4` и `pitch` на `k`, то UV остаются полной ячейкой, а квад
   (adv×pitch), перо, межстрочный шаг (`FUN_0041d560`: `y += pitch`) и ширина/центровка
   (`FUN_0041c1f0`) — все согласованно меньше в `k`. Один сайт, `.data` не трогается.
-- `[P]` `приватный архив сессий Project/1.7z, entry LethalDreams/exepatch8.py` (исторический скрипт сессии; в git не входит): сайт `0x41ce31` (5 байт `c6 41 58 01 59`) → `jmp 0x4ebf12`;
-  пещера 120 байт (`tools/exe/caves/fontscale.s` (источник в git; собираемые блобы — в paths.cache_dir('cave')), сборка `tools/exe/build_cave.sh`) ставит флаг, считает
+- `[P]` `приватный архив сессий Project/1.7z, entry LethalDreams/exepatch8.py` (исторический скрипт (не в git)): сайт `0x41ce31` (5 байт `c6 41 58 01 59`) → `jmp 0x4ebf12`;
+  пещера 120 байт (`tools/exe/caves/fontscale.s` (собираемый блоб), сборка `tools/exe/build_cave.sh`) ставит флаг, считает
   `k = h*1024/(w*768)` из `[0x51cc7c]+0x18/+0x1c`, зажимает `k>1` в 1.0 (4:3 → прежнее),
-  умножает `pitch` и все 256 `slot4`, затем `pop ecx; ret`. `python3 приватный архив сессий Project/1.7z, entry LethalDreams/exepatch8.py (исторический скрипт сессии; в git не входит) restore`
+  умножает `pitch` и все 256 `slot4`, затем `pop ecx; ret`. `python3 приватный архив сессий Project/1.7z, entry LethalDreams/exepatch8.py (исторический скрипт (не в git)) restore`
   возвращает `backup/LETHALDREAMS.EXE.pre4`. md5 патча `cce4537307ba83525f8ca0554c3584eb`.
-- `[P]` Проверка: 4K + РОДНЫЕ листы (`tools/fonts/restore_fonts.py`) — `scratch_dir('ld')/base8_4k_dialog_nocursor.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит)
-  (заголовок 478 px) → `scratch_dir('ld')/p8_4k_dialog_nocursor.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) (365 px, ×0.764), резко, без кропа;
+- `[P]` Проверка: 4K + РОДНЫЕ листы (`tools/fonts/restore_fonts.py`) — `scratch_dir('ld')/base8_4k_dialog_nocursor.png` (снимок прогона)
+  (заголовок 478 px) → `scratch_dir('ld')/p8_4k_dialog_nocursor.png` (снимок прогона) (365 px, ×0.764), резко, без кропа;
   старый офлайн-лист `x7sheet_4k` даёт 339 px (×0.709, пережат). 4:3 1280x960:
   `p8_43` vs `base8_43` meanDelta=0.0055, maxDelta=3, over_tol=0 — идентично.
 - `[?r]` Ширина 365 против ожидаемых 358 (478×0.75) — запас на округление advance до int
@@ -375,8 +375,8 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
 - `[P]` **Причина №3 (ширина)** — advance'ы округлялись `FISTP` по одному: сумма по строке
   систематически больше k-масштаба (до +2%). В пещере теперь **накопление ошибки (carry)**:
   `v = a*k + e; n = round(v); e = v - n`. Сумма по всей строке точна (±1 единица).
-- `[P]` `приватный архив сессий Project/1.7z, entry LethalDreams/exepatch9.py` (исторический скрипт сессии; в git не входит) (два сайта + блоб 192 Б в 0x4ebf12: cave1 0x00..0x7a, cave2 0x80..0xad,
-  data 0xb0/0xb8). md5 патча `49976478943f0e2871872a2c6fb55f28`, откат `приватный архив сессий Project/1.7z, entry LethalDreams/exepatch9.py (исторический скрипт сессии; в git не входит) restore`.
+- `[P]` `приватный архив сессий Project/1.7z, entry LethalDreams/exepatch9.py` (исторический скрипт (не в git)) (два сайта + блоб 192 Б в 0x4ebf12: cave1 0x00..0x7a, cave2 0x80..0xad,
+  data 0xb0/0xb8). md5 патча `49976478943f0e2871872a2c6fb55f28`, откат `приватный архив сессий Project/1.7z, entry LethalDreams/exepatch9.py (исторический скрипт (не в git)) restore`.
 - `[P]` Проверено 4K: диалог настроек — все 14 строк клавиш однострочные, видны все 4
   разрешения (в exepatch8 3-4-я строки съезжали); круг персонажа — блок 13 строк на тех же
   канвасных позициях, что и в 4:3.
@@ -406,15 +406,15 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
   родные пары в `*_43`), `python tools/fonts/gen_font4x.py --install`. Круг-трип `.btf` побайтовый (0 diff).
   Артефакты: `resources/fonts4x/`.
 - `[P]` **`tools/archive/exe_patch/exepatch10.py`**: те же сайты (`0x41ce31`, `0x40b494`), новая пещера 224 Б
-  (`tools/exe/caves/fontscale4x.s` (источник в git; собираемые блобы — в paths.cache_dir('cave')) + `tools/archive/cave_gen/build_cave4x.py` (источник в git; собираемые блобы — в paths.cache_dir('cave'))): `k_eff = k*0.25`, **при `k == 1` — identity**
+  (`tools/exe/caves/fontscale4x.s` (собираемый блоб) + `tools/archive/cave_gen/build_cave4x.py` (собираемый блоб)): `k_eff = k*0.25`, **при `k == 1` — identity**
   (это критично: иначе 4:3 с родными листами получил бы текст в 0.25x; первый прогон это поймал),
   и `adv = (a_sheet - CORR)*k_eff + carry`, `CORR = 4*A = 1.3384`. Полярность проверки:
   `fld1; fcomip; je isone`, зажим `k>1 -> 1`.
 - `[P]` Статически: пещера 224 Б влезает в zero-run 238 Б; константы (`c1024`,`c768`,`csheet`,
   `ccorr`) — последними, чтобы не платить padding раздела; из `cave2` убран guard `pitch!=0`
   (нужен был 8 байт), сам вызов `FUN_0041cc90` остался.
-- Инструменты: `tools/archive/font_gen/fontqc.py` (источник в git; собираемые блобы — в paths.cache_dir('cave')) (QC апскейла), `tools/archive/font_gen/fontsrc_export.py` (родные PNG + сетка
-  ячеек), `tools/fonts/gen_font4x.py`, `tools/archive/exe_patch/exepatch10.py`, `tools/archive/cave_gen/build_cave4x.py` (источник в git; собираемые блобы — в paths.cache_dir('cave')), `tools/measure/logrows.py` (сводка
+- Инструменты: `tools/archive/font_gen/fontqc.py` (собираемый блоб) (QC апскейла), `tools/archive/font_gen/fontsrc_export.py` (родные PNG + сетка
+  ячеек), `tools/fonts/gen_font4x.py`, `tools/archive/exe_patch/exepatch10.py`, `tools/archive/cave_gen/build_cave4x.py` (собираемый блоб), `tools/measure/logrows.py` (сводка
   `HDINITBB` по классам pitch/RowS).
 - `[P]` Состояние на диск: EXE = `exepatch10` (md5 `51f69974e1dada6e7b191961e853a1ef`),
   сайдкары `*_169` (4x remacri) + `*_43` (родные) в `data/textures`+`data/fonts`, `hd.cfg` =
@@ -445,7 +445,7 @@ Base-требования к декомпиляту — `docs/PIPELINE.md`; за
 ['', 'ld_uncial12', FONT_H, 1, 0, 0]], [], [])`; паритет против
 `backup_orig/ui/battlemenu.pyc`: code objects 124 = 124, близость **0.9979**,
 `sig=0`, `ops=9` (только артефакты `RETURN_VALUE` и LOAD_GLOBAL/LOAD_NAME) ->
-база пригодна для правок. Сравнение делает `tools/pyc/parity_file.py (источник в git; собираемые блобы — в paths.cache_dir('cave')) <orig.pyc> <file.py>`.
+база пригодна для правок. Сравнение делает `tools/pyc/parity_file.py (собираемый блоб) <orig.pyc> <file.py>`.
 
 - `[P]` Правка на recovered-базе (файл `patches/ui/battlemenu.py` =
   `decompiled_fixed/ui/battlemenu.py` + два хуна):
@@ -465,13 +465,13 @@ Base-требования к декомпиляту — `docs/PIPELINE.md`; за
   `config[game.root] (установка 'LethalDreams2', историческая)/...`, а `ENV PYTHONPATH` — с `\` и тоже LethalDreams2;
   теперь `config[game.root]/...` и прямые слэши, иначе воркер падает
   `ImportError: No module named os`).
-- `[P]` Результат 4K (`scratch_dir('ld')/p4kbt4_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), сравнение с baseline `scratch_dir('ld')/base4kbt3_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит)):
-  левый BHUD-блок прижат к левому и нижнему краю (кроп `scratch_dir('ld')/cmp4k_left_new.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит)
+- `[P]` Результат 4K (`scratch_dir('ld')/p4kbt4_overland.png` (снимок прогона), сравнение с baseline `scratch_dir('ld')/base4kbt3_overland.png` (снимок прогона)):
+  левый BHUD-блок прижат к левому и нижнему краю (кроп `scratch_dir('ld')/cmp4k_left_new.png` (снимок прогона)
   0..720 x 1440..2160: артка рамки начинается у x=0; в baseline блок начинается
   у x=340), миникарта прижата к правому/нижнему краю
-  (кроп `scratch_dir('ld')/cmp4k_right_new.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) 3120..3840); пропорции арта и кнопок = 4:3, растяжения нет.
+  (кроп `scratch_dir('ld')/cmp4k_right_new.png` (снимок прогона) 3120..3840); пропорции арта и кнопок = 4:3, растяжения нет.
   Консольная чёрная полоска у левого края осталась (её не сдвигаем).
-- `[P]` Регрессия 4:3 (`scratch_dir('ld')/p43bt5_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) vs baseline `scratch_dir('ld')/base43bt2_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит),
+- `[P]` Регрессия 4:3 (`scratch_dir('ld')/p43bt5_overland.png` (снимок прогона) vs baseline `scratch_dir('ld')/base43bt2_overland.png` (снимок прогона),
   `tools/measure/region_diff.py ... battle`): `left_bhud`, `left_btns`, `console_strip`,
   `center_battle` = `mean=0 max=0 over8=0` (побитово идентично),
   `minimap` mean 4.2 / over8 3034 — только анимация содержимого миникарты.
@@ -492,7 +492,7 @@ Base-требования к декомпиляту — `docs/PIPELINE.md`; за
   rect `[-434,90,450,428]` при сдвиге `-sh` даёт правый край engine
   `k*(16-170)+dx = 12.3 >= 0` — видима ровно та же полоска канвас 0..16 (правый
   border) с border-крышками, прижатая к левому краю экрана (screen ~46 px), не исчезает.
-  Кадр `scratch_dir('ld')/bt4kn7_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит): большой чёрный прямоугольник исчез. При 4:3 сдвиг=0 — identity.
+  Кадр `scratch_dir('ld')/bt4kn7_overland.png` (снимок прогона): большой чёрный прямоугольник исчез. При 4:3 сдвиг=0 — identity.
   Текст логов консоли (canvas x -402..-14) не видим НИ в 4:3, НИ в 16:9 — так же, как в эталоне.
 - Состояние: `hd_scale.pyc` (EdgeFix+hover+GTH_F), `ui/battlemenu.pyc` (EdgeFix списки +console), — компилят `.pyc` в установке, в git не входит
   `ui/btutorial.pyc` (зонд BTRECT), `ui/olmenu.pyc`. `hd.cfg` = `3840 2160 32 1`, игра закрыта.
@@ -519,8 +519,8 @@ Base-требования к декомпиляту — `docs/PIPELINE.md`; за
 - `[P]` Результат 16:9 (зонд, Enter x12 Tab x3, `bt4kn9`): OPEN `left=-170,right=280`
   → engine левый край k*(-170)+dx = 0 (прижато к краю экрана), ширина engine
   k*280+dx = 337.9 = 4:3 k*450; CLOSE `right=-154` → engine 12.3 = та же тонкая
-  полоска у края, что и в эталоне. Снимки `scratch_dir('ld')/bt4kn9_tab1.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) (открыто у левого края с
-  border-крышками), `scratch_dir('ld')/bt4kn9_tab2.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) (закрыто — тонкая полоска), `scratch_dir('ld')/bt4kn9_tab3.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит)
+  полоска у края, что и в эталоне. Снимки `scratch_dir('ld')/bt4kn9_tab1.png` (снимок прогона) (открыто у левого края с
+  border-крышками), `scratch_dir('ld')/bt4kn9_tab2.png` (снимок прогона) (закрыто — тонкая полоска), `scratch_dir('ld')/bt4kn9_tab3.png` (снимок прогона)
   (опять открыто) — посадка совпадает с 4:3 пропорциями.
 - `[P]` Съёмка: скрипт `tools/archive/probes/probe_loadshot.ps1` расширен `-Tabs N -TabDelay S` (keybd VK 0x09,
   снимок после каждого Tab). Путь боя: `-EnterCount 12` (6-10+ по слову пользователя;
@@ -528,7 +528,7 @@ Base-требования к декомпиляту — `docs/PIPELINE.md`; за
   главного персонажа, щелкнув…» — нужен клик по юниту в бою, скрипт его не делает).
 - `[P]` `hd_scale._log` лимит строк поднят 4000→12000 (в 16:9 прогон упирался в лимит —
   зонды CmdConsole/CONSOLE не писались).
-- `[P]` Регресс 4:3 (`scratch_dir('ld')/bt43t3_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит) vs `scratch_dir('ld')/bt43n_overland.png` (снимок прогона съёмки; пересоздаётся скриптами, в git не входит), region_diff battle):
+- `[P]` Регресс 4:3 (`scratch_dir('ld')/bt43t3_overland.png` (снимок прогона) vs `scratch_dir('ld')/bt43n_overland.png` (снимок прогона), region_diff battle):
   console_strip mean=0.0025 max=1, left_btns mean=0.0006 max=1, left_bhud 0.006/16
   (анимация绿стрелок), center_battle — учебный диалог (Enter x12 оставляет урок) —
   не регресс патча. Состояние: `hd_scale.pyc` (HD_LOG=0, cap 12000, GTH_F, hover-сдвиг), — компиляты `.pyc` в установке, в git не входит
@@ -559,7 +559,7 @@ Base-требования к декомпиляту — `docs/PIPELINE.md`; за
   ровно как в 4:3 (канвас 1024x768 → 2880x2160 при 4K) по центру, вписан по высоте,
   дети — той же k-схемой (клики/скролл/тултипы уже корректны). 4:3 не затронут:
   при `HD_K==1` и `InitBillboard`, и `_push` выходят до правки (identity).
-  `bspellbook.py` (историческая ссылка; игровой модуль, база декомпилята — локальная, не в git) / enmenu.py (историческая ссылка; игровой модуль, база декомпилята — локальная, не в git) / help.py (историческая ссылка; игровой модуль, база декомпилята — локальная, не в git) остаются ОРИГИНАЛЬНЫМИ (в игре они == backup_orig).
+  `bspellbook.py` (историческая ссылка) / enmenu.py (историческая ссылка) / help.py (историческая ссылка) остаются ОРИГИНАЛЬНЫМИ (в игре они == backup_orig).
 - `[P]` Проверено съёмкой probe_keyshot (16:9 3840x2160 F=1, сейв+последовательность):
   R — центральная 4:3-колонка, рамка на всю высоту, ярлыки/иконки на местах; клик
   `x142:616` в E открывает главу «Персонажи» (caption+desc на месте); help открывается
@@ -571,14 +571,14 @@ Base-требования к декомпиляту — `docs/PIPELINE.md`; за
   `px>40` = 0–1.06% (анимация chaos-фона и курсор); шаги E/F1/Tab — 0 отличающихся
   пикселей >40. По построению при k=1 правка не исполняется.
 - `[P]` Удалено как негодное: `gen_fontq.py` (утрачен: покрытия нет ни в git, ни в приватных архивах сессий Project/1-3.7z, 5.7z, 6.7z, 7.7z, original.7z, hd_pack.7z, python_libs.7z), `add_qfonts_tt.py` (утрачен: покрытия нет ни в git, ни в приватных архивах сессий Project/1-3.7z, 5.7z, 6.7z, 7.7z, original.7z, hd_pack.7z, python_libs.7z), `PATCH_Q_MODE.md` (утрачен: покрытия нет ни в git, ни в приватных архивах сессий Project/1-3.7z, 5.7z, 6.7z, 7.7z, original.7z, hd_pack.7z, python_libs.7z),
-  `resources/fontsq/`, `patches/ui/{bspellbook,enmenu,help}.py(.pyc)`, `config[game.root]/help_game.pyc (артефакт прогона/эксперимента; в текущей установке отсутствует, в git не входит).keep`.
-  В игре Q-сайдкаров не было (data/fonts и config[game.root]/data/common.tt (файл установленной игры, в git не входит) чистые). hd.cfg — `3840 2160 32 1`.
+  `resources/fontsq/`, `patches/ui/{bspellbook,enmenu,help}.py(.pyc)`, `config[game.root]/help_game.pyc (в установке отсутствует).keep`.
+  В игре Q-сайдкаров не было (data/fonts и config[game.root]/data/common.tt (файл установки) чистые). hd.cfg — `3840 2160 32 1`.
 - `[P]` `player_dialog.tga` (утрачен: покрытия нет ни в git, ни в приватных архивах сессий Project/1-3.7z, 5.7z, 6.7z, 7.7z, original.7z, hd_pack.7z, python_libs.7z) (фон `talk_dlg`, диалог с NPC из `ui/btalk.py`) добавлен в
   `DIALOG_TEX` того же патча 16.11.2026: rect шаблона `[0,0,1024,1024]`, но арт
   (альфа-bbox) = canvas `x134..890 y6..643`, т.е. композиция тоже канвас 1024x768 —
   в 16:9 он шёл `_is_bg` pass-through и растягивался на всю ширину. Из остальных
   2048x2048 вне патча: `sb_bkg` не упоминается нигде (мёртвый файл: нет в `.tt`,
-  скриптах, EXE/DLL), `ter_fort01` — текстура мира (`config[game.root]/data/objects_tex.tt` (файл установленной игры, в git не входит)), не UI.
+  скриптах, EXE/DLL), `ter_fort01` — текстура мира (`config[game.root]/data/objects_tex.tt` (файл установки)), не UI.
 
 ## Краевой скролл оверленда: патч `ui/olcamera` (17.11.2026)
 
@@ -655,10 +655,7 @@ Base-требования к декомпиляту — `docs/PIPELINE.md`; за
 - `[P]` Установка: `python3 tools/apply_patch.py <м>` (base-печать == манифест) →
   `python3 tools/pyc/install_patch.py <м> --install`. Записаны
   `data/scripts/ui/olcamera.pyc` md5 `f67ae9904032…` и
-  `data/scripts/battlecamera.pyc` md5 `ddb3e6fa629e…` (обе == base-печать).
-  Снапшот md5+mtime до/после: diff = ровно две эти замены, остальная установка
-  не тронута. `check_state --quick`: rc 0, 2 известных дрейфа (cursor, olmenu);
-  `--full`: rc 0, нарушений 0; `--untouched`: rc 0 (CODE 17).
+  `data/scripts/battlecamera.pyc` md5 `ddb3e6fa629e…` (обе == base-печать); остальная установка не тронута.
 ## Тултипы у курсора в 16:9: патч-обёртка `CalcPopupPos` (17.11.2026)
 
 - `[U]` «Тултипы в игре в 16:9 возникают в верху экрана, а не под курсором (как
@@ -693,13 +690,8 @@ Base-требования к декомпиляту — `docs/PIPELINE.md`; за
 - `[P]` Установка (`python3 tools/pyc/install_patch.py hd_scale --install` после
   подтверждения съёмки в 4K): `data/scripts/hd_scale.pyc` md5
   `12d38f093d2cacd8b2892832e13649d5` (25618 B, crc32 `84c7ece3`, mtime
-  `1794819372`), `.py` md5 `dc8314f90af0…` (31914 B). Манифест: entry `hd_scale`
-  перечислен по новой сборке. Снапшот md5+mtime до/после: diff = ровно эта одна
-  замена (файлы `hd_res.Prepare()` — 9 md5-совпадающих, mtime-дрейф ожидаемый;
-  `hdlog.txt` из дерева убран). Живой прогон после установки (`tt4kfix`):
-  «Главное меню (Escape)» и «Меню исследования» в левом нижнем углу у курсора;
-  `check_state`: quick rc 1 (cursor DRIFT_RELEASE_AHEAD, olmenu DRIFT_KNOWN),
-  full rc 0, untouched rc 0.
+  `1794819372`), `.py` md5 `dc8314f90af0…` (31914 B); манифест перечислен по новой сборке.
+  Живой прогон после установки: тултипы у курсора в левом нижнем углу.
 - `[P]` Ограничение: у правого края нижней панели (иконка close, canvas x≈−145)
   текст тултипа клампится к левому краю видимого бокса и частично ложится на
   саму панель — по правилу пользователя («рядом с курсором, точность не нужна»)
@@ -747,15 +739,12 @@ Base-требования к декомпиляту — `docs/PIPELINE.md`; за
   - MMB: якорь/отпускание, φ по `GetDirection()` — drag вправо: 108° → -77° (поворот
     направо, мир уехал влево), drag влево: -77° → 108° (налево), наклон упёрся в
     клампы -45/-60; интерфейс на месте;
-  - ошибок Python нет (`PythonLogFile` — только доброкачественные `ImportError`
-    деревьев), `check_state` после установки: `--untouched` rc 0, `--full` rc 1
-    (единственное нарушение — известный cursor-дрейф).
+  - ошибок Python нет (`PythonLogFile` — только доброкачественные `ImportError` деревьев).
 - `[P]` Установка (18.11.2026): `data/scripts/battlecamera.pyc` md5
   `91be96e74662448a5672b3c6edcace28` (27536 B, crc32 `e143e240`, mtime `1794778203`),
-  `.py` md5 `5f757d07164f1fb54bd568c47cd9ea02` (25459 B). Снапшот md5+mtime до/после:
-  diff = ровно эта одна замена. Каноническая сборка: `tools/apply_patch.py battlecamera`
-  → `.py`/`.pyc` md5 == манифест; `tools/release/update_entry.py battlecamera` —
-  пересборка `.patch` + записи манифеста.
+  `.py` md5 `5f757d07164f1fb54bd568c47cd9ea02` (25459 B). Каноническая сборка:
+  `tools/apply_patch.py battlecamera` → `.py`/`.pyc` md5 == манифест;
+  `tools/release/update_entry.py battlecamera` — пересборка `.patch` + записи манифеста.
 - `[P]` Уроки «Игровая камера и панели» **не снимаются Enter'ом** (15 и 30 Enter не
   помогли): урок ждёт действия игрока, кнопка «Далее» на нём заблокирована
   (`btutorial.EnableNext(0)`), а «Игра в паузе» держит сцену. Камера при этом
@@ -763,33 +752,9 @@ Base-требования к декомпиляту — `docs/PIPELINE.md`; за
 
 ## Ослабление зума колесом (18.11.2026) — итог `zoom_step = 1.0`
 
-- `[U]` «Сделай чтобы зум был в 4 раза слабее (чтобы надо было в 4 раза больше
-  скроллов колёсика для того же зума). Я сам проверю. Если ок — оставим новую
-  версию». Позже: «`self.zoom_step` поставь всё-таки 1.0».
-- `[P]` Правка одна константа `self.zoom_step` в `h_MouseWheel`
-  (`patches/battlecamera.py`). Итерации: `3.0` (исходная, 18.11 день) →
-  `0.75` (в 4 раза слабее) → **`1.0`** (в 3 раза слабее, оставленная сборка).
-  Диапазон зума `[up_min, up_max] = [min_up=6.5, 33.5]` = 27 ед. хода,
-  старт зума от текущей высоты, клампы и terrain following не меняются;
-  MMB-обзор не менялся. Число щелчков на полный ход зума:
-  `3.0` → 9, `1.0` → **27**, `0.75` → 36.
-- `[P]` Сборка по каноническому пайплайну (`docs/PIPELINE.md`) для каждой итерации:
-  `tools/release/update_entry.py battlecamera --note "…zoom_step N per notch"`
-  → `release/patches/battlecamera.patch` (11029 B, 212 строк, итог) + запись
-  манифеста; гейт `tools/apply_patch.py battlecamera` → `.py` md5
-  `8e64086fcdde…` (25651 B), `.pyc` md5 `c7d3150409af…` (27536 B, crc32
-  `816f0d64`, magic `2ded0d0a`, mtime `1794778203`) == манифест. Проверка
-  значения живым marshal-чтением (`vendor/py223/python.exe`, `co_consts`)
-  установленного `.pyc`: `zoom_step` = `1.0`, констант `3.0`/`0.75` нет,
-  кламп `33.5` на месте.
-- `[P]` Цепочка установленных `.pyc` (`install_patch.py battlecamera --install`):
-  `91be96e74662…` (27536 B, `zoom_step=3.0`) → `6fdad7c6c0ea…` (27537 B, crc32
-  `9bd9014b`, `zoom_step=0.75`) → `c7d3150409af…` (27536 B, crc32 `816f0d64`,
-  `zoom_step=1.0`). Снапшот md5+mtime до/после каждой записи: diff = ровно одна
-  замена (`changed=1 added=0 removed=0`, 5096 файлов). Ярусы после записи:
-  `--quick` rc 1 (2 известных дрейфа: `hd.cfg`, `cursor.pyc`; `battlecamera` —
-  `state MATCH`), `--full` rc 1 (только `hd.cfg`), `--untouched` rc 0
-  (PRISTINE 2967, HD_PACK 1379, ALLOWED 729, CODE 17, EXCLUDED 4, UNCOVERED 0).
-- `[P]` Проверку в игре делает пользователь (`[U]`); при отказе откат — одна
-  константа + тот же пайплайн (эталон базовой сборки `zoom_step=3.0`,
-  `91be96e74662…`, восстанавливается правкой `patches/battlecamera.py`).
+- `[P]` Шаг зума колесом ослаблен до `zoom_step = 1.0` ед. высоты на щелчок (было `3.0`):
+  константа `self.zoom_step` в `h_MouseWheel` (`patches/battlecamera.py`); диапазон `[min_up=6.5, 33.5]`,
+  terrain following и MMB-обзор не менялись. Откат — вернуть значение константы и прогнать тот же пайплайн.
+- `[P]` Эталон установленной сборки: `data/scripts/battlecamera.pyc` md5 `c7d3150409af…` (гейт
+  `apply_patch.py battlecamera` даёт `.py` md5 `8e64086fcdde…`), state `MATCH`;
+  каноническая сборка — `docs/PIPELINE.md` (`update_entry.py` → `apply_patch.py` → `install_patch.py --install`).

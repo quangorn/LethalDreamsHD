@@ -5,7 +5,7 @@
 к оригиналам, рабочая база = оригинальные `.pyc` + `python22.dll` 2.2.3. Текущий метод —
 `pycbuild.py install-min` (только `gamescript.pyc` + генерируемый `hd_res.pyc`; чтение — генерируемый артефакт, в git не входит
 одной строки `hd.cfg` и `SetDisplayMode`). Оригинальный `gamescript.pyc` НЕ зовёт
-`SetDisplayMode`; шаблон `(1024, 768, 4, 0)` из `приватный архив сессий Project/1.7z, entry LethalDreams/_gs_min.py` (исторический скрипт сессии; в git не входит) — черновик, его нет в декомпиляте.
+`SetDisplayMode`; шаблон `(1024, 768, 4, 0)` из `приватный архив сессий Project/1.7z, entry LethalDreams/_gs_min.py` (исторический скрипт (не в git)) — черновик, его нет в декомпиляте.
 `hd.cfg` — одна строка (стартовый режим), меню настроек новые разрешения не показывать не умеет
 (список строит движок, макс. 1280x960). Полный свод — `docs/NOTES.md` (файл удалён; содержание распределено по docs/**, указатель docs/INDEX.md) (файл удалён; содержание распределено по docs/**, указатель `docs/INDEX.md`), раздел «Текущее состояние
 (2026-11-14)». Текст ниже — историческое исследование, местами устарело.
@@ -32,7 +32,7 @@ Monkeypatch (`hdui.py` (утрачен: покрытия нет ни в git, н�
 - **`python22.dll` заменён на финальный Python 2.2.3** (`847920` байт, сборка 30.05.2003).
   Проверено: все 51 символ C-API, импортируемый exe, присутствуют в новой DLL. Оригинальную альфу
   сохранили: `backup_orig/python22_2.2a4.dll` (gitignored, локальный бэкап альфы).
-- Финальный 2.2.3 при `Py_Initialize` требует `scratch/rootpyc/site.py` (источник в git), `config[game.root]/Lib/codecs.py` (файл установленной игры, в git не входит) (в альфе их не было), поэтому
+- Финальный 2.2.3 при `Py_Initialize` требует `scratch/rootpyc/site.py` (источник в git), `config[game.root]/Lib/codecs.py` (файл установки) (в альфе их не было), поэтому
   вся стандартная библиотека 2.2.3 (694 модуля) скопирована в корень игры
   `config[game.root]\*.py` (импорты движка видят cwd/sys.path[0]).
 - Скрипты в игре — **оригинальные `.pyc`** (`ui.pyc`, `cursor.pyc`, `globalscript.pyc`,
@@ -104,7 +104,7 @@ except Exception:
 # далее оригинальное содержимое scratch/rootpyc/site.py (источник в git) 2.2.3 (оно уже лежит в корне) — дописать его сюда
 ```
 
-(или: оставить `scratch/rootpyc/site.py` (источник в git) как есть и заменить `config[game.root]/Lib/codecs.py` (файл установленной игры, в git не входит) — он импортируется при инициализации;
+(или: оставить `scratch/rootpyc/site.py` (источник в git) как есть и заменить `config[game.root]/Lib/codecs.py` (файл установки) — он импортируется при инициализации;
 главное, чтобы redirection произошёл до первых `PyErr_Print`).
 
 Затем:
@@ -371,7 +371,7 @@ RETURN_VALUE` (peephole, без semantics).
   снимки окна и всего экрана.
 - `docs/NOTES.md` (файл удалён; содержание распределено по docs/**, указатель docs/INDEX.md) — RE движка: OpenGL-рендер, `SetDisplayMode`
   (`FUN_00477de0`), окно без рамок, `WM_SIZE` → минимизация (внешний ресайз ломает игру),
-  UI-канвас 1024x768, масштаб `w/1024`, DPI, `config[game.root]/dxwrapper.ini` (артефакт прогона/эксперимента; в текущей установке отсутствует, в git не входит) (`ConfigureDpiAwareness = 1`,
+  UI-канвас 1024x768, масштаб `w/1024`, DPI, `config[game.root]/dxwrapper.ini` (в установке отсутствует) (`ConfigureDpiAwareness = 1`,
   `ResetScreenRes = 1`).
 - Бэкапы оригиналов: `backup_orig/{ui.pyc, cursor.pyc, globalscript.pyc, cfg_default.pyc,
   python22_2.2a4.dll, appcompat_lethal.txt}`.
