@@ -31,6 +31,7 @@ site3 считает FP-последовательность `cave3` (x87: `fild
 | `fetch_headers.py` | официальный Python 2.2.3 (python.org): `Include/*.h` + `PC/pyconfig.h` → `vendor/py223/include/` (untracked) |
 | `build.py` | MSVC x86 (`/fp:precise`) → `build/ldhook/ldhook.pyd` (gitignored) |
 | `smoke_api.py` | локальный смоук Python-API под `vendor/py223` (без игры): `log`/`set_level`/`stats`, уровень 0, TypeError, безопасный скан `.text` |
+| `check_sites.py` | аудит Фазы 4 (без игры): уникальность трёх сигнатур в `.text`, вердикт `installable`/`patched`/`UNEXPECTED` (rc 1) для установки и baseline |
 | `spike.py` | полная копия установки → `<scratch>/ldhook/tree`, ldhook.pyd в корень, `ui/ui.pyc` = `patches/ui/ui.py` + блок `imp.load_dynamic`, config для scratch; `--baseline` — EXE = baseline |
 | `probe_spike.ps1` | спайк 0-бис: запуск из scratch, снимок ОКНА, гашение, проверка маркера |
 | `probe_phase1.ps1` | Фаза 1: «Новая игра» → экран выбора персонажа (site1), снимок окна, печать `hdlog.txt` с «FIRED» |
@@ -112,5 +113,24 @@ scratch удобен как эталон `exepatch12` для A/B при том �
 
 ## Дальше (Фаза 4, PLAN_proxy_dll.md §4)
 
-- Решение по EXE: in-memory хуки стабильны на всех трёх сайтах →
-  EXE не трогаем; `exepatch12.py` — эталон/откат.
+Фаза 4 выполнена (18.11.2026): **EXE не трогаем**, установка остаётся на
+cave `exepatch12` (`171319bb…`), `ldhook.pyd` в поставку не входит — это
+проверенный путь следующих правок движка. Аудит сайтов без игры:
+
+```
+python3 tools/ldhook/check_sites.py                      # установка + baseline
+python3 tools/ldhook/check_sites.py --exe <путь к EXE>   # произвольный файл
+```
+
+Вердикты: `installable` (все 3 сигнатуры по одному разу в `.text` — baseline
+`45e93d46…`, хуки встанут), `patched` (сигнатур нет, на сайтах `E9` — cave
+`exepatch12`, `.pyd` штатно no-op), `UNEXPECTED` (rc 1 — сайты сдвинулись или
+сигнатуры перестали быть уникальными; правку EXE пересмотреть, fallback А1).
+Правило: **после любой правки EXE — `check_sites.py`**.
+
+Живая матрица стабильности (Фаза 4): 4:3 `1920x1440`, `1440x1080`, `2880x2160`
+— identity-guard'ы, записей нет; 16:9 `3840x2160` (повтор) — те же VA
+`0x41ce31/0x40b494/0x47dd80` и те же биты `0x3FA646F1 -> 0x3F7987FA`, что и в
+Фазах 2–3, крашей нет. Условия перехода на `.pyd` в установке (baseline EXE,
+allowlist, `ui/ui.pyc`, исключение runtime-логов, гейт) — `docs/PLAN_proxy_dll.md`
+§4 Фаза 4.

@@ -148,6 +148,7 @@ python3 tools/exe/disex.py                # disassembly-загрузчик (py3)
 python3 tools/ldhook/fetch_headers.py   # Python 2.2.3 Include/ + pyconfig.h -> vendor/py223/include (untracked)
 python3 tools/ldhook/build.py           # MSVC x86 -> build/ldhook/ldhook.pyd (gitignored)
 PYTHONDONTWRITEBYTECODE=1 LDHOOK_LOG=2 vendor/py223/python.exe tools/ldhook/smoke_api.py build/ldhook/ldhook.pyd  # API без игры
+python3 tools/ldhook/check_sites.py     # Фаза 4: аудит сайтов (installable/patched/UNEXPECTED, rc 1); после любой правки EXE
 python3 tools/ldhook/spike.py --baseline                    # scratch + baseline EXE 45e93d46 (сигнатуры сайтов целы)
 python3 tools/ldhook/spike.py                               # scratch + установленный cave-EXE (эталон exepatch12, хуки не встают)
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/ldhook/probe_phase1.ps1 -GameRoot "<scratch>/ldhook/tree" -Tag phase1

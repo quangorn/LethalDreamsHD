@@ -66,6 +66,10 @@ python_libs.7z; тот же мандат applies к истории сессий.
    гейт Фазы 3: при `LDHOOK_LOG=1` в логе только `I`-строки, при `2` —
    `D`-трассировка с троттлингом.
    EXE на диске не модифицируется (только `VirtualProtect` в памяти).
+6. Аудит Фазы 4 (без игры, после любой правки EXE):
+   `python3 tools/ldhook/check_sites.py` — уникальность трёх сигнатур в `.text`;
+   `installable` (baseline) / `patched` (cave exepatch12) / `UNEXPECTED` (rc 1).
+   Решение: установка остаётся на cave, `ldhook.pyd` — путь следующих правок.
 
 
 ## btf-пайплайн (курсоры/иконки)

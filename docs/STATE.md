@@ -577,3 +577,40 @@ PRISTINE 2967, HD_PACK 1379, ALLOWED 729, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0
   снова отсутствовал AppCompat-флаг `~ HIGHDPIAWARE` (в реестре был только
   scratch-путь) — документ-состояние восстановлено тем же `set_layer.ps1`
   (`docs/VERIFY.md`), после чего `--quick` снова показывает ровно 2 дрейфа.
+
+## Сессия 2026-11-18 (вечер): ldhook Фаза 4 — решение по EXE
+
+- `[P]` **Решение: EXE установки не трогаем.** Установка остаётся на cave
+  `exepatch12` (`171319bb…`), `ldhook.pyd` в поставку не входит, `exepatch12.py`
+  — эталон/откат; `.pyd` — проверенный путь следующих правок движка. Критерии
+  §5 (`docs/PLAN_proxy_dll.md`) не выполнены: 4-й правки нет, логика остаётся
+  простой, потребность в отладке закрыта логгером Фазы 3 без смены установки
+  (dev-прогоны — baseline scratch).
+- `[P]` Новый инструмент **`tools/ldhook/check_sites.py`** (без игры, rc 0):
+  скан `.text` по `VirtualSize` (ровно как в `ldhook.pyd`, zero-run пещеры за
+  `VirtualSize` не попадает — иначе `site2`-сигнатура «находилась» бы в блобе
+  на 0x4ebf91). Установка: `patched` (0 сигнатур, на всех трёх сайтах `E9`);
+  baseline `45e93d46…`: `installable` (по одному вхождению на
+  `0x41ce31/0x40b494/0x47dd80`). Негативный тест (битый байт в site1) —
+  `UNEXPECTED`, rc 1. Правило: после любой правки EXE — `check_sites.py`.
+- `[P]` **Живая матрица стабильности** (baseline scratch, `probe_exitcode`
+  `LDHOOK_LOG=1`, `-Sub ldhook_p4`): 4:3 `1920x1440` и `2880x2160` — все три
+  сайта `found` по тем же VA, `site3_impl: guard 4h==3w -> identity`
+  (w/h из лога), `site1_impl: k==1.0 -> identity (4:3)`, записей нет; 16:9
+  `3840x2160` (повтор) — те же VA и те же биты `0x3FA646F1 -> 0x3F7987FA`
+  (`m5=0x3FDDB3ED`), `k=0.750347 -> keff=0.187587`; вместе с Фазой 3 покрыты
+  все четыре рабочих режима (1920x1440, 1440x1080, 2880x2160, 3840x2160).
+  Оверленд снят во всех прогонах, Application-лог пуст, игра погашена.
+- `[P]` Чек-лист перехода на `.pyd` в установке записан в §4 Фаза 4 плана:
+  baseline EXE вместо cave, `ldhook.pyd` в `release/allowlist.json`,
+  `ui/ui.pyc` с `imp.load_dynamic`, исключение `hdlog.txt`/`hdlog.txt.1`/
+  `ldhook_marker.txt` из проверок, гейт (`check_sites` + биты site3 +
+  identity 4:3 + кольцо `measure_disc` 1–2 px). Fallback А1 (статические
+  `E9`, тело в DLL) — если будущая правка унесёт сигнатуры.
+- `[P]` Документация: `docs/PLAN_proxy_dll.md` (Фазы 0-бис–4 выполнены,
+  §5 вердикт, §7 вопросы 2 и 5 закрыты), `docs/PATCHES.md` (решение),
+  `tools/ldhook/README.md` (аудит + матрица), `docs/PIPELINE.md`,
+  `docs/TOOLS.md`, `README.md`.
+- `[P]` Установка не тронута: `--quick` rc 1 = 2 известных дрейфа (`hd.cfg`,
+  `cursor.pyc`), `--untouched` rc 0 (5096 файлов), `ldhook.pyd`/`hdlog.txt` в
+  установке отсутствуют.

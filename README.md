@@ -101,7 +101,7 @@ tools/btf/              unpack/pack btf: курсоры и иконки
 tools/fonts/            unpack/pack шрифтов, пиксельные измерения и пересчёт
 tools/measure/          измерение скриншотов
 tools/exe/              патчи exe, cave-патч, базовая цепочка exe
-tools/ldhook/           спайк .pyd-пути (расширение Python 2.2.3): сборка, scratch-дерево, probe
+tools/ldhook/           .pyd-хуки в памяти (Python 2.2.3): сборка, логгер, аудит сайтов, scratch-дерево, probe
 tools/archive/        [ИСТОРИЧЕСКИЙ АРХИВ] рабочие скрипты сессий (см. README внутри)
 docs/                   документация: INDEX (указатель), STATE, VERIFY, PATCHES, PIPELINE,
                         TOOLS, KNOWLEDGE, OBSERVATIONS_ENGINE/UI/FONT/TEXTURE,

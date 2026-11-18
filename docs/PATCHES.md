@@ -426,6 +426,14 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
   (= exepatch12), 4:3 — guard identity (записей нет), кольцо A/B с cave-EXE
   совпадает в пределах 1–2 px. Статус/замеры — `docs/PLAN_proxy_dll.md` §4
   Фазы 1–2, `tools/ldhook/README.md`.
+- `[P]` **Решение Фазы 4 (18.11.2026): EXE не трогаем, установка остаётся на
+  `exepatch12`** (`171319bb…`), `ldhook.pyd` в поставку не входит — это
+  проверенный dev-путь для следующих правок движка (логгер Фазы 3, скан
+  `check_sites.py`: baseline `installable`, cave `patched`). Переход на `.pyd`
+  (baseline EXE + `ldhook.pyd` в allowlist + `ui/ui.pyc` с `imp.load_dynamic`)
+  выполняется целиком по чек-листу `docs/PLAN_proxy_dll.md` §4 Фаза 4, когда
+  сработают критерии §5; fallback — вариант А1 (статические `E9`, тело в DLL).
+  `exepatch12.py` остаётся эталоном и откатом. `docs/PLAN_proxy_dll.md`.
 Base-требования к декомпиляту — `docs/PIPELINE.md`; запись о дефекте старой базы — `docs/PITFALLS.md`.
 
 
