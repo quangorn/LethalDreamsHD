@@ -30,6 +30,12 @@ def main():
     assert len(s) == 4 and s[3] == 2, 'stats tuple (site1, site2, site3, level)'
     sys.stdout.write('stats -> %r\n' % (s,))
 
+    c = m.cap_stats()
+    assert len(c) == 5 and c[4] == 0, 'cap_stats tuple (calls, caps, heavy, max, cap)'
+    assert m.set_cap(32) == 0, 'set_cap returns previous value'
+    assert m.cap_stats()[4] == 32, 'set_cap stores new cap'
+    sys.stdout.write('cap_stats -> %r\n' % (m.cap_stats(),))
+
     assert m.set_level(0) == 2
     m.log('this line must NOT be in hdlog.txt')
     assert m.set_level(1) == 0

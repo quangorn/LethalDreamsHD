@@ -1,4 +1,4 @@
-# tools/ldhook — .pyd-хуки в памяти (PLAN_proxy_dll.md, §2A, Фазы 0-бис–3)
+# tools/ldhook — .pyd-хуки в памяти (PLAN_proxy_dll.md, §2A, Фазы 0-бис–5)
 
 Механизм доставки кода без правки EXE: расширение Python 2.2.3 (`ldhook.pyd`)
 грузится из патчимого игрового скрипта явным `imp.load_dynamic()`; `initldhook`
@@ -11,6 +11,7 @@ EXE на диске не меняется (md5-цепочка цела), пра�
 | site1 | `0x41ce31` | масштаб листов/advance 4x-шрифтов; guard `k==1` → identity | cave1 |
 | site2 | `0x40b494` | нормировка шрифта сразу при SetFont (`FUN_0041cc90`) | cave2 |
 | site3 | `0x47dd80` | `matrix[0] = matrix[5]*h/w` перед сеттером `FUN_0046f970`; guard `4*h==3*w` → identity | cave3 |
+| site4 | `0x45e0a0` + `0x45e163` | cap итераций поиска цели `FUN_0045e0a0` (пролог + хвост цикла, сброс счётчика на входе) | `docs/PERF_BATTLE.md` |
 
 Guard'ы перенесены 1:1: 4:3 остаётся побитово прежним (никаких записей).
 site3 считает FP-последовательность `cave3` (x87: `fild`/`fild`/`fdivp`/
@@ -30,7 +31,8 @@ site3 считает FP-последовательность `cave3` (x87: `fild
 | `ldhook.c` | .pyd: логгер + `install_site1/2/3` (скан + E9) + `site1_hook`/`site2_hook`/`site3_hook` + `site3_fp` (x87) + Python-API отладки |
 | `fetch_headers.py` | официальный Python 2.2.3 (python.org): `Include/*.h` + `PC/pyconfig.h` → `vendor/py223/include/` (untracked) |
 | `build.py` | MSVC x86 (`/fp:precise`) → `build/ldhook/ldhook.pyd` (gitignored) |
-| `smoke_api.py` | локальный смоук Python-API под `vendor/py223` (без игры): `log`/`set_level`/`stats`, уровень 0, TypeError, безопасный скан `.text` |
+| `smoke_api.py` | локальный смоук Python-API под `vendor/py223` (без игры): `log`/`set_level`/`stats`/`cap_stats`, уровень 0, TypeError, безопасный скан `.text` |
+| `patch_ui.py` | каноническая установка загрузчика в игру: `--build` (ui.pyc + блок `imp.load_dynamic`), `--install` (бэкап + `.pyd` + `ui.pyc`), `--restore` |
 | `check_sites.py` | аудит Фазы 4 (без игры): уникальность трёх сигнатур в `.text`, вердикт `installable`/`patched`/`UNEXPECTED` (rc 1) для установки и baseline |
 | `spike.py` | полная копия установки → `<scratch>/ldhook/tree`, ldhook.pyd в корень, `ui/ui.pyc` = `patches/ui/ui.py` + блок `imp.load_dynamic`, config для scratch; `--baseline` — EXE = baseline |
 | `probe_spike.ps1` | спайк 0-бис: запуск из scratch, снимок ОКНА, гашение, проверка маркера |
@@ -134,3 +136,20 @@ python3 tools/ldhook/check_sites.py --exe <путь к EXE>   # произвол
 Фазах 2–3, крашей нет. Условия перехода на `.pyd` в установке (baseline EXE,
 allowlist, `ui/ui.pyc`, исключение runtime-логов, гейт) — `docs/PLAN_proxy_dll.md`
 §4 Фаза 4.
+
+## Cap тормозов боя (site4, 19.11.2026)
+
+Пролог `0x45e0a0` (7 Б) + хвост цикла `0x45e163` (6 Б); счётчик сбрасывается на
+входе, выход по cap — штатный «не найдено». `LDHOOK_CAP` (дефолт 32, `0` = хук не
+ставится), `ldhook.set_cap(n)` / `ldhook.cap_stats()`.
+
+```
+LDHOOK_CAP=32 <EXE>                 # живой прогон с капом
+python3 tools/ldhook/patch_ui.py --build     # ui.pyc + загрузчик (.pyd)
+python3 tools/ldhook/patch_ui.py --install   # бэкап + .pyd + ui.pyc в установку
+python3 tools/ldhook/patch_ui.py --restore   # откат: вернуть ui.pyc, снять .pyd
+```
+
+Результат: лаги уходят, но **агро ломается** (31% поисков упираются в cap →
+монстры стоят). В установку не поставляется; разбор — `docs/PERF_BATTLE.md`,
+«Ревизия плана».

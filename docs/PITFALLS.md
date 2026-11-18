@@ -669,3 +669,17 @@ tgz. Замеренное дерево и его состав — `docs/TOOLS.md
   **Обход (Фаза 3):** границы `.text` брать из PE-заголовков (`IMAGE_NT_HEADERS`
   → `IMAGE_SECTION_HEADER` `.text`: `VirtualAddress` + `VirtualSize`, при нуле —
   `SizeOfRawData`); если секция не найдена — хуки пропускаются с info-строкой.
+
+## frida 17: `Module.findExportByName` удалён — зонд молча мерит нули (19.11.2026)
+
+**Симптом:** скрипт frida грузится, но `send({type:'hooked'})` не приходит; в логе
+драйвера `TypeError: not a function` в строке с `Module.findExportByName`, а
+статистика идёт нулями (в замере кадров — 198 окон, 0 кадров = потерянный прогон).
+
+**Причина:** в frida 17 (17.24.1) статические `Module.findExportByName` и
+`Module.getExportByName` убраны; остались `Module.getGlobalExportByName`/
+`Module.findGlobalExportByName` и метод модуля.
+
+**Обход:** `Process.findModuleByName('opengl32.dll').findExportByName('wglSwapBuffers')`
+с fallback на `Module.getGlobalExportByName`. API проверять до прогона: attach к
+любому живому процессу и `typeof` (`D:/tmp/.../api_probe.js`, образец — `tools/perf/perf_frida9_frames.js`).

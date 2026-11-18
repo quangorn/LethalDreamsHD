@@ -21,6 +21,9 @@ LethalDreams (движок 2003, OpenGL, встроенный Python 2.2.3). Т�
 - `perf_sampler3.cs` — посекундные листья главного потока + CPU.
 - `perf_stack_sampler2.cs` — syscall callers + stack-scan модулей.
 - `perf_analyze2.py` — сводка лога `perf_frida3` (per-2s + totals).
+- `perf_frida9_frames.js` — кадры через `wglSwapBuffers`: fps, время кадра, счётчики >50/100 мс.
+- `perf_frida10.js` — поиск цели (`FUN_0045e0a0`): последовательность кандидатов, повторы, `[obj+0x24]`, `dist²`.
+- `perf_frames_summary.py` — сводка лога кадров (fps, p95/макс кадра, доля окон с лагом).
 - `pe_exports.py`, `pe_sections.py` — парсеры PE (экспорты, секции, zero-runs).
 
 ## Сборка C#-семплеров (x86! игра 32-битная)
@@ -45,3 +48,5 @@ C:/Windows/Microsoft.NET/Framework/v4.0.30319/csc.exe /nologo /platform:x86 /out
 - frida — Windows-интерпретатор с пакетом frida (`py -3.12`); Cara: frida 17, ABI
   для thiscall передаётся 4-м позиционным аргументом-строкой (`'thiscall'`).
 - Все оффсеты — module-relative (exe base 0x400000): `FUN_0044bdd0` = +0x4bdd0 и т.д.
+- frida 17: `Module.findExportByName` убран — брать `Process.findModuleByName(..).findExportByName(..)`
+  (грабли — `docs/PITFALLS.md`).

@@ -241,7 +241,7 @@ static void ldhook_marker(void)
                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
         if (h != INVALID_HANDLE_VALUE) {
             DWORD w = 0;
-            const char *msg = "ldhook.pyd loaded (phase 3: hooks + logger)\r\n";
+            const char *msg = "ldhook.pyd loaded (phase 5: hooks + logger + battle cap)\r\n";
             WriteFile(h, msg, (DWORD)strlen(msg), &w, NULL);
             CloseHandle(h);
             ld_info("marker written: ldhook_marker.txt");
@@ -540,6 +540,144 @@ static __declspec(naked) void site3_hook(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* site4 — cap итераций цикла поиска цели (FUN_0045e0a0): тормоза боя. */
+/*                                                                    */
+/* Сайт цикла (установленный EXE, проверено 18.11.2026):               */
+/*   0x45e117 верх итерации; хвост 0x45e163:                          */
+/*     mov esi,eax (2) | cmp esi,ebp (2) | jne 0x45e117 (2) = 6 байт; */
+/*   0x45e0a0 пролог: mov eax,[esp+0x10] (4) | sub esp,0x34 (3)=7 Б;  */
+/*   0x45e169 штатный выход цикла (pop ebx; ...; ret 0x10).           */
+/*                                                                    */
+/* Патология (docs/PERF_BATTLE.md): до ~4400 итераций, 71–73 мс; норма */
+/* ~2 итерации. Cap ограничивает итерации и выходит штатным «не        */
+/* найдено»: eax=esi=0 -> 0x45e169 (та же точка, что у обычного        */
+/* NULL-выхода цикла: вызывающий обрабатывает «цель не выбрана»).      */
+/*                                                                    */
+/* Счётчик итераций сбрасывается на ВХОДЕ функции (второй крошечный    */
+/* хук): иначе после «найдено» остаток счётчика переезжает на следующий */
+/* вызов. Если FUN_0045e0a0 окажется реентерабельной, внутренний вызов */
+/* просто сбросит счётчик (cap ослабнет, но не ужесточится).           */
+/* Cap: env LDHOOK_CAP (дефолт 32; 0 = хук не ставится, чистый A/B).    */
+/* ------------------------------------------------------------------ */
+
+#define S4_ENTRY_SIG   "\x8b\x44\x24\x10\x83\xec\x34"   /* mov eax,[esp+0x10]; sub esp,0x34 */
+#define S4_ENTRY_LEN   7
+#define S4_TAIL_SIG    "\x8b\xf0\x3b\xf5\x75\xae"       /* mov esi,eax; cmp esi,ebp; jne -0x52 */
+#define S4_TAIL_LEN    6
+#define S4_HEAVY_ITER  20        /* > нормы (~2): считаем вызов тяжёлым */
+#define S4_CAP_DEFAULT 32
+#define S4_CAP_ENV     "LDHOOK_CAP"
+
+static volatile LONG g_site4_iter = 0;   /* итерации текущего вызова */
+static volatile LONG g_site4_calls = 0;  /* вызовов FUN_0045e0a0 */
+static volatile LONG g_site4_caps = 0;   /* срабатываний cap */
+static volatile LONG g_site4_heavy = 0;  /* вызовов с >S4_HEAVY_ITER итерациями */
+static volatile LONG g_site4_max = 0;    /* максимум итераций на вызов */
+static volatile LONG g_site4_dbg = 0;
+static volatile LONG g_site4_cap_dbg = 0;
+static LONG g_site4_cap = S4_CAP_DEFAULT;
+
+static void *g_site4_cont = NULL;        /* entry+7: продолжение пролога */
+static void *g_site4_top = NULL;         /* верх цикла (цель jne) */
+static void *g_site4_nat = NULL;         /* tail+6: штатный выход цикла */
+
+/* Вход функции: зафиксировать итерации прошлого вызова и сбросить счётчик. */
+static void __cdecl s4_entry_impl(void)
+{
+    LONG prev = g_site4_iter;
+
+    InterlockedIncrement(&g_site4_calls);
+    if (prev > g_site4_max) {
+        g_site4_max = prev;
+    }
+    if (prev > S4_HEAVY_ITER) {
+        InterlockedIncrement(&g_site4_heavy);
+    }
+    g_site4_iter = 0;
+    if (ld_rate(&g_site4_dbg, 4, 512)) {
+        ld_debug("site4: entry #%ld prev_iter=%ld max=%ld heavy=%ld caps=%ld cap=%ld",
+                 (long)g_site4_calls, prev, (long)g_site4_max,
+                 (long)g_site4_heavy, (long)g_site4_caps, g_site4_cap);
+    }
+}
+
+/* Cap сработал: выход «цель не найдена». */
+static void __cdecl s4_cap_impl(void)
+{
+    LONG caps = InterlockedIncrement(&g_site4_caps);
+
+    if (caps <= 3 || (caps % 128) == 0) {
+        ld_info("site4: cap %ld fired (cap=%ld, call #%ld)",
+                caps, g_site4_cap, (long)g_site4_calls);
+    }
+}
+
+/* Трамплин входа: повторяет украденные 7 байт и уходит в entry+7. */
+static __declspec(naked) void s4_entry_hook(void)
+{
+    __asm {
+        push eax
+        push edx
+        push ecx
+        call s4_entry_impl
+        pop ecx
+        pop edx
+        pop eax
+        mov eax, dword ptr [esp + 0x10]
+        sub esp, 0x34
+        jmp dword ptr [g_site4_cont]
+    }
+}
+
+/* Трамплин хвоста: повторяет mov/cmp, затем либо штатный выход (esi==0),
+ * либо счёт итераций с проверкой cap. Cap -> eax=esi=0 -> штатный выход. */
+static __declspec(naked) void s4_tail_hook(void)
+{
+    __asm {
+        mov esi, eax
+        cmp esi, ebp
+        jne count_iter
+        jmp dword ptr [g_site4_nat]
+    count_iter:
+        inc dword ptr [g_site4_iter]
+        mov eax, dword ptr [g_site4_iter]
+        cmp eax, dword ptr [g_site4_cap]
+        jbe loop_again
+        xor eax, eax
+        xor esi, esi
+        push eax
+        push edx
+        push ecx
+        call s4_cap_impl
+        pop ecx
+        pop edx
+        pop eax
+        jmp dword ptr [g_site4_nat]
+    loop_again:
+        mov eax, esi
+        jmp dword ptr [g_site4_top]
+    }
+}
+
+static LONG s4_parse_cap(void)
+{
+    const char *s = getenv(S4_CAP_ENV);
+    long v;
+
+    if (s == NULL || *s == '\0') {
+        return S4_CAP_DEFAULT;
+    }
+    v = strtol(s, NULL, 10);
+    if (v < 0) {
+        v = 0;
+    }
+    if (v > 100000) {
+        v = 100000;
+    }
+    return (LONG)v;
+}
+
+/* ------------------------------------------------------------------ */
 /* Установка хука: скан сигнатуры в .text + E9 rel32 через VirtualProtect */
 /* ------------------------------------------------------------------ */
 
@@ -686,6 +824,58 @@ static void install_site3(void)
             (unsigned)site, (unsigned)g_site3_setter, (unsigned)g_site3_cont);
 }
 
+/* Cap итераций поиска цели (site4): пролог + хвост цикла FUN_0045e0a0.
+ * Цели переходов берём из самой функции (entry+7, tail+6, tail+6+rel8),
+ * а не из констант VA — переживает любые сдвиги кода при правках EXE. */
+static int s4_rel_fits(void *site, void *dest)
+{
+    ptrdiff_t d = (unsigned char *)dest - (unsigned char *)site;
+    return d > -0x7fff0000 && d < 0x7fff0000;
+}
+
+static void install_site4(void)
+{
+    unsigned char *entry_site;
+    unsigned char *tail_site;
+    long cap = s4_parse_cap();
+    int rel;
+
+    g_site4_cap = cap;
+    if (cap == 0) {
+        ld_info("install_site4: cap=0 (%s) -> hook NOT installed (A/B baseline)",
+                S4_CAP_ENV);
+        return;
+    }
+    entry_site = find_in_text((const unsigned char *)S4_ENTRY_SIG, S4_ENTRY_LEN);
+    tail_site = find_in_text((const unsigned char *)S4_TAIL_SIG, S4_TAIL_LEN);
+    if (entry_site == NULL || tail_site == NULL) {
+        ld_info("install_site4: signature NOT found (entry=%p tail=%p)",
+                (void *)entry_site, (void *)tail_site);
+        return;
+    }
+    rel = (signed char)tail_site[5];
+    g_site4_cont = (void *)(entry_site + S4_ENTRY_LEN);
+    g_site4_nat = (void *)(tail_site + S4_TAIL_LEN);
+    g_site4_top = (void *)(tail_site + S4_TAIL_LEN + rel);
+    ld_info("install_site4: cap=%ld entry=0x%08x tail=0x%08x top=0x%08x exit=0x%08x",
+            cap, (unsigned)entry_site, (unsigned)tail_site,
+            (unsigned)g_site4_top, (unsigned)g_site4_nat);
+    if (!s4_rel_fits(entry_site, (void *)s4_entry_hook) ||
+        !s4_rel_fits(tail_site, (void *)s4_tail_hook)) {
+        ld_info("install_site4: E9 rel32 out of range (EXE 0x%08x, hook 0x%08x)",
+                (unsigned)entry_site, (unsigned)s4_entry_hook);
+        return;
+    }
+    if (!write_jmp(entry_site, (void *)s4_entry_hook, S4_ENTRY_LEN)) {
+        ld_info("install_site4: entry write_jmp FAILED");
+        return;
+    }
+    if (!write_jmp(tail_site, (void *)s4_tail_hook, S4_TAIL_LEN)) {
+        ld_info("install_site4: tail write_jmp FAILED");
+        return;
+    }
+    ld_info("install_site4: hooks installed (entry E9+nop*2, tail E9+nop)");
+}
 /* ------------------------------------------------------------------ */
 /* Python-API модуля (отладка из игровых скриптов)                      */
 /* ------------------------------------------------------------------ */
@@ -731,6 +921,35 @@ static PyObject *ld_py_stats(PyObject *self, PyObject *args)
                          (long)g_site3_calls, (long)g_log_level);
 }
 
+static PyObject *ld_py_set_cap(PyObject *self, PyObject *args)
+{
+    int cap;
+    long old;
+    (void)self;
+    if (!PyArg_ParseTuple(args, "i:set_cap", &cap)) {
+        return NULL;
+    }
+    if (cap < 0) {
+        cap = 0;
+    }
+    old = (long)g_site4_cap;
+    g_site4_cap = (LONG)cap;
+    ld_info("set_cap: %ld -> %d (iterations per FUN_0045e0a0 call)",
+            old, cap);
+    return PyInt_FromLong(old);
+}
+
+static PyObject *ld_py_cap_stats(PyObject *self, PyObject *args)
+{
+    (void)self;
+    if (!PyArg_ParseTuple(args, "")) {
+        return NULL;
+    }
+    return Py_BuildValue("(lllll)", (long)g_site4_calls, (long)g_site4_caps,
+                         (long)g_site4_heavy, (long)g_site4_max,
+                         (long)g_site4_cap);
+}
+
 static PyMethodDef ldhook_methods[] = {
     {"log", ld_py_log, METH_VARARGS,
      "log(msg): write an info line to hdlog.txt (no-op at level 0)"},
@@ -738,6 +957,10 @@ static PyMethodDef ldhook_methods[] = {
      "set_level(n): 0=off, 1=info (default), 2=debug; returns previous level"},
     {"stats", ld_py_stats, METH_VARARGS,
      "stats(): (site1_calls, site2_calls, site3_calls, log_level)"},
+    {"set_cap", ld_py_set_cap, METH_VARARGS,
+     "set_cap(n): battle target-search iteration cap (0=off); returns previous"},
+    {"cap_stats", ld_py_cap_stats, METH_VARARGS,
+     "cap_stats(): (calls, caps, heavy, max_iter, cap)"},
     {NULL, NULL, 0, NULL}
 };
 
@@ -751,12 +974,12 @@ __declspec(dllexport) void initldhook(void)
     ld_log_init();
     base = (unsigned char *)GetModuleHandleA(NULL);
     if (base != NULL && ld_find_text(base, &g_text, &g_text_len)) {
-        ld_info("=== ldhook.pyd phase 3 (hooks + logger) pid=%u base=0x%08x .text=0x%08x+0x%x level=%d ===",
+        ld_info("=== ldhook.pyd phase 5 (hooks + logger + battle cap) pid=%u base=0x%08x .text=0x%08x+0x%x level=%d ===",
                 (unsigned)GetCurrentProcessId(), (unsigned)(size_t)base,
                 (unsigned)(size_t)g_text, (unsigned)g_text_len,
                 (int)g_log_level);
     } else {
-        ld_info("=== ldhook.pyd phase 3 (hooks + logger) pid=%u base=0x%08x level=%d; .text NOT found ===",
+        ld_info("=== ldhook.pyd phase 5 (hooks + logger + battle cap) pid=%u base=0x%08x level=%d; .text NOT found ===",
                 (unsigned)GetCurrentProcessId(), (unsigned)(size_t)base,
                 (int)g_log_level);
     }
@@ -770,6 +993,7 @@ __declspec(dllexport) void initldhook(void)
         install_site1();
         install_site2();
         install_site3();
+        install_site4();
     }
     Py_InitModule("ldhook", ldhook_methods);
 }

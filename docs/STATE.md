@@ -166,6 +166,9 @@ PRISTINE 2967, HD_PACK 1379, ALLOWED 728, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0
   dev-прогоны на baseline scratch. Критерии перехода — `docs/PLAN_proxy_dll.md`, состояние и вход — `docs/HANDOFF_ldhook.md`.
 - `[P]` Правило: после любой правки EXE — `python3 tools/ldhook/check_sites.py` (скан `.text` по `VirtualSize`).
   Грабли расширений 2.2.3 (`Py_InitModule(name, NULL)` падает) и привязка AppCompat-флага к пути EXE — `docs/PITFALLS.md`.
+- `[P]` Cap тормозов боя (site4, 19.11.2026): пролог `0x45e0a0` + хвост цикла `0x45e163` в `ldhook.pyd`,
+  env `LDHOOK_CAP`; в поставку **не идёт** — прогон показал «лаги уходят, агро ломается»
+  (31% поисков упираются в cap). Установка откачена в чистое состояние (`ui/ui.pyc ae59f601…`).
 
 ## Прочие принятые правки сессий
 
