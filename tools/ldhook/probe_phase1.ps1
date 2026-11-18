@@ -1,8 +1,10 @@
 # Фаза 1 (PLAN_proxy_dll.md §4): прогон ldhook.pyd (site1 hook) на scratch-дереве.
 # Дойти до экрана, где вызывается FUN_0041cc90 (4x-шрифт): «Новая игра» -> экран
-# выбора персонажа. Проверить ldhook_log.txt на "hook FIRED", снять окно.
+# выбора персонажа. Проверить hdlog.txt на "hook FIRED", снять окно.
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools/ldhook/probe_phase1.ps1 `
 #     -GameRoot "<scratch-tree>" -Tag "phase1_ng"
+# Фаза 3: ldhook пишет в общий hdlog.txt (там же, где Python-патчи) с строками
+# "ldhook: HH:MM:SS.mmm t<tid> I|D ..."; уровень — env LDHOOK_LOG (0/1/2).
 param([string]$GameRoot = $env:LD_GAME, [string]$Tag = "phase1",
       [double]$CanvasX = 200, [double]$CanvasY = 400,
       [int]$MenuSec = 8, [int]$AfterSec = 16)
@@ -93,13 +95,13 @@ Start-Sleep -Milliseconds 500
 $main = Find-Main $p.Id
 Shot $main "$ShotDir\$($Tag)_newgame.png"
 
-$ll = Join-Path $GameRoot "ldhook_log.txt"
+$ll = Join-Path $GameRoot "hdlog.txt"
 if (Test-Path $ll) {
   $c = (Get-Content $ll -Raw)
-  Log "--- ldhook_log.txt ---"
-  ($c -split "`n") | ForEach-Object { Log $_ }
+  Log "--- hdlog.txt (ldhook lines) ---"
+  ($c -split "`n") | Where-Object { $_ -match 'ldhook:' } | ForEach-Object { Log $_ }
   if ($c -match "FIRED") { Log "GATE: site1 hook FIRED" } else { Log "GATE: hook did NOT fire (timing/scope)" }
-} else { Log "no ldhook_log.txt" }
+} else { Log "no hdlog.txt" }
 
 Stop-Process -Id $p.Id -Force
 Log "game closed pid=$($p.Id)"

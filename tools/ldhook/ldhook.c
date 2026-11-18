@@ -1,9 +1,10 @@
-/* ldhook.pyd — Фазы 1–2 (PLAN_proxy_dll.md, §4): хуки в памяти.
+/* ldhook.pyd — Фазы 1–3 (PLAN_proxy_dll.md, §4): хуки в памяти + логгер.
  *
  * Расширение Python 2.2.3. initldhook() (вызывается движком через
  * imp.load_dynamic из патчимого ui/ui.pyc):
- *   1. пишет файл-маркер (диагностика);
- *   2. install_site1/2/3() — находит три сайта сканом сигнатур в .text EXE и
+ *   1. поднимает логгер (hdlog.txt в каталоге EXE + OutputDebugString);
+ *   2. пишет файл-маркер (доказательство загрузки для зондов);
+ *   3. install_site1/2/3() — находит три сайта сканом сигнатур в .text EXE и
  *      ставит E9 rel32 на соответствующие трамплины (в памяти, не на диске).
  *
  *   site1 (0x41ce31, хвост FUN_0041cc90): масштаб листов/advance 4x-шрифтов,
@@ -24,50 +25,200 @@
 #include <Python.h>
 #include <windows.h>
 #include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
 /* ------------------------------------------------------------------ */
-/* Диагностика                                                         */
+/* Диагностика (Фаза 3): уровни, hdlog.txt, OutputDebugString           */
+/*                                                                     */
+/* Единый лог движка — hdlog.txt в каталоге EXE: тот же файл, куда      */
+/* пишут игровые Python-патчи (hd_scale.py, tex_hook_*.py), поэтому    */
+/* `probe_exitcode.ps1` уже копирует его хвост `<Tag>_hdlog.txt`.       */
+/*                                                                     */
+/* Уровни (флаг — env LDHOOK_LOG, дефолт 1):                           */
+/*   0 = off    — файл не создаётся, OutputDebugString молчит;           */
+/*   1 = info   — диагностика: загрузка, установка хуков, guard'ы,      */
+/*                первый вызов каждого хука (дефолт; 4:3 пишет только   */
+/*                эти строки);                                          */
+/*   2 = debug  — трассировка масштабирующего пути (с троттлингом).     */
+/* `ldhook.set_level(n)` из игрового скрипта перекрывает env на лету.    */
+/* Ротация: файл > 8 MiB → hdlog.txt.1 (защита от роста в режиме debug). */
+/* Маркер `ldhook_marker.txt` пишется всегда: это доказательство        */
+/* загрузки .pyd для зондов, независимо от флага лога.                  */
 /* ------------------------------------------------------------------ */
 
-static void ldlog(const char *msg)
+#define LDHOOK_LOG_NAME "hdlog.txt"
+#define LDHOOK_LOG_ENV  "LDHOOK_LOG"
+#define LDHOOK_LOG_MAX  (8u * 1024u * 1024u)
+
+#define LD_OFF   0
+#define LD_INFO  1
+#define LD_DEBUG 2
+
+static volatile LONG g_log_level = LD_INFO;
+static HANDLE        g_log_file = INVALID_HANDLE_VALUE;
+static unsigned long g_log_bytes = 0;
+static CRITICAL_SECTION g_log_cs;
+static int           g_log_cs_ready = 0;
+
+static const char *ld_level_tag(int level)
 {
-    OutputDebugStringA("ldhook: ");
-    OutputDebugStringA(msg);
-    OutputDebugStringA("\n");
-    /* Дублируем в файл рядом с EXE — для оффлайн-проверки (каталог игры). */
-    {
-        char path[MAX_PATH];
-        DWORD n = GetModuleFileNameA(NULL, path, MAX_PATH);
-        if (n != 0 && n < MAX_PATH) {
-            char *p = strrchr(path, '\\');
-            HANDLE h;
-            DWORD w = 0;
-            if (p != NULL) p[1] = '\0'; else path[0] = '\0';
-            strncat(path, "ldhook_log.txt", sizeof(path) - strlen(path) - 1);
-            h = CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ, NULL,
-                            OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-            if (h != INVALID_HANDLE_VALUE) {
-                SetFilePointer(h, 0, NULL, FILE_END);
-                WriteFile(h, "ldhook: ", 8, &w, NULL);
-                WriteFile(h, msg, (DWORD)strlen(msg), &w, NULL);
-                WriteFile(h, "\r\n", 2, &w, NULL);
-                CloseHandle(h);
-            }
-        }
+    return (level >= LD_DEBUG) ? "D" : "I";
+}
+
+static void ld_close_log(void)
+{
+    if (g_log_file != INVALID_HANDLE_VALUE) {
+        CloseHandle(g_log_file);
+        g_log_file = INVALID_HANDLE_VALUE;
+    }
+    g_log_bytes = 0;
+}
+
+/* Каталог EXE (там же, где hdlog.txt пишут игровые скрипты). */
+static void ld_exe_dir(char *path, size_t cap)
+{
+    DWORD n = GetModuleFileNameA(NULL, path, (DWORD)cap);
+    char *p;
+    if (n == 0 || (size_t)n >= cap) {
+        path[0] = '\0';
+        return;
+    }
+    p = strrchr(path, '\\');
+    if (p != NULL) {
+        p[1] = '\0';
+    } else {
+        path[0] = '\0';
     }
 }
 
-static void ldlogf(const char *fmt, ...)
+static void ld_open_log(void)
 {
-    char buf[512];
+    char path[MAX_PATH];
+    DWORD size = 0;
+
+    ld_exe_dir(path, sizeof(path));
+    if (sizeof(path) - strlen(path) <= strlen(LDHOOK_LOG_NAME)) {
+        return;
+    }
+    strncat(path, LDHOOK_LOG_NAME, sizeof(path) - strlen(path) - 1);
+
+    g_log_file = CreateFileA(path, FILE_APPEND_DATA,
+                             FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                             OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (g_log_file == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    size = GetFileSize(g_log_file, NULL);
+    g_log_bytes = (size == INVALID_FILE_SIZE) ? 0 : (unsigned long)size;
+    if (g_log_bytes > LDHOOK_LOG_MAX) {
+        char old[MAX_PATH];
+        ld_close_log();
+        _snprintf(old, sizeof(old), "%s.1", path);
+        old[sizeof(old) - 1] = '\0';
+        MoveFileExA(path, old, MOVEFILE_REPLACE_EXISTING);
+        g_log_file = CreateFileA(path, FILE_APPEND_DATA,
+                                 FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                                 OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (g_log_file == INVALID_HANDLE_VALUE) {
+            return;
+        }
+        g_log_bytes = 0;
+    }
+}
+
+static void ld_vlog(int level, const char *fmt, va_list ap)
+{
+    char msg[512];
+    char line[640];
+    SYSTEMTIME st;
+    DWORD w = 0;
+
+    if (level < LD_INFO || level > (int)g_log_level) {
+        return;                     /* уровень off: молчим полностью */
+    }
+    _vsnprintf(msg, sizeof(msg), fmt, ap);
+    msg[sizeof(msg) - 1] = '\0';
+
+    OutputDebugStringA("ldhook: ");
+    OutputDebugStringA(msg);
+    OutputDebugStringA("\r\n");
+
+    if (g_log_cs_ready) {
+        EnterCriticalSection(&g_log_cs);
+    }
+    if (g_log_file == INVALID_HANDLE_VALUE) {
+        ld_open_log();
+    }
+    if (g_log_file != INVALID_HANDLE_VALUE) {
+        GetLocalTime(&st);
+        _snprintf(line, sizeof(line),
+                  "ldhook: %02u:%02u:%02u.%03u t%04x %s %s\r\n",
+                  (unsigned)st.wHour, (unsigned)st.wMinute,
+                  (unsigned)st.wSecond, (unsigned)st.wMilliseconds,
+                  (unsigned)GetCurrentThreadId(), ld_level_tag(level), msg);
+        line[sizeof(line) - 1] = '\0';
+        SetFilePointer(g_log_file, 0, NULL, FILE_END);
+        if (WriteFile(g_log_file, line, (DWORD)strlen(line), &w, NULL)) {
+            g_log_bytes += (unsigned long)w;
+            if (g_log_bytes > LDHOOK_LOG_MAX) {
+                ld_close_log();     /* переоткроется с ротацией в .1 */
+            }
+        }
+    }
+    if (g_log_cs_ready) {
+        LeaveCriticalSection(&g_log_cs);
+    }
+}
+
+static void ld_info(const char *fmt, ...)
+{
     va_list ap;
     va_start(ap, fmt);
-    _vsnprintf(buf, sizeof(buf), fmt, ap);
-    buf[sizeof(buf) - 1] = '\0';
+    ld_vlog(LD_INFO, fmt, ap);
     va_end(ap);
-    ldlog(buf);
+}
+
+static void ld_debug(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    ld_vlog(LD_DEBUG, fmt, ap);
+    va_end(ap);
+}
+
+static int ld_parse_level(const char *s)
+{
+    if (s == NULL || *s == '\0') {
+        return LD_INFO;
+    }
+    if (s[0] == '0' || _stricmp(s, "off") == 0 || _stricmp(s, "no") == 0 ||
+        _stricmp(s, "false") == 0) {
+        return LD_OFF;
+    }
+    if (s[0] == '2' || _stricmp(s, "debug") == 0 ||
+        _stricmp(s, "verbose") == 0 || _stricmp(s, "all") == 0) {
+        return LD_DEBUG;
+    }
+    return LD_INFO;
+}
+
+static void ld_log_init(void)
+{
+    if (!g_log_cs_ready) {
+        InitializeCriticalSection(&g_log_cs);
+        g_log_cs_ready = 1;
+    }
+    g_log_level = ld_parse_level(getenv(LDHOOK_LOG_ENV));
+}
+
+/* Троттлинг трассировки: первые first вызовов, затем каждый each-й. */
+static int ld_rate(volatile LONG *ctr, LONG first, LONG each)
+{
+    LONG n = InterlockedIncrement(ctr);
+    return n <= first || (each > 0 && (n % each) == 0);
 }
 
 static void ldhook_marker(void)
@@ -90,12 +241,12 @@ static void ldhook_marker(void)
                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
         if (h != INVALID_HANDLE_VALUE) {
             DWORD w = 0;
-            const char *msg = "ldhook.pyd loaded (phase 2: site1+site2+site3 hooks)\r\n";
+            const char *msg = "ldhook.pyd loaded (phase 3: hooks + logger)\r\n";
             WriteFile(h, msg, (DWORD)strlen(msg), &w, NULL);
             CloseHandle(h);
-            ldlog("marker written");
+            ld_info("marker written: ldhook_marker.txt");
         } else {
-            ldlog("marker FAILED");
+            ld_info("marker FAILED");
         }
     }
 }
@@ -124,7 +275,8 @@ static void ldhook_marker(void)
 #define ADV_CORR       1.3384   /* 4*A */
 
 /* Тело cave1. Возвращает управление в исходный caller (pop ecx; ret делает трамплин). */
-static volatile long g_site1_calls = 0;
+static volatile LONG g_site1_calls = 0;
+static volatile LONG g_site1_dbg = 0;
 
 static void __cdecl site1_impl(void *this_)
 {
@@ -132,9 +284,11 @@ static void __cdecl site1_impl(void *this_)
     unsigned char *ctx;
     double k, keff, carry;
     int *p;
+    int trace = 0;
+    long n = InterlockedIncrement(&g_site1_calls);
 
-    if (InterlockedIncrement(&g_site1_calls) == 1) {
-        ldlog("site1_impl: first call (hook FIRED)");
+    if (n == 1) {
+        ld_info("site1_impl: first call (hook FIRED)");
     }
 
     self[0x58] = 1;
@@ -150,25 +304,29 @@ static void __cdecl site1_impl(void *this_)
         k = 1.0;
     }
     if (k == 1.0) {
-        if (g_site1_calls == 1) {
-            char msg[128];
-            sprintf(msg, "site1_impl: k==1.0 -> identity (4:3), w=%d h=%d",
+        if (n == 1) {
+            ld_info("site1_impl: k==1.0 -> identity (4:3), w=%d h=%d",
                     *(int *)(ctx + 0x18), *(int *)(ctx + 0x1c));
-            ldlog(msg);
         }
         return;                         /* identity: 4:3 / k==1 */
     }
 
     keff = k * SHEET_SCALE;             /* 4x-листы -> 0.25 */
-    if (g_site1_calls == 1) {
-        char msg[128];
-        sprintf(msg, "site1_impl: k=%f -> scale path, keff=%f", k, keff);
-        ldlog(msg);
+    if (n == 1) {
+        ld_info("site1_impl: k=%f -> scale path, keff=%f", k, keff);
     }
+    trace = ld_rate(&g_site1_dbg, 4, 1024);
 
     /* pitch *= k_eff (FISTP — к ближайшему чётному). */
     p = (int *)(self + FONT_PITCH);
-    *p = (int)nearbyint((double)(*p) * keff);
+    {
+        int pitch_old = *p;
+        *p = (int)nearbyint((double)(*p) * keff);
+        if (trace) {
+            ld_debug("site1_impl: call %ld k=%f keff=%f pitch %d -> %d",
+                     n, k, keff, pitch_old, *p);
+        }
+    }
 
     /* advance: v=(a-CORR)*k_eff+carry; a=(int)v; carry=v-a. */
     carry = 0.0;
@@ -182,6 +340,9 @@ static void __cdecl site1_impl(void *this_)
             *adv = stored;
             carry = v - (double)stored;
         }
+    }
+    if (trace) {
+        ld_debug("site1_impl: call %ld advance table done, carry=%f", n, carry);
     }
 }
 
@@ -222,7 +383,8 @@ static __declspec(naked) void site1_hook(void)
 #define FONT_SHEET      0x44
 
 static void *g_site2_norm;          /* FUN_0041cc90 (нормировка шрифта) */
-static volatile long g_site2_calls = 0;
+static volatile LONG g_site2_calls = 0;
+static volatile LONG g_site2_dbg = 0;
 
 /* Выполняет сохранённые байты site2 и решает, нужна ли нормировка.
  * Возвращает 1, если трамплин должен позвать g_site2_norm(font) (thiscall;
@@ -231,11 +393,13 @@ static __declspec(noinline) int __cdecl site2_impl(void *this_, void *font_)
 {
     unsigned char *self = (unsigned char *)this_;
     unsigned char *font = (unsigned char *)font_;
+    int need;
+    long n = InterlockedIncrement(&g_site2_calls);
 
-    if (InterlockedIncrement(&g_site2_calls) == 1) {
-        ldlogf("site2_impl: first call (hook FIRED) font=%p byte58=%d sheet=%p",
-               (void *)font, (int)font[FONT_NORMALIZED],
-               *(void **)(font + FONT_SHEET));
+    if (n == 1) {
+        ld_info("site2_impl: first call (hook FIRED) font=%p byte58=%d sheet=%p",
+                (void *)font, (int)font[FONT_NORMALIZED],
+                *(void **)(font + FONT_SHEET));
     }
 
     /* Сохранённые байты оригинала. */
@@ -243,7 +407,13 @@ static __declspec(noinline) int __cdecl site2_impl(void *this_, void *font_)
     ++*(unsigned int *)(font + FONT_REFCOUNT);
 
     /* Cave2: нормировать шрифт сразу, до первой раскладки/SetText. */
-    return (font[FONT_NORMALIZED] == 0 && *(void **)(font + FONT_SHEET) != NULL);
+    need = (font[FONT_NORMALIZED] == 0 && *(void **)(font + FONT_SHEET) != NULL);
+    if (ld_rate(&g_site2_dbg, 4, 1024)) {
+        ld_debug("site2_impl: call %ld font=%p byte58=%d sheet=%p -> norm=%d",
+                 n, (void *)font, (int)font[FONT_NORMALIZED],
+                 *(void **)(font + FONT_SHEET), need);
+    }
+    return need;
 }
 
 /* Трамплин: сохраняет eax/edx/ecx (как cave2), зовёт site2_impl; если он вернул 1,
@@ -288,7 +458,8 @@ static __declspec(naked) void site2_hook(void)
 
 static void *g_site3_setter;        /* FUN_0046f970 */
 static void *g_site3_cont;          /* 0x47dd85: продолжение RenderWorld */
-static volatile long g_site3_calls = 0;
+static volatile LONG g_site3_calls = 0;
+static volatile LONG g_site3_dbg = 0;
 
 /* Точная копия FP-последовательности cave3 (x87, 80 бит):
  *   fild h; fild w; fdivp (h/w); fmul m32 matrix[5]; fstp m32 matrix[0].
@@ -314,11 +485,12 @@ static __declspec(noinline) void __cdecl site3_impl(void *ctx_, void *matrix_)
     unsigned char *matrix = (unsigned char *)matrix_;
     int h = *(int *)(ctx + 0x1c);
     int w = *(int *)(ctx + 0x18);
+    long n;
 
     if (4 * h == 3 * w) {
         if (InterlockedIncrement(&g_site3_calls) == 1) {
-            ldlogf("site3_impl: first call (hook FIRED) guard 4h==3w -> identity (w=%d h=%d)",
-                   w, h);
+            ld_info("site3_impl: first call (hook FIRED) guard 4h==3w -> identity (w=%d h=%d)",
+                    w, h);
         }
         return;                     /* identity: 4:3 / k==1 */
     }
@@ -326,17 +498,24 @@ static __declspec(noinline) void __cdecl site3_impl(void *ctx_, void *matrix_)
     {
         float old = *(float *)(matrix + MATRIX_X);
         float m5 = *(float *)(matrix + MATRIX_X_SCALE);
-        int first = (InterlockedIncrement(&g_site3_calls) == 1);
+        int first;
         float res;
 
+        n = InterlockedIncrement(&g_site3_calls);
+        first = (n == 1);
         site3_fp(ctx, matrix);      /* matrix[0] = matrix[5]*h/w (x87, как cave3) */
         res = *(float *)(matrix + MATRIX_X);
 
         if (first) {
-            ldlogf("site3_impl: first call (hook FIRED) w=%d h=%d matrix[0] %g (0x%08X) -> %g (0x%08X) m5=%g (0x%08X)",
-                   w, h, old, *(unsigned int *)&old,
-                   res, *(unsigned int *)&res,
-                   m5, *(unsigned int *)&m5);
+            ld_info("site3_impl: first call (hook FIRED) w=%d h=%d matrix[0] %g (0x%08X) -> %g (0x%08X) m5=%g (0x%08X)",
+                    w, h, old, *(unsigned int *)&old,
+                    res, *(unsigned int *)&res,
+                    m5, *(unsigned int *)&m5);
+        }
+        if (ld_rate(&g_site3_dbg, 3, 300)) {
+            ld_debug("site3_impl: call %ld w=%d h=%d matrix[0] %g (0x%08X) -> %g (0x%08X) m5=%g",
+                     n, w, h, old, *(unsigned int *)&old,
+                     res, *(unsigned int *)&res, m5);
         }
     }
 }
@@ -404,55 +583,95 @@ static int write_jmp(void *target, void *dest, int total)
     return 1;
 }
 
-static unsigned char *find_in_text(unsigned char *base,
-                                   const unsigned char *sig, size_t siglen)
+/* .text текущего процесса: RVA/размер берём из PE-заголовков, а не из
+ * констант (Фаза 3: делаем модуль безопасным вне игры — под python.exe в
+ * локальном самотесте скан не выйдет за границу секции; и переживает
+ * будущие правки EXE, сдвигающие .text). */
+static unsigned char *g_text = NULL;
+static size_t g_text_len = 0;
+
+static int ld_find_text(unsigned char *base, unsigned char **addr, size_t *len)
 {
-    /* .text: RVA 0x1000, VirtualSize 0xeaf12 (base 0x400000). */
-    return find_sig(base + 0x1000, 0xeaf12, sig, siglen);
+    IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)base;
+    IMAGE_NT_HEADERS *nt;
+    IMAGE_SECTION_HEADER *sec;
+    unsigned i;
+
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) {
+        return 0;
+    }
+    nt = (IMAGE_NT_HEADERS *)(base + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) {
+        return 0;
+    }
+    sec = IMAGE_FIRST_SECTION(nt);
+    for (i = 0; i < nt->FileHeader.NumberOfSections; i++) {
+        if (memcmp(sec[i].Name, ".text", 5) == 0) {
+            size_t size = sec[i].Misc.VirtualSize;
+            if (size == 0) {
+                size = sec[i].SizeOfRawData;
+            }
+            if (size == 0) {
+                return 0;
+            }
+            *addr = base + sec[i].VirtualAddress;
+            *len = size;
+            return 1;
+        }
+    }
+    return 0;
 }
 
-static void install_site1(unsigned char *base)
+static unsigned char *find_in_text(const unsigned char *sig, size_t siglen)
+{
+    if (g_text == NULL) {
+        return NULL;
+    }
+    return find_sig(g_text, g_text_len, sig, siglen);
+}
+
+static void install_site1(void)
 {
     unsigned char *site;
 
-    site = find_in_text(base, (const unsigned char *)SITE1_SIG, SITE1_SIG_LEN);
+    site = find_in_text((const unsigned char *)SITE1_SIG, SITE1_SIG_LEN);
     if (site == NULL) {
-        ldlog("install_site1: site1 signature NOT found (baseline EXE?)");
+        ld_info("install_site1: site1 signature NOT found (baseline EXE?)");
         return;
     }
     if (!write_jmp(site, (void *)site1_hook, SITE1_SIG_LEN)) {
-        ldlog("install_site1: write_jmp FAILED");
+        ld_info("install_site1: write_jmp FAILED");
         return;
     }
-    ldlogf("install_site1: site1 found at 0x%08x, E9 rel32", (unsigned)site);
+    ld_info("install_site1: site1 found at 0x%08x, E9 rel32", (unsigned)site);
 }
 
-static void install_site2(unsigned char *base)
+static void install_site2(void)
 {
     unsigned char *site;
 
-    site = find_in_text(base, (const unsigned char *)SITE2_SIG, SITE2_SIG_LEN);
+    site = find_in_text((const unsigned char *)SITE2_SIG, SITE2_SIG_LEN);
     if (site == NULL) {
-        ldlog("install_site2: site2 signature NOT found (baseline EXE?)");
+        ld_info("install_site2: site2 signature NOT found (baseline EXE?)");
         return;
     }
-    g_site2_norm = (void *)(base + 0x1cc90);    /* FUN_0041cc90 */
+    g_site2_norm = (void *)((unsigned char *)GetModuleHandleA(NULL) + 0x1cc90);
     if (!write_jmp(site, (void *)site2_hook, SITE2_PATCH)) {
-        ldlog("install_site2: write_jmp FAILED");
+        ld_info("install_site2: write_jmp FAILED");
         return;
     }
-    ldlogf("install_site2: site2 found at 0x%08x, E9 rel32+nop -> hook",
-           (unsigned)site);
+    ld_info("install_site2: site2 found at 0x%08x, E9 rel32+nop -> hook",
+            (unsigned)site);
 }
 
-static void install_site3(unsigned char *base)
+static void install_site3(void)
 {
     unsigned char *site;
     int rel;
 
-    site = find_in_text(base, (const unsigned char *)SITE3_SIG, SITE3_SIG_LEN);
+    site = find_in_text((const unsigned char *)SITE3_SIG, SITE3_SIG_LEN);
     if (site == NULL) {
-        ldlog("install_site3: site3 signature NOT found (baseline EXE?)");
+        ld_info("install_site3: site3 signature NOT found (baseline EXE?)");
         return;
     }
     /* Оригинал: call rel32 -> FUN_0046f970; продолжение RenderWorld = site+5. */
@@ -460,14 +679,65 @@ static void install_site3(unsigned char *base)
     g_site3_setter = (void *)(site + 5 + rel);
     g_site3_cont = (void *)(site + 5);
     if (!write_jmp(site, (void *)site3_hook, SITE3_SIG_LEN)) {
-        ldlog("install_site3: write_jmp FAILED");
+        ld_info("install_site3: write_jmp FAILED");
         return;
     }
-    ldlogf("install_site3: site3 found at 0x%08x, call target 0x%08x, cont 0x%08x",
-           (unsigned)site, (unsigned)g_site3_setter, (unsigned)g_site3_cont);
+    ld_info("install_site3: site3 found at 0x%08x, call target 0x%08x, cont 0x%08x",
+            (unsigned)site, (unsigned)g_site3_setter, (unsigned)g_site3_cont);
+}
+
+/* ------------------------------------------------------------------ */
+/* Python-API модуля (отладка из игровых скриптов)                      */
+/* ------------------------------------------------------------------ */
+
+static PyObject *ld_py_log(PyObject *self, PyObject *args)
+{
+    const char *msg;
+    (void)self;
+    if (!PyArg_ParseTuple(args, "s:log", &msg)) {
+        return NULL;
+    }
+    ld_info("py: %s", msg);
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+static PyObject *ld_py_set_level(PyObject *self, PyObject *args)
+{
+    int level;
+    int old;
+    (void)self;
+    if (!PyArg_ParseTuple(args, "i:set_level", &level)) {
+        return NULL;
+    }
+    if (level < LD_OFF) {
+        level = LD_OFF;
+    }
+    if (level > LD_DEBUG) {
+        level = LD_DEBUG;
+    }
+    old = (int)InterlockedExchange(&g_log_level, (LONG)level);
+    ld_info("set_level: %d -> %d", old, level);
+    return PyInt_FromLong((long)old);
+}
+
+static PyObject *ld_py_stats(PyObject *self, PyObject *args)
+{
+    (void)self;
+    if (!PyArg_ParseTuple(args, "")) {
+        return NULL;
+    }
+    return Py_BuildValue("(llll)", (long)g_site1_calls, (long)g_site2_calls,
+                         (long)g_site3_calls, (long)g_log_level);
 }
 
 static PyMethodDef ldhook_methods[] = {
+    {"log", ld_py_log, METH_VARARGS,
+     "log(msg): write an info line to hdlog.txt (no-op at level 0)"},
+    {"set_level", ld_py_set_level, METH_VARARGS,
+     "set_level(n): 0=off, 1=info (default), 2=debug; returns previous level"},
+    {"stats", ld_py_stats, METH_VARARGS,
+     "stats(): (site1_calls, site2_calls, site3_calls, log_level)"},
     {NULL, NULL, 0, NULL}
 };
 
@@ -478,14 +748,28 @@ __declspec(dllexport) void initldhook(void)
 {
     unsigned char *base;
 
-    ldhook_marker();
+    ld_log_init();
     base = (unsigned char *)GetModuleHandleA(NULL);
-    if (base == NULL) {
-        ldlog("initldhook: no EXE base");
+    if (base != NULL && ld_find_text(base, &g_text, &g_text_len)) {
+        ld_info("=== ldhook.pyd phase 3 (hooks + logger) pid=%u base=0x%08x .text=0x%08x+0x%x level=%d ===",
+                (unsigned)GetCurrentProcessId(), (unsigned)(size_t)base,
+                (unsigned)(size_t)g_text, (unsigned)g_text_len,
+                (int)g_log_level);
     } else {
-        install_site1(base);
-        install_site2(base);
-        install_site3(base);
+        ld_info("=== ldhook.pyd phase 3 (hooks + logger) pid=%u base=0x%08x level=%d; .text NOT found ===",
+                (unsigned)GetCurrentProcessId(), (unsigned)(size_t)base,
+                (int)g_log_level);
+    }
+
+    ldhook_marker();
+    if (base == NULL) {
+        ld_info("initldhook: no EXE base");
+    } else if (g_text == NULL) {
+        ld_info("initldhook: no .text section, hooks skipped");
+    } else {
+        install_site1();
+        install_site2();
+        install_site3();
     }
     Py_InitModule("ldhook", ldhook_methods);
 }

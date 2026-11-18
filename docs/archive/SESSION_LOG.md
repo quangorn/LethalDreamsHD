@@ -456,3 +456,28 @@
   CODE 17 / EXCLUDED 4). Родная почва — в `original.7z` (pristine). Упоминания
   прежних накатов карт (remacri-3x, UpScayl 2x/4x с откатом) из STATE убраны как
   устаревшие: актуальна поставка через HD-пак.
+
+## Сессия 2026-11-18 (вечер): ldhook Фаза 3 — логгер и отладка
+
+- `[P]` Лог `.pyd` переведён на общий `hdlog.txt` в каталоге EXE (тот же файл,
+  куда пишут Python-патчи; `probe_exitcode.ps1` уже копирует его хвост в
+  `<Tag>_hdlog.txt`); `ldhook_log.txt` Фаз 1–2 упразднён. Формат
+  `ldhook: HH:MM:SS.mmm t<tid> I|D <текст>` + `OutputDebugStringA`, кэш
+  дескриптора, `CRITICAL_SECTION`, ротация `hdlog.txt.1` после 8 MiB.
+- `[P]` Уровни и флаг: env `LDHOOK_LOG` (`0` off → файл не создаётся, `1` info
+  по умолчанию, `2` debug), перекрывается `ldhook.set_level(n)`; добавлены
+  `ldhook.log(msg)` и `ldhook.stats()`. Info — загрузка (pid, база, диапазон
+  `.text`, уровень), установка сайтов, guard identity, первый вызов хука;
+  debug — трассировка 16:9-ветки с троттлингом (site1 4+1024, site2 4+1024,
+  site3 3+300). В 4:3 при дефолтном уровне — только info-строки.
+- `[P]` `.text` берётся из PE-заголовков (VA + VirtualSize), не из констант:
+  модуль грузится под `vendor/py223/PYTHON.EXE` без выхода за секцию
+  (локальный самотест API rc 0), сдвиг `.text` в EXE не ломает хуки.
+- `[P]` Гейты на baseline scratch: 16:9 `LDHOOK_LOG=1` — 9 строк, все `I`,
+  site3 `0x3FA646F1 -> 0x3F7987FA` (биты `exepatch12`), site2/site1 FIRED;
+  `LDHOOK_LOG=2` — 27 строк с `D`-трассировкой; 4:3 `1440 1080` — identity
+  guard'ы и `k==1.0`, записей нет, оверленд нарисован, крашей нет. Игра
+  погашена, установка не тронута.
+- `[P]` Документация: `docs/PLAN_proxy_dll.md` (Фаза 3 выполнена),
+  `tools/ldhook/README.md` (логгер/флаг/гейт), `docs/PIPELINE.md`,
+  `docs/TOOLS.md`, `docs/STATE.md`.

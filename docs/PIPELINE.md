@@ -48,7 +48,9 @@ python_libs.7z; тот же мандат applies к истории сессий.
 1. `python3 tools/ldhook/fetch_headers.py` — официальные заголовки Python 2.2.3
    в `vendor/py223/include/` (untracked; `*.LIB` уже в `vendor/py223/DLLs/`).
 2. `python3 tools/ldhook/build.py` — MSVC x86 (`/fp:precise`) →
-   `build/ldhook/ldhook.pyd` (gitignored).
+   `build/ldhook/ldhook.pyd` (gitignored). Смоук Python-API без игры:
+   `LDHOOK_LOG=2 vendor/py223/python.exe tools/ldhook/smoke_api.py
+   build/ldhook/ldhook.pyd`.
 3. `python3 tools/ldhook/spike.py --baseline` — полная копия установки в
    `paths.scratch_dir('ldhook')/tree`, `ldhook.pyd` в корень, `ui/ui.pyc` =
    `patches/ui/ui.py` + блок `imp.load_dynamic`, EXE заменён на baseline
@@ -56,9 +58,13 @@ python_libs.7z; тот же мандат applies к истории сессий.
    найдёт). Без `--baseline` — дерево с установленным cave-EXE (эталон
    `exepatch12` для A/B; хуки не ставятся).
 4. Прогон: `tools/probes/probe_exitcode.ps1` (16:9 → оверленд, site2/site3;
-   4:3 → identity). Лог — `<scratch>/ldhook/tree/ldhook_log.txt`.
+   4:3 → identity). Лог — `<scratch>/ldhook/tree/hdlog.txt` (общий с
+   Python-патчами; зонд копирует его в `<Tag>_hdlog.txt`), уровень — env
+   `LDHOOK_LOG` (`0` off, `1` info по умолчанию, `2` debug-трассировка).
 5. Гейт 16:9: `site3_impl` пишет `matrix[0] = 0x3F7987FA` (эталон exepatch12);
-   гейт 4:3: `guard 4h==3w -> identity` и `k==1.0 -> identity`, записей нет.
+   гейт 4:3: `guard 4h==3w -> identity` и `k==1.0 -> identity`, записей нет;
+   гейт Фазы 3: при `LDHOOK_LOG=1` в логе только `I`-строки, при `2` —
+   `D`-трассировка с троттлингом.
    EXE на диске не модифицируется (только `VirtualProtect` в памяти).
 
 

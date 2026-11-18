@@ -532,3 +532,48 @@ PRISTINE 2967, HD_PACK 1379, ALLOWED 729, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0
   `--quick` rc 1 = 2 известных дрейфа (`hd.cfg` с пользовательской строкой
   `#1280 960 32 0`, `cursor` DRIFT_RELEASE_AHEAD), `--full` rc 1 = 1
   (`hd.cfg`), `--untouched` rc 0. `hd.cfg` установки не переписывался.
+
+## Сессия 2026-11-18 (вечер): ldhook Фаза 3 — логгер и отладка
+
+- `[P]` **Логгер** (`tools/ldhook/ldhook.c`): единый `hdlog.txt` в каталоге EXE
+  (тот же файл пишут Python-патчи; `probe_exitcode.ps1` копирует его хвост в
+  `<Tag>_hdlog.txt`), отдельный `ldhook_log.txt` Фаз 1–2 упразднён. Формат:
+  `ldhook: HH:MM:SS.mmm t<tid> I|D <текст>` + дубль в `OutputDebugStringA`.
+  Дескриптор кэшируется (site3 зовётся каждый кадр), запись под
+  `CRITICAL_SECTION`; ротация `hdlog.txt.1` после 8 MiB.
+- `[P]` **Флаг** — env `LDHOOK_LOG`: `0`/`off` (файл не создаётся, ODS молчит),
+  `1` (дефолт — диагностика), `2`/`debug` (трассировка). `ldhook.set_level(n)`
+  из игрового скрипта перекрывает env на лету; добавлены `ldhook.log(msg)` и
+  `ldhook.stats()` → `(site1, site2, site3, level)`. Уровни: info — загрузка
+  (`pid`, база, диапазон `.text`, уровень), установка сайтов, guard identity,
+  первый вызов хука; debug — числовая трассировка 16:9-ветки с троттлингом
+  (site1 4+1024, site2 4+1024, site3 3+300). В 4:3 при дефолтном уровне —
+  только info-строки.
+- `[P]` **`.text` из PE-заголовков** (VA + VirtualSize) вместо констант
+  `0x1000/0xeaf12`: модуль грузится под `vendor/py223/PYTHON.EXE` без выхода за
+  секцию (локальный самотест API: `log`/`set_level`/`stats` rc 0, уровень 0 не
+  создаёт файл, маркер пишется всегда, ротация проверена на 9 MiB), а сдвиг
+  `.text` будущими правками EXE не ломает установку хуков — иначе info-строка
+  и пропуск хуков.
+- `[P]` **Гейт 16:9** (`3840 2160 32 1`, baseline scratch, `LDHOOK_LOG=1`):
+  9 строк, все `I`; три сайта `found` (0x41ce31/0x40b494/0x47dd80),
+  `site3_impl` FIRED `matrix[0] 1.29904 (0x3FA646F1) -> 0.974731 (0x3F7987FA)`
+  — биты эталона `exepatch12`; `site2_impl`/`site1_impl` FIRED
+  (`k=0.750347 -> keff=0.187587`); оверленд снят, Application-лог пуст.
+- `[P]` **Гейт debug** (`LDHOOK_LOG=2`): 27 строк, `D`-трассировка site3
+  (`call 1..3`, затем 300/600/900/…), site2 (`norm=1/0`), site1
+  (`pitch 76 -> 14`, `carry=0.239905`); троттлинг виден по номерам вызовов.
+- `[P]` **Гейт 4:3** (`1440 1080 32 1`, `LDHOOK_LOG=1`): только `I`-строки,
+  `site3_impl: guard 4h==3w -> identity`, `site1_impl: k==1.0 -> identity
+  (4:3)` — записей нет; оверленд 1440x1080 снят (средняя яркость 0.271 против
+  0.268 на 4K), крашей нет, игра погашена.
+- `[P]` `probe_phase1.ps1` читает `hdlog.txt` (фильтр строк `ldhook:`);
+  документация — `docs/PLAN_proxy_dll.md` (Фаза 3 выполнена),
+  `tools/ldhook/README.md`, `docs/PIPELINE.md`, `docs/TOOLS.md`.
+- `[P]` Установка не тронута (все прогоны — scratch `scratch_dir('ldhook')/tree`
+  с baseline EXE; `hd.cfg` репозитория не переписывался: зонд шёл с `LD_REPO`
+  в scratch), игра погашена. `--quick` rc 1 = 2 известных дрейфа (`hd.cfg`,
+  `cursor.pyc`); `--untouched` rc 0 (5096 файлов). При проверке у EXE установки
+  снова отсутствовал AppCompat-флаг `~ HIGHDPIAWARE` (в реестре был только
+  scratch-путь) — документ-состояние восстановлено тем же `set_layer.ps1`
+  (`docs/VERIFY.md`), после чего `--quick` снова показывает ровно 2 дрейфа.
