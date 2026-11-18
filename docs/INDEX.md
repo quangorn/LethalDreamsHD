@@ -17,6 +17,7 @@
 | наблюдения: раскод `.btf`, packer, курсоры, иконки, апскейлы | `docs/OBSERVATIONS_TEXTURE.md` |
 | грабли (симптом → причина → обход) | `docs/PITFALLS.md` |
 | реестр опровергнутых утверждений | `docs/CONTRADICTIONS.md` |
+| план исследования: прокси-DLL вместо cave-патчей (C, логгер, размер) | `docs/PLAN_proxy_dll.md` |
 | хроника итераций сессий, срезы состояния, установка апскейлов, цель съёмки R/E/F1 | `docs/archive/SESSION_LOG.md` |
 | отменённые планы Q-режима (формула квадрата, план патча, код) | `docs/archive/CANCELLED_Q_MODE.md` |
 | архивные документы прошлых сессий (планы, исследования, handoff) | `docs/archive/README.md` (указатель) |
@@ -47,6 +48,7 @@
 | `docs/OBSERVATIONS_TEXTURE.md` | наблюдения: раскод/формат `.btf`, packer, курсоры, иконки, апскейлы |
 | `docs/PITFALLS.md` | известные грабли: симптом → причина → обход |
 | `docs/CONTRADICTIONS.md` | реестр опровергнутых утверждений (фиксировать, не «починить» молча) |
+| `docs/PLAN_proxy_dll.md` | план исследования: прокси-`python22.dll` вместо cave-патчей (C, логгер, снятие лимита 238 байт) |
 | `docs/archive/README.md` | указатель архивных документов (планы, исследования, handoff, старые заметки) |
 | `docs/archive/SESSION_LOG.md` | хроника итераций сессий (срезы состояния, замеры, установки апскейлов) |
 | `docs/archive/CANCELLED_Q_MODE.md` | отменённые планы Q-режима (история, не реализация) |
@@ -61,6 +63,7 @@
 | рецепт .pyc и модель патчей (diff/апликатор) | `docs/PATCHES.md` |
 | грабли (съёмка, Frida, cygwin-пути, PowerShell, 7z, кэши, декомпилят) | `docs/PITFALLS.md` |
 | опровергнутые утверждения и ложные выводы прошлых сессий | `docs/CONTRADICTIONS.md` |
+| переход с cave-патчей на DLL: прокси `python22.dll`, C вместо ассмблера, логгер, лимит `.text` | `docs/PLAN_proxy_dll.md` |
 | раскладка UI и baseline-снимки (оверленд, бой, диалоги) | `docs/OBSERVATIONS_UI.md` |
 | геометрия мира, DPI, рендер, матрица проекции | `docs/OBSERVATIONS_ENGINE.md` |
 | Python-слой: какая DLL стоит, зачем `Lib`, что за корневые `.pyc`, обязательность слоя, восстановление | `docs/OBSERVATIONS_ENGINE.md` (раздел «Python-слой»), `docs/PITFALLS.md` |
