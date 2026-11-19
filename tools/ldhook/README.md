@@ -12,6 +12,7 @@ EXE на диске не меняется (md5-цепочка цела), пра�
 | site2 | `0x40b494` | нормировка шрифта сразу при SetFont (`FUN_0041cc90`) | cave2 |
 | site3 | `0x47dd80` | `matrix[0] = matrix[5]*h/w` перед сеттером `FUN_0046f970`; guard `4*h==3*w` → identity | cave3 |
 | site4 | `0x45e0a0` + `0x45e163` | cap итераций поиска цели `FUN_0045e0a0` (пролог + хвост цикла, сброс счётчика на входе) | `docs/PERF_BATTLE.md` |
+| site5 | `0x45e0a0` + `0x45e163` | диагностика поиска цели: логирование кандидатов, метрик, порогов (активен, заменяет site4) | `docs/PERF_BATTLE.md` |
 
 Guard'ы перенесены 1:1: 4:3 остаётся побитово прежним (никаких записей).
 site3 считает FP-последовательность `cave3` (x87: `fild`/`fild`/`fdivp`/
@@ -28,9 +29,9 @@ site3 считает FP-последовательность `cave3` (x87: `fild
 
 | файл | роль |
 |---|---|
-| `ldhook.c` | .pyd: логгер + `install_site1/2/3` (скан + E9) + `site1_hook`/`site2_hook`/`site3_hook` + `site3_fp` (x87) + Python-API отладки |
+| `ldhook.cpp` | .pyd: логгер + `install_site1/2/3/5` (скан + E9) + `site1_hook`/`site2_hook`/`site3_hook` + `site3_fp` (x87) + `site5` (target-search diag) + Python-API отладки. Порт на C++ (Вариант B: C++ + статический CRT `/MT`); `initldhook` — `extern "C"` (C-ABI для `imp.load_dynamic`). `ldhook.c` оставлен как reference (DEPRECATED, не собирается). |
 | `fetch_headers.py` | официальный Python 2.2.3 (python.org): `Include/*.h` + `PC/pyconfig.h` → `vendor/py223/include/` (untracked) |
-| `build.py` | MSVC x86 (`/fp:precise`) → `build/ldhook/ldhook.pyd` (gitignored) |
+| `build.py` | MSVC x86 (`/LD /MT /EHsc /O2 /W3 /fp:precise`) → `build/ldhook/ldhook.pyd` (gitignored). `/fp:precise` обязателен — битовая identity 4:3 в site1/site3 |
 | `smoke_api.py` | локальный смоук Python-API под `vendor/py223` (без игры): `log`/`set_level`/`stats`/`cap_stats`, уровень 0, TypeError, безопасный скан `.text` |
 | `patch_ui.py` | каноническая установка загрузчика в игру: `--build` (ui.pyc + блок `imp.load_dynamic`), `--install` (бэкап + `.pyd` + `ui.pyc`), `--restore` |
 | `check_sites.py` | аудит Фазы 4 (без игры): уникальность трёх сигнатур в `.text`, вердикт `installable`/`patched`/`UNEXPECTED` (rc 1) для установки и baseline |
@@ -137,19 +138,26 @@ python3 tools/ldhook/check_sites.py --exe <путь к EXE>   # произвол
 allowlist, `ui/ui.pyc`, исключение runtime-логов, гейт) — `docs/PLAN_proxy_dll.md`
 §4 Фаза 4.
 
-## Cap тормозов боя (site4, 19.11.2026)
+## Cap тормозов боя (site4, 19.11.2026) → диагностика (site5, 19.11.2026)
 
+site4 (cap 32) реализован в коде, но **не вызывается** (заменён на site5).
 Пролог `0x45e0a0` (7 Б) + хвост цикла `0x45e163` (6 Б); счётчик сбрасывается на
 входе, выход по cap — штатный «не найдено». `LDHOOK_CAP` (дефолт 32, `0` = хук не
 ставится), `ldhook.set_cap(n)` / `ldhook.cap_stats()`.
 
+**site5** (активный) — диагностика поиска цели: логирует аргументы, кандидатов,
+метрику `[obj+0x24]`, порог расстояния `[this+0x34]`, трекинг `[this+0x30]`.
+Те же сайты (entry + tail). Уровни: `LDHOOK_LOG=1` — только «first call»;
+`LDHOOK_LOG=2` — первые 4 итерации + каждый 256-й. Python API: `ldhook.diag_stats()`
+→ `(calls, heavy, max_iter, cur_iter, log_level)`.
+
 ```
-LDHOOK_CAP=32 <EXE>                 # живой прогон с капом
+LDHOOK_LOG=2 <EXE>                 # диагностика поиска цели
 python3 tools/ldhook/patch_ui.py --build     # ui.pyc + загрузчик (.pyd)
 python3 tools/ldhook/patch_ui.py --install   # бэкап + .pyd + ui.pyc в установку
 python3 tools/ldhook/patch_ui.py --restore   # откат: вернуть ui.pyc, снять .pyd
 ```
 
-Результат: лаги уходят, но **агро ломается** (31% поисков упираются в cap →
+Результат site4: лаги уходят, но **агро ломается** (31% поисков упираются в cap →
 монстры стоят). В установку не поставляется; разбор — `docs/PERF_BATTLE.md`,
-«Ревизия плана».
+«Ревизия плана». site5 — следующий шаг: понять алгоритм через логирование.

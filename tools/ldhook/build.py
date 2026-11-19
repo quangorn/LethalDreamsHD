@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Сборка ldhook.pyd (расширение Python 2.2.3, MSVC x86) — tools/ldhook/ldhook.c.
+"""Сборка ldhook.pyd (расширение Python 2.2.3, MSVC x86) — tools/ldhook/ldhook.cpp.
 
 Требует:
   - vendor/py223/include/ — python3 tools/ldhook/fetch_headers.py;
@@ -23,7 +23,7 @@ import paths  # noqa: E402
 INCLUDE = paths.win_path(os.path.join(_ROOT, "vendor", "py223", "include"))
 LIBDIR = paths.win_path(os.path.join(_ROOT, "vendor", "py223", "DLLs"))
 OUTDIR = paths.win_path(os.path.join(_ROOT, "build", "ldhook"))
-SRC = paths.win_path(os.path.join(_ROOT, "tools", "ldhook", "ldhook.c"))
+SRC = paths.win_path(os.path.join(_ROOT, "tools", "ldhook", "ldhook.cpp"))
 
 VSWHERE = paths.win_path(os.path.join(
     os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
@@ -75,7 +75,9 @@ def main():
         'cd /d "%s"' % win(OUTDIR),
         # /fp:precise — сохранить порядок FP-операций (совпадает с x87-порядком
         # cave1; без contraction/reassociation, как требует побитовая identity 4:3).
-        'cl /nologo /LD /MT /O2 /W3 /fp:precise /I"%s" "%s" '
+        # /EHsc — модель обработки исключений для C++ (cl определяет C++ по .cpp,
+        # /TP не нужен).
+        'cl /nologo /LD /MT /EHsc /O2 /W3 /fp:precise /I"%s" "%s" '
         '/link /LIBPATH:"%s" python22.lib /OUT:ldhook.pyd'
         % (win(INCLUDE), win(SRC), win(LIBDIR)),
         "exit /b %errorlevel%",

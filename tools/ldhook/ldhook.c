@@ -1,10 +1,11 @@
-/* ldhook.pyd — Фазы 1–3 (PLAN_proxy_dll.md, §4): хуки в памяти + логгер.
+// DEPRECATED: порт в ldhook.cpp (C++), см. tools/ldhook/README.md
+/* ldhook.pyd — Фазы 1–3, 5–6 (PLAN_proxy_dll.md, §4): хуки в памяти + логгер.
  *
  * Расширение Python 2.2.3. initldhook() (вызывается движком через
  * imp.load_dynamic из патчимого ui/ui.pyc):
  *   1. поднимает логгер (hdlog.txt в каталоге EXE + OutputDebugString);
  *   2. пишет файл-маркер (доказательство загрузки для зондов);
- *   3. install_site1/2/3() — находит три сайта сканом сигнатур в .text EXE и
+ *   3. install_site1/2/3/5() — находит сайты сканом сигнатур в .text EXE и
  *      ставит E9 rel32 на соответствующие трамплины (в памяти, не на диске).
  *
  *   site1 (0x41ce31, хвост FUN_0041cc90): масштаб листов/advance 4x-шрифтов,
@@ -13,7 +14,10 @@
  *          FUN_0041cc90(шрифт) — нормировка шрифта сразу при SetFont (cave2);
  *   site3 (0x47dd80, RenderWorld): matrix[0] = matrix[5]*h/w перед сеттером
  *          FUN_0046f970; guard 4*h == 3*w -> запись пропускается, 4:3
- *          остаётся побитово прежним (cave3).
+ *          остаётся побитово прежним (cave3);
+ *   site5 (0x45e0a0 + 0x45e163): диагностика поиска цели FUN_0045e0a0 —
+ *          логирование аргументов, кандидатов, метрик, порогов (site4 cap
+ *          сохранён в коде, но не вызывается).
  *
  * Логика 1:1 с tools/exe/caves/fixall.s; guard'ы (k==1 / 4h==3w) сохранены.
  * EXE НЕ модифицируется на диске: правка ставится в памяти через VirtualProtect
@@ -241,7 +245,7 @@ static void ldhook_marker(void)
                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
         if (h != INVALID_HANDLE_VALUE) {
             DWORD w = 0;
-            const char *msg = "ldhook.pyd loaded (phase 5: hooks + logger + battle cap)\r\n";
+            const char *msg = "ldhook.pyd loaded (phase 6: hooks + logger + target-search diag)\r\n";
             WriteFile(h, msg, (DWORD)strlen(msg), &w, NULL);
             CloseHandle(h);
             ld_info("marker written: ldhook_marker.txt");
@@ -877,6 +881,225 @@ static void install_site4(void)
     ld_info("install_site4: hooks installed (entry E9+nop*2, tail E9+nop)");
 }
 /* ------------------------------------------------------------------ */
+/* site5 — диагностика поиска цели (FUN_0045e0a0): логирование.       */
+/*                                                                    */
+/* Заменяет cap-подход site4. На входе и каждой итерации цикла        */
+/* пишет в hdlog.txt: аргументы, кандидата, метрику [obj+0x24],       */
+/* порог расстояния [this+0x34], состояние трекинга [this+0x30].      */
+/*                                                                    */
+/* Уровни логирования:                                                */
+/*   LDHOOK_LOG=1 (дефолт): только «first call» + сводка;            */
+/*   LDHOOK_LOG=2 (debug): первые 4 итерации + каждый 256-й;          */
+/*                                                                    */
+/* Сайты: пролог 0x45e0a0 (7 Б) + хвост цикла 0x45e163 (6 Б) —       */
+/* те же сигнатуры, что у site4.                                       */
+/* ------------------------------------------------------------------ */
+
+#define S5_ENTRY_SIG   "\x8b\x44\x24\x10\x83\xec\x34"
+#define S5_ENTRY_LEN   7
+#define S5_TAIL_SIG    "\x8b\xf0\x3b\xf5\x75\xae"
+#define S5_TAIL_LEN    6
+#define S5_HEAVY_ITER  20
+
+static volatile LONG g_site5_calls = 0;
+static volatile LONG g_site5_iter = 0;
+static volatile LONG g_site5_max = 0;
+static volatile LONG g_site5_heavy = 0;
+static volatile LONG g_site5_dbg = 0;
+static volatile LONG g_site5_idbg = 0;
+
+static void *g_site5_cont = NULL;
+static void *g_site5_top = NULL;
+static void *g_site5_nat = NULL;
+
+/* Вход: фиксирует статистику прошлого вызова, сбрасывает счётчик. */
+static void __cdecl s5_entry_impl(void *this_, void *arg0, void *arg1,
+                                   void *arg2, void *arg3)
+{
+    unsigned char *self = (unsigned char *)this_;
+    LONG n = InterlockedIncrement(&g_site5_calls);
+    LONG prev = g_site5_iter;
+    int trace;
+
+    if (prev > g_site5_max) {
+        g_site5_max = prev;
+    }
+    if (prev > S5_HEAVY_ITER) {
+        InterlockedIncrement(&g_site5_heavy);
+    }
+    g_site5_iter = 0;
+
+    if (n == 1) {
+        ld_info("site5: first call (hook FIRED)");
+    }
+
+    /* Первые 4 вызова — всегда (info); далее — троттлинг (debug). */
+    if (n <= 4) {
+        /* always log at info level */
+    } else {
+        trace = ld_rate(&g_site5_dbg, 0, 128);
+        if (!trace || g_log_level < LD_DEBUG) {
+            return;
+        }
+    }
+
+    {
+        unsigned char tracking = *(unsigned char *)(self + 0x30);
+        int threshold = *(int *)(self + 0x34);
+        void *stored = *(void **)(self + 0x2c);
+        void *list_head = *(void **)(self + 0x6c);
+
+        if (n <= 4)
+            ld_info("site5: entry #%ld this=%p a0=%p a1=%p a2=%p a3=%p "
+                     "list=%p trk=%d thr=%d stored=%p prev_iter=%ld",
+                     (long)n, this_, arg0, arg1, arg2, arg3,
+                     list_head, (int)tracking, threshold, stored, (long)prev);
+        else
+            ld_debug("site5: entry #%ld this=%p a0=%p a1=%p a2=%p a3=%p "
+                     "list=%p trk=%d thr=%d stored=%p prev_iter=%ld",
+                     (long)n, this_, arg0, arg1, arg2, arg3,
+                     list_head, (int)tracking, threshold, stored, (long)prev);
+    }
+}
+
+/* Трамплин входа. ecx=this, [esp]=ret, [esp+4..0x10]=arg0..arg3. */
+static __declspec(naked) void s5_entry_hook(void)
+{
+    __asm {
+        push eax
+        push edx
+        push ecx
+        push dword ptr [esp + 28]    /* arg3 */
+        push dword ptr [esp + 28]    /* arg2 */
+        push dword ptr [esp + 28]    /* arg1 */
+        push dword ptr [esp + 28]    /* arg0 */
+        push ecx                     /* this */
+        call s5_entry_impl
+        add esp, 20
+        pop ecx
+        pop edx
+        pop eax
+        mov eax, dword ptr [esp + 0x10]
+        sub esp, 0x34
+        jmp dword ptr [g_site5_cont]
+    }
+}
+
+/* Хвост цикла: логирует кандидата, метрику, порог, дистанцию. */
+static void __cdecl s5_tail_impl(void *this_, void *candidate)
+{
+    unsigned char *self = (unsigned char *)this_;
+    unsigned char *cand = (unsigned char *)candidate;
+    LONG iter = InterlockedIncrement(&g_site5_iter);
+    int trace;
+
+    /* Первые 4 итерации — всегда (info); далее — троттлинг (debug). */
+    if (iter <= 4) {
+        /* always log at info level */
+    } else {
+        trace = ld_rate(&g_site5_idbg, 0, 256);
+        if (!trace || g_log_level < LD_DEBUG) {
+            return;
+        }
+    }
+
+    if (cand == NULL) {
+        if (iter <= 4)
+            ld_info("site5: iter=%ld cand=NULL", (long)iter);
+        else
+            ld_debug("site5: iter=%ld cand=NULL", (long)iter);
+        return;
+    }
+
+    {
+        int filter = *(int *)(cand + 0x08);
+        int metric = *(int *)(cand + 0x24);
+        int x = *(int *)(cand + 0x0c);
+        int y = *(int *)(cand + 0x10);
+        int threshold = *(int *)(self + 0x34);
+        void *stored = *(void **)(self + 0x2c);
+        int tracking = *(unsigned char *)(self + 0x30);
+        int dist2 = -1;
+
+        if (stored != NULL) {
+            int dx = x - *(int *)((unsigned char *)stored + 0x0c);
+            int dy = y - *(int *)((unsigned char *)stored + 0x10);
+            dist2 = dx * dx + dy * dy;
+        }
+
+        if (iter <= 4)
+            ld_info("site5: iter=%ld cand=%p [%d,%d] f=%d m=%d d2=%d thr=%d trk=%d",
+                     (long)iter, cand, x, y, filter, metric, dist2, threshold,
+                     (int)tracking);
+        else
+            ld_debug("site5: iter=%ld cand=%p [%d,%d] f=%d m=%d d2=%d thr=%d trk=%d",
+                     (long)iter, cand, x, y, filter, metric, dist2, threshold,
+                     (int)tracking);
+    }
+}
+
+/* Трамплин хвоста: s5_tail_impl(this, candidate), затем mov/cmp/jne. */
+static __declspec(naked) void s5_tail_hook(void)
+{
+    __asm {
+        push eax                    /* save candidate */
+        push ecx                    /* save ecx */
+        push eax                    /* arg1: candidate */
+        push edi                    /* arg0: this */
+        call s5_tail_impl
+        add esp, 8
+        pop ecx
+        pop eax                     /* restore candidate */
+        mov esi, eax
+        cmp esi, ebp
+        jne s5_loop_again
+        jmp dword ptr [g_site5_nat]
+
+    s5_loop_again:
+        jmp dword ptr [g_site5_top]
+    }
+}
+
+static void install_site5(void)
+{
+    unsigned char *entry_site;
+    unsigned char *tail_site;
+    int rel;
+
+    entry_site = find_in_text((const unsigned char *)S5_ENTRY_SIG, S5_ENTRY_LEN);
+    tail_site = find_in_text((const unsigned char *)S5_TAIL_SIG, S5_TAIL_LEN);
+    if (entry_site == NULL || tail_site == NULL) {
+        ld_info("install_site5: signature NOT found (entry=%p tail=%p)",
+                (void *)entry_site, (void *)tail_site);
+        return;
+    }
+
+    rel = (signed char)tail_site[5];
+    g_site5_cont = (void *)(entry_site + S5_ENTRY_LEN);
+    g_site5_nat = (void *)(tail_site + S5_TAIL_LEN);
+    g_site5_top = (void *)(tail_site + S5_TAIL_LEN + rel);
+
+    ld_info("install_site5: entry=0x%08x tail=0x%08x top=0x%08x exit=0x%08x",
+            (unsigned)entry_site, (unsigned)tail_site,
+            (unsigned)g_site5_top, (unsigned)g_site5_nat);
+
+    if (!s4_rel_fits(entry_site, (void *)s5_entry_hook) ||
+        !s4_rel_fits(tail_site, (void *)s5_tail_hook)) {
+        ld_info("install_site5: E9 rel32 out of range");
+        return;
+    }
+    if (!write_jmp(entry_site, (void *)s5_entry_hook, S5_ENTRY_LEN)) {
+        ld_info("install_site5: entry write_jmp FAILED");
+        return;
+    }
+    if (!write_jmp(tail_site, (void *)s5_tail_hook, S5_TAIL_LEN)) {
+        ld_info("install_site5: tail write_jmp FAILED");
+        return;
+    }
+    ld_info("install_site5: hooks installed (diagnostic)");
+}
+
+/* ------------------------------------------------------------------ */
 /* Python-API модуля (отладка из игровых скриптов)                      */
 /* ------------------------------------------------------------------ */
 
@@ -939,6 +1162,17 @@ static PyObject *ld_py_set_cap(PyObject *self, PyObject *args)
     return PyInt_FromLong(old);
 }
 
+static PyObject *ld_py_diag_stats(PyObject *self, PyObject *args)
+{
+    (void)self;
+    if (!PyArg_ParseTuple(args, "")) {
+        return NULL;
+    }
+    return Py_BuildValue("(lllll)", (long)g_site5_calls,
+                         (long)g_site5_heavy, (long)g_site5_max,
+                         (long)g_site5_iter, (long)g_log_level);
+}
+
 static PyObject *ld_py_cap_stats(PyObject *self, PyObject *args)
 {
     (void)self;
@@ -961,6 +1195,8 @@ static PyMethodDef ldhook_methods[] = {
      "set_cap(n): battle target-search iteration cap (0=off); returns previous"},
     {"cap_stats", ld_py_cap_stats, METH_VARARGS,
      "cap_stats(): (calls, caps, heavy, max_iter, cap)"},
+    {"diag_stats", ld_py_diag_stats, METH_VARARGS,
+     "diag_stats(): (calls, heavy, max_iter, cur_iter, log_level)"},
     {NULL, NULL, 0, NULL}
 };
 
@@ -974,12 +1210,12 @@ __declspec(dllexport) void initldhook(void)
     ld_log_init();
     base = (unsigned char *)GetModuleHandleA(NULL);
     if (base != NULL && ld_find_text(base, &g_text, &g_text_len)) {
-        ld_info("=== ldhook.pyd phase 5 (hooks + logger + battle cap) pid=%u base=0x%08x .text=0x%08x+0x%x level=%d ===",
+        ld_info("=== ldhook.pyd phase 6 (hooks + logger + target-search diag) pid=%u base=0x%08x .text=0x%08x+0x%x level=%d ===",
                 (unsigned)GetCurrentProcessId(), (unsigned)(size_t)base,
                 (unsigned)(size_t)g_text, (unsigned)g_text_len,
                 (int)g_log_level);
     } else {
-        ld_info("=== ldhook.pyd phase 5 (hooks + logger + battle cap) pid=%u base=0x%08x level=%d; .text NOT found ===",
+        ld_info("=== ldhook.pyd phase 6 (hooks + logger + target-search diag) pid=%u base=0x%08x level=%d; .text NOT found ===",
                 (unsigned)GetCurrentProcessId(), (unsigned)(size_t)base,
                 (int)g_log_level);
     }
@@ -993,7 +1229,7 @@ __declspec(dllexport) void initldhook(void)
         install_site1();
         install_site2();
         install_site3();
-        install_site4();
+        install_site5();
     }
     Py_InitModule("ldhook", ldhook_methods);
 }

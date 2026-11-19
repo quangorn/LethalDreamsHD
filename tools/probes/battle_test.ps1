@@ -22,8 +22,8 @@
 # масштабируется системой и канвасные точки не совпадут).
 param([int]$W = 3840, [int]$H = 2160, [int]$F = 1, [string]$Tag = "battle_test",
       [int]$MenuSec = 1, [int]$LogLevel = 1,
-      [string]$Steps = "shot:menu;click:350:107;wait:0.2;click:280:161;wait:0.2;key:13;wait:0.2;key:13;wait:1;shot:overland;hover:672:542;wait:0.2;click:672:542;wait:0.2;hover:413:524;wait:0.2;click:413:524;wait:1.5;key:32;waitfor:battle:10;shot:battle;click:473:733;wait:0.2;hold:500:430:5000;shot:monsters1;click:473:733;wait:0.2;hold:500:430:5000;shot:monsters2",
-      [int]$BattleWait = 180, [int]$HoldMs = 5000, [double]$EndWait = 3,
+      [string]$Steps = "shot:menu;click:350:107;wait:0.2;click:280:161;wait:0.2;key:13;wait:0.2;key:13;wait:2.5;shot:overland;hover:672:542;wait:0.2;click:672:542;wait:0.2;hover:413:524;wait:0.2;click:413:524;wait:2.5;key:32;waitfor:battle:15;shot:battle;click:473:733;wait:0.2;hold:500:430:5000;shot:monsters1;click:473:733;wait:0.2;hold:500:430:5000;shot:monsters2",
+      [int]$BattleWait = 180, [int]$HoldMs = 5000, [double]$EndWait = 10,
       [switch]$NoKill, [string]$GameRoot = $env:LD_GAME, [string]$ShotsDir = $env:LD_SHOTS)
 if (-not $GameRoot) { throw "GameRoot не задан: -GameRoot <дерево> или LD_GAME" }
 if (-not (Test-Path (Join-Path $GameRoot "LETHALDREAMS.EXE"))) { throw "Нет LETHALDREAMS.EXE в $GameRoot" }

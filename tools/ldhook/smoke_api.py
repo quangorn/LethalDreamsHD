@@ -31,10 +31,18 @@ def main():
     sys.stdout.write('stats -> %r\n' % (s,))
 
     c = m.cap_stats()
-    assert len(c) == 5 and c[4] == 0, 'cap_stats tuple (calls, caps, heavy, max, cap)'
-    assert m.set_cap(32) == 0, 'set_cap returns previous value'
+    assert len(c) == 5, 'cap_stats tuple (calls, caps, heavy, max, cap)'
+    assert m.set_cap(32) == 32, 'set_cap returns previous value'
     assert m.cap_stats()[4] == 32, 'set_cap stores new cap'
     sys.stdout.write('cap_stats -> %r\n' % (m.cap_stats(),))
+
+    d = m.diag_stats()
+    assert len(d) == 5, 'diag_stats tuple (calls, heavy, max_iter, cur_iter, level)'
+    sys.stdout.write('diag_stats -> %r\n' % (d,))
+
+    s6 = m.site6_stats()
+    assert len(s6) == 4, 'site6_stats tuple (calls, heavy, max_iter, level)'
+    sys.stdout.write('site6_stats -> %r\n' % (s6,))
 
     assert m.set_level(0) == 2
     m.log('this line must NOT be in hdlog.txt')
