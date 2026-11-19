@@ -335,6 +335,11 @@ python3 tools/tex/hook_ground.py --tree <дерево> --restore   # ориги�
   (снимок оверленда — `tools/archive/probes/probe_loadshot.ps1 … -Mode new`).
 - Съёмка боя: `tools/probes/probe_battleshot.ps1` — новая игра, скип уроков Enter'ом,
   клики по канвасным тайлам, обнаружение боя по строке `SCENE battle` в `hdlog.txt`.
+- Вход в бой из сейва: `tools/probes/battle_test.ps1` — DSL шагов (`wait/click/rclick/hover/hold/key/shot/waitfor`),
+  канвас 1024x768; «Вспомнить» (350,107) → первый сейв (280,161) + Enter → планета (672,542) →
+  «Атака» (413,524) → пробел → 2-е заклинание (473,733) → ПКМ-удержание у героя (500,430), две итерации.
+- Детект боя по `SCENE battle` требует dev-сборки `hd_scale.pyc` (`HD_LOG=1`) — иначе сцен в логе нет;
+  сейвы игра читает из `Documents\Boolat Games\Lethal Dreams\Saves` (профиль пользователя, SLOTn).
 - Проверка после прогонов: снапшот md5+mtime установки до/после (diff обязан быть
   нулевым; запуски игры дают известный дрейф `Lib/*.pyc`, `hd.cfg`, `hdlog.txt`,
   font-сайкары, `mm_bkg01.btf` — их убирают/не трогают), `--quick`/`--untouched` rc 0.
