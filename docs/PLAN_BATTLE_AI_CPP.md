@@ -358,7 +358,7 @@ rc 0); рецензия.
 1. Офлайн: `build.py` → `check_sites.py` (`installable`) → `smoke_api.py`.
 2. 4:3 identity и битовый эталон: `probe_exitcode.ps1` (`matrix[0] 0x3FA646F1 →
    0x3F7987FA`, `k==1` identity); site1/2/3 не затронуты.
-3. Бой: `battle_test.ps1` (дефолты `MenuSec=6`, `battle:30`, `cpu:SEC`) — baseline
+3. Бой: `battle_test.ps1` (дефолты `MenuSec=6`, `-Waves 3`, `cpu:SEC`) — baseline
    (`LDHOOK_SITE6=0`) vs порт; trace-диф решений и Боевой гейт (спавн фиксирован
    `FIXED_ENTRANCE_INDEX` — снимки одного индекса сравнимы попиксельно).
 4. Установка: снапшот diff = 0, `check_state.py --quick` rc 0; md5 нового `.pyd` —
