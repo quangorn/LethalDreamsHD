@@ -300,11 +300,12 @@ static unsigned char *find_sig(unsigned char *start, size_t len,
 }
 
 /* Безопасная запись E9 rel32 по адресу target; total = длина патча
- * (5 байт для site1/site3, 6 для site2: E9+nop, как в exepatch12). */
+ * (5 байт для site1/site3, 6 для site2: E9+nop, как в exepatch12;
+ * до 10 для trace-сайтов H1/H7: E9+nop-дополнение украденных байт). */
 static int write_jmp(void *target, void *dest, int total)
 {
     DWORD old;
-    unsigned char patch[8];
+    unsigned char patch[16];
     ptrdiff_t rel;
     if (total < 5 || total > (int)sizeof(patch)) {
         return 0;
