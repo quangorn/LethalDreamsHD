@@ -990,33 +990,34 @@ int s6_ai_update(void *this_, void *cand, int arg2)
     return 1;
 }
 
-/* Замена FUN_0045e0a0 (cdecl; вызывается из трамплина). МИКРО-ЦИКЛ 2 ИТЕРАЦИЙ.
- * Порт цикла оригинала (site6_correctness_audit.md): FUN_0045c4b0(mask 4)
- * помечает cur->filter=3, помеченные выпадуют из скана — native-цикл ротирует
- * кандидатов; нормальный выход code=4 — на 2-й итерации, патологический —
- * code=3 по таймауту (c5a0). Таймаут заменён ограничением цикла 2 итерации
- * (cost O(2n)): 2 итерации без гейта → code=3 с текущим cur. Пустой скан:
- * выход без гейтов, code=0, *out_code остаётся 0 (entry-запись), return NULL. */
+/* Замена FUN_0045e0a0 (cdecl; вызывается из трамплина). Faithful-цикл (п. 3.1):
+ * порт тела 0x45e0a0..0x45e1c0 (game_dis.txt 133731..133838). Порядок:
+ *   if (param_4) *param_4 = 0;                       @0x45e0b2
+ *   cur = scan(filter);                              @0x45e103 (ce80)
+ *   while (cur) {                                    @0x45e10a / @0x45e165
+ *     ai_update(this, cur, target_pos);              @0x45e11b (dd70)
+ *     c4b0(&local{+8=3}, cur, 4) → cur->filter = 3;  @0x45e132 (permanent, без restore)
+ *     if (cur->pos == target_pos) { code=1; return cur; }    @0x45e137 / @0x45e17d
+ *     if (check_distance(this, cur)) { code=4; return cur; } @0x45e13e / @0x45e197
+ *     if (check_timeout(this, timeout)) { code=3; return cur; } @0x45e14e / @0x45e1af
+ *     cur = scan(filter);                            @0x45e15e (rescan)
+ *   }
+ *   return NULL;   // пустой скан: code остаётся 0 (entry-запись), записи в *param_4 нет
+ * Гейты — в родном порядке; ai_update/scan/предикаты — порты (выше). Разметка
+ * постоянная (native c4b0 mask 4), restore не вызывается. Depth guard и счётчики
+ * — временные (п. 3.2/3.4 плана), на faithful-семантику не влияют. */
 static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
                                       void *arg2, void *arg3)
 {
-    int filter = (int)(int)arg0;
+    int filter = (int)(INT_PTR)arg0;
     void *cmp_val = arg1;                /* target pos_obj (сравнение с cur->pos) */
     int *out_code = (int *)arg3;
     int code = 0;
     LDObject *cur;
+    LDObject *result = NULL;             /* cur на сработавшем гейте; NULL на пустом скане */
     LONG n = InterlockedIncrement(&g_site6_calls);
     LONG iters = 0;
-    int iter;
     LONGLONG t0 = 0;                       /* Фаза 4 A/B: точка отсчёта */
-    /* Разметка transient: сохранённые filter помеченных кандидатов цикла
-     * (макс. 2 пометки — цикл ≤2 итераций); восстановление — на выходе из
-     * вызова, после последнего скана и до возврата управляющему коду. */
-    LDObject *marked[2];
-    int saved_filter[2];
-    int nmark = 0;
-
-    (void)arg2;                          /* порог таймаута не читается: таймаут = граница цикла */
 
     /* H4: вход FUN_0045e0a0 (детур) — сброс счётчиков вызова для trace. */
     battle_trace_e0a0_enter(filter);
@@ -1046,61 +1047,46 @@ static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
 
     t0 = ld_now_us();                      /* Фаза 4 A/B: время вызова */
 
-    cur = s6_scan_map(this_, filter);
+    /* Faithful-цикл оригинала (while(cur), без ограничения итераций): на каждом
+     * кандидате — ai_update, permanent-разметка cur->filter=3 (c4b0 mask 4),
+     * затем гейты в родном порядке: pos==cmp → code=1; c880 → code=4;
+     * c5a0 → code=3. Rescan после каждого не-сработавшего кандидата; пустой
+     * скан → выход без кода, return NULL. */
+    cur = s6_scan_map(this_, filter);      /* @0x45e103 */
     if (ld_rate(&g_site6_dbg, 4, 64)) {
         ld_debug("site6: call %ld scan -> %p (filter=%d cmp=%p depth=%ld)",
                  (long)n, (void *)cur, filter, cmp_val, (long)g_site6_depth);
     }
-
-    /* Микро-цикл — тело оригинального while, максимум 2 итерации. На каждой:
-     * ai_update + marking (cur->filter=3 → ротация скана) + гейты в родном
-     * порядке pos==cmp → code=1; c880 → code=4. Гейты проверяются на КАЖДОМ
-     * кандидате, как в native (нормальный выход — code=4 на 2-й итерации). */
-    for (iter = 1; iter <= 2; iter++) {
-        if (cur == NULL) {
-            break;                         /* скан пуст: code=0 (entry-запись), return NULL */
-        }
-        iters = iter;
+    while (cur != NULL) {                  /* @0x45e10a / @0x45e165 */
+        iters++;
         /* AI/pathfinding update — порт FUN_0045dd70: arg2 = arg1 (pos_obj),
          * см. 0x45e117 push ebx. */
-        s6_ai_update(this_, cur, (int)(int)cmp_val);
-        /* FUN_0045c4b0(&local, cur, 4): cur->filter = 3 — помеченный
-         * кандидат выпадает из скана ce80 (native-ротация). Сохраняем
-         * старый filter (под SEH), восстановление — на выходе из вызова. */
-        if (nmark < 2) {
-            __try {
-                marked[nmark] = cur;
-                saved_filter[nmark] = cur->filter;
-                nmark++;
-            } __except (EXCEPTION_EXECUTE_HANDLER) {
-            }
-        }
-        s6_mark_filter(cur);
-        if (cur->pos == (LDPos *)cmp_val) {
-            code = 1;
+        s6_ai_update(this_, cur, (int)(INT_PTR)cmp_val);   /* @0x45e11b */
+        /* FUN_0045c4b0(&local, cur, 4): cur->filter = 3 — permanent-разметка,
+         * помеченный кандидат выпадает из следующего скана ce80 (native-ротация,
+         * без восстановления). */
+        s6_mark_filter(cur);                               /* @0x45e132 */
+        if (cur->pos == (LDPos *)cmp_val) {                /* @0x45e137 */
+            code = 1;                                      /* @0x45e17d: *param_4 = 1 */
+            result = cur;
             break;
         }
-        if (s6_check_distance(this_, cur)) {
-            code = 4;                      /* c880 — типичный native-выход, итерация 2 */
+        if (s6_check_distance(this_, cur)) {               /* @0x45e13e */
+            code = 4;                                      /* @0x45e197: *param_4 = 4 */
+            result = cur;
             break;
         }
-        cur = s6_scan_map(this_, filter);  /* rescan: помеченные (filter=3) исключены */
-    }
-    if (code == 0 && cur != NULL) {
-        code = 3;                          /* 2 итерации без гейта: timeout-выход оригинала */
-    }
-
-    /* Восстановление сохранённых filter: разметка transient внутри вызова —
-     * net state объекта = как до вызова. После последнего скана (помеченные
-     * были исключены из rescan), до возврата управляющему коду. */
-    {
-        int i;
-        for (i = 0; i < nmark; i++) {
-            s6_restore_filter(marked[i], saved_filter[i]);
+        if (s6_check_timeout(this_, arg2)) {               /* @0x45e14e */
+            code = 3;                                      /* @0x45e1af: *param_4 = 3 */
+            result = cur;
+            break;
         }
+        cur = s6_scan_map(this_, filter);                  /* @0x45e15e: rescan */
     }
 
-    if (out_code != NULL) {
+    /* Единственная запись кода — под guard'ом param_4 != NULL; при пустом скане
+     * code==0 и запись не делается (в *param_4 уже 0 из entry-записи @0x45e0b2). */
+    if (out_code != NULL && code != 0) {
         *out_code = code;
     }
 
@@ -1123,7 +1109,7 @@ static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
         }
         ld_debug("site6: call %ld iters=%ld max=%ld heavy=%ld us=%I64d -> %p code=%d",
                  (long)n, (long)iters, (long)g_site6_max,
-                 (long)g_site6_heavy, us, (void *)cur, code);
+                 (long)g_site6_heavy, us, (void *)result, code);
         /* Окно 5 с: вызовы и µs за период. Окно закрывается первым вызовом
          * после его конца (простой период виден по dt). */
         InterlockedIncrement(&g_s6_win_calls);
@@ -1144,7 +1130,7 @@ static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
             g_s6_win_t = now;
         }
     }
-    return (void *)cur;
+    return (void *)result;
 }
 
 /* Трамплин: вход — E9 из пролога FUN_0045e0a0 (7 Б), ecx=this,
