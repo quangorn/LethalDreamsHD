@@ -101,6 +101,7 @@ void s6_entry_hook(void);       /* __declspec(naked) — battle/target.cpp */
 /* ---------------- trace-наблюдатели тика (battle/trace.cpp) ---------------- */
 /* H1 0x44bdf5 (10 Б): mov ebp,ecx; je; flds [ebp+0x114]; cont 0x44bdff.
  * H2 0x44d074 (7 Б): mov ecx,[esp+0x14c]; cont 0x44d07b.
+ * H3 0x44cbc5 (16 Б): movl $0,0xc0(%esp) + call 0x45eee0; cont 0x44cbd5.
  * H7 0x45dd70 (8 Б): sub esp,0x60; push ebx; mov ebx,[esp+0x68]; cont 0x45dd78.
  * H2 в .text встречается дважды (0x420d90 и 0x44d074) — сигнатура расширена
  * хвостом эпилога (pop edi/esi/ebp) до уникальной. */
@@ -108,12 +109,17 @@ void s6_entry_hook(void);       /* __declspec(naked) — battle/target.cpp */
 #define H1_SIG_LEN  10
 #define H2_SIG      "\x8b\x8c\x24\x4c\x01\x00\x00\x5f\x5e\x5d"
 #define H2_SIG_LEN  10
+#define H3_SIG      "\xc7\x84\x24\xc0\x00\x00\x00\x00\x00\x00\x00" \
+                    "\xe8\x0b\x23\x01\x00"
+#define H3_SIG_LEN  16
 #define H7_SIG      "\x83\xec\x60\x53\x8b\x5c\x24\x68"
 #define H7_SIG_LEN  8
 
 extern void *g_h1_cont;         /* 0x44bdff */
 extern void *g_h1_je;           /* 0x44be58 — цель нативного je */
 extern void *g_h2_cont;         /* 0x44d07b */
+extern void *g_h3_cont;         /* 0x44cbd5 */
+extern void *g_h3_callee;       /* 0x45eee0 (FUN_0045eee0, native::fn) */
 extern void *g_h7_cont;         /* 0x45dd78 */
 
 /* R1..R3: пиннинг нативного seed'а (7 Б: call [IAT] + push eax) под LDHOOK_SEED. */

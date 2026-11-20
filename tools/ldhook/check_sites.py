@@ -42,6 +42,18 @@ SITES = (
     # расширена хвостом эпилога (pop edi/esi/ebp) до уникальной.
     ("h2", bytes.fromhex("8b8c244c0100005f5e5d"), (0x44D074,), 1),
     ("h7", bytes.fromhex("83ec60538b5c2468"), (0x45DD70,), 1),
+    # H3 0x44cbc5: movl $0,0xc0(%esp) + call 45eee0 (16 Б, уникальна).
+    ("h3", bytes.fromhex("c78424c0" + "00" * 7 + "e80b230100"),
+     (0x44CBC5,), 1),
+    # H5: эпилог e0a0 `add esp,0x34; ret 0x10`. Сигнатура НЕ уникальна для e0a0
+    # (6 копий в .text; 0x45cdaf/0x45ce77 — другие функции), поэтому установка
+    # site5 ограничена окном 0x45e0a0..0x45e1e0: хукаются 4 копии 0x45e16d/
+    # 0x45e187/0x45e1a1/0x45e1bb.
+    ("h5", bytes.fromhex("83c434c21000"),
+     (0x45CDAF, 0x45CE77, 0x45E16D, 0x45E187, 0x45E1A1, 0x45E1BB), 6),
+    # H6: хвост цикла e0a0 (mov esi,eax; cmp esi,ebp; jne) — тот же сайт, что
+    # у site5/site6 (0x45e163).
+    ("h6", bytes.fromhex("8bf03bf575ae"), (0x45E163,), 1),
     # R1..R3: пиннинг seed'а (LDHOOK_SEED); R2-сигнатура встречается дважды.
     ("r1", bytes.fromhex("ff157cc24e0050"), (0x49EBCF,), 1),
     ("r2", bytes.fromhex("ff15b0c04e0050"), (0x4A7677, 0x4AE87F), 2),

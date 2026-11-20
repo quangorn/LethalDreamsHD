@@ -560,16 +560,19 @@ static void install_site6(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* Trace-наблюдатели тика (H1/H2/H7) — только при LDHOOK_BATTLE_TRACE=1. */
+/* Trace-наблюдатели тика (H1/H2/H3/H7) — только при LDHOOK_BATTLE_TRACE=1. */
 /* H4 (0x45e0a0) отдельного детура не получает: сброс счётчиков встроен */
-/* во вход site5/site6 (battle/target.cpp).                             */
+/* во вход site5/site6 (battle/target.cpp); H5/H6 — точки тех же сайтов */
+/* (эпилоги e0a0 и хвост 0x45e163), наблюдатели вызываются оттуда.      */
 /* ------------------------------------------------------------------ */
 
 static void install_trace_sites(void)
 {
     unsigned char *h1;
     unsigned char *h2;
+    unsigned char *h3;
     unsigned char *h7;
+    unsigned char *h6free;
 
     if (!battle_trace_enabled()) {
         ld_info("install_trace_sites: %s off -> hooks NOT installed",
@@ -578,23 +581,39 @@ static void install_trace_sites(void)
     }
     h1 = find_in_text((const unsigned char *)H1_SIG, H1_SIG_LEN);
     h2 = find_in_text((const unsigned char *)H2_SIG, H2_SIG_LEN);
+    h3 = find_in_text((const unsigned char *)H3_SIG, H3_SIG_LEN);
     h7 = find_in_text((const unsigned char *)H7_SIG, H7_SIG_LEN);
-    if (h1 == NULL || h2 == NULL || h7 == NULL) {
-        ld_info("install_trace_sites: signature NOT found (h1=%p h2=%p h7=%p)",
-                (void *)h1, (void *)h2, (void *)h7);
+    if (h1 == NULL || h2 == NULL || h3 == NULL || h7 == NULL ||
+        native::fn(0x45eee0) == NULL) {
+        ld_info("install_trace_sites: signature NOT found (h1=%p h2=%p h3=%p h7=%p)",
+                (void *)h1, (void *)h2, (void *)h3, (void *)h7);
         return;
     }
 
     g_h1_cont = (void *)(h1 + H1_SIG_LEN);
     g_h1_je = (void *)(h1 + 4 + (signed char)h1[3]);
     g_h2_cont = (void *)(h2 + 7);
+    g_h3_cont = (void *)(h3 + H3_SIG_LEN);     /* 0x44cbd5 */
+    g_h3_callee = native::fn(0x45eee0);        /* FUN_0045eee0 (native) */
     g_h7_cont = (void *)(h7 + H7_SIG_LEN);
 
-    ld_info("install_trace_sites: h1=0x%08x h2=0x%08x h7=0x%08x je=0x%08x",
-            (unsigned)h1, (unsigned)h2, (unsigned)h7, (unsigned)g_h1_je);
+    /* H5/H6 (эпилоги e0a0 `83 C4 34 C2 10 00` и хвост 0x45e163) отдельных
+     * детуров не получают (инвариант 5): в native-режиме их точки — уже
+     * стоящие трамплины site5 (s5_epi_hook/s5_tail_hook), в режиме порта
+     * значения даёт сам s6_target_search. Признак режима — цела ли сигнатура
+     * хвоста (site5 ставит на 0x45e163 E9). */
+    h6free = find_in_text((const unsigned char *)S5_TAIL_SIG, S5_TAIL_LEN);
+
+    ld_info("install_trace_sites: h1=0x%08x h2=0x%08x h3=0x%08x h7=0x%08x je=0x%08x",
+            (unsigned)h1, (unsigned)h2, (unsigned)h3, (unsigned)h7,
+            (unsigned)g_h1_je);
+    ld_info("install_trace_sites: h5/h6 %s", h6free != NULL
+            ? "sites free -> values from s6_target_search (port mode)"
+            : "owned by site5 -> chained via s5_epi_hook/s5_tail_hook");
 
     if (!rel32_fits(h1, (void *)h1_tick_hook) ||
         !rel32_fits(h2, (void *)h2_epilogue_hook) ||
+        !rel32_fits(h3, (void *)h3_code_hook) ||
         !rel32_fits(h7, (void *)h7_visit_hook)) {
         ld_info("install_trace_sites: E9 rel32 out of range");
         return;
@@ -605,6 +624,10 @@ static void install_trace_sites(void)
     }
     if (!write_jmp(h2, (void *)h2_epilogue_hook, 7)) {
         ld_info("install_trace_sites: h2 write_jmp FAILED");
+        return;
+    }
+    if (!write_jmp(h3, (void *)h3_code_hook, H3_SIG_LEN)) {
+        ld_info("install_trace_sites: h3 write_jmp FAILED");
         return;
     }
     if (!write_jmp(h7, (void *)h7_visit_hook, H7_SIG_LEN)) {

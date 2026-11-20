@@ -66,8 +66,8 @@ static void __cdecl s5_entry_impl(void *this_, void *arg0, void *arg1,
     LONG prev = g_site5_iter;
     int trace;
 
-    /* H4: вход FUN_0045e0a0 — сброс счётчиков вызова для trace. */
-    battle_trace_e0a0_enter((int)(INT_PTR)arg0);
+    /* H4: вход FUN_0045e0a0 — сброс счётчиков вызова для trace (слот 1/2). */
+    battle_trace_e0a0_enter(this_, (int)(INT_PTR)arg0);
 
     if (prev > g_site5_max) {
         g_site5_max = prev;
@@ -147,8 +147,15 @@ static void __cdecl s5_tail_impl(void *this_, void *candidate)
 {
     BattleAI *self = (BattleAI *)this_;
     Candidate *cand = (Candidate *)candidate;
-    LONG iter = InterlockedIncrement(&g_site5_iter);
+    LONG iter;
     int trace;
+
+    /* H6: латч цикла — EAX сайта 0x45e163 (кандидат следующей итерации или
+     * NULL при исчерпании скана). До троттлинга лога: счётчик trace от уровня
+     * лога не зависит. */
+    battle_trace_e0a0_latch(candidate);
+
+    iter = InterlockedIncrement(&g_site5_iter);
 
     /* Первые 4 итерации — всегда (info); далее — троттлинг (debug). */
     if (iter <= 4) {
@@ -202,6 +209,10 @@ static void __cdecl s5_exit_impl(void *candidate)
 {
     LONG d = InterlockedDecrement(&g_s5_depth);
     LONGLONG us = 0;
+
+    /* H5: выход e0a0 (все эпилоги add esp,0x34; ret 10h) — EAX = узел-возврат
+     * (NULL при пустом скане); поля узла и [this+0x38] → trace-слот вызова. */
+    battle_trace_e0a0_exit(candidate);
 
     if (d >= 0 && d < 16) {
         us = ld_now_us() - g_s5_t0[d];
@@ -911,7 +922,7 @@ static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
     LONGLONG t0 = 0;                       /* Фаза 4 A/B: точка отсчёта */
 
     /* H4: вход FUN_0045e0a0 (детур) — сброс счётчиков вызова для trace. */
-    battle_trace_e0a0_enter(filter);
+    battle_trace_e0a0_enter(this_, filter);
 
     if (out_code != NULL) {
         *out_code = 0;
@@ -963,6 +974,7 @@ static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
             break;
         }
         cur = s6_scan_map(this_, filter);                  /* @0x45e15e: rescan */
+        battle_trace_e0a0_latch(cur);                      /* H6: EAX @0x45e163 */
         InterlockedIncrement(&g_site6_rot);                /* ротация (п. 3.4) */
     }
 
@@ -971,6 +983,10 @@ static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
     if (out_code != NULL && code != 0) {
         *out_code = code;
     }
+
+    /* H5: выход e0a0 порта (эквивалент эпилога add esp,0x34; ret 10h) —
+     * узел-возврат (NULL при пустом скане) и [this+0x38] → trace-слот. */
+    battle_trace_e0a0_exit(result);
 
     /* Статистика (счётчики п. 3.4): итерации, распределение кодов 1/3/4
      * (code==0 — пустой скан), ротации считаются на rescan. */

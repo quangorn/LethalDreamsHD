@@ -2,12 +2,22 @@
  *
  * Одна строка на вызов FUN_0044bdd0 = один тик одного юнита. strока пишется
  * на эпилоге 0x44d074 (H2); H1 на 0x44bdf5 назначает tick/ordinal и сбрасывает
- * аккумуляторы тика; H7 на 0x45dd70 (и вход порта s6_ai_update) считает vis.
+ * аккумуляторы тика; H7 на 0x45dd70 (и вход порта s6_ai_update) считает vis;
+ * H3 на 0x44cbc5 читает код/trk/bd2 после вызова 45eee0.
+ *
+ * Поля вызовов e0a0 (c1,x1,y1,i1,fx,fy,lx,ly / c2,x2,y2,i2 / g,h10k,cost) —
+ * H4 (вход: слот 1/2) + H5 (эпилоги `83 C4 34 C2 10 00`) + H6 (хвост цикла
+ * 0x45e163). Значения приходят от наблюдателя того режима, в котором живёт
+ * e0a0: native — трамплины site5 (s5_epi_hook/s5_tail_hook), порт — сам
+ * s6_target_search (battle/target.cpp). Отдельных детуров наблюдатели не
+ * ставят (инвариант 5, ab_method §2).
  *
  * Дисциплина трамплина (re/battle_ai_ab_method.md §2): pushfd+pushad, вызов
  * impl, popad/popfd, затем украденные байты дословно, затем jmp на продолжение.
  * ESP при jmp равен оригинальному; H1 восстанавливает флаги для `je`; `flds`
- * на H1 — нативная инструкция и выполняется ровно один раз.
+ * на H1 — нативная инструкция и выполняется ровно один раз. H3 украденные
+ * байты воспроизводит ДО pushad/pushfd (они адресуют [esp+0xc0] от ESP сайта),
+ * а флаги/регистры после вызова 45eee0 восстанавливает из post-call состояния.
  *
  * Наблюдатели только читают игровую память (all derefs под __try/__except);
  * FPU control word не трогается; счётчики без блокировок (боевой AI —
@@ -31,6 +41,15 @@
 #define TRACE_UNIT_ESP_OUT   0x164   /* [esp+0x164] → param_3 (out-код) */
 #define TRACE_AI_OFF_S1      0x70    /* BattleAI → размер map1 */
 #define TRACE_AI_OFF_S2      0x7c    /* BattleAI → размер map2 */
+#define TRACE_AI_OFF_TRK     0x30    /* BattleAI → tracking (char, H3) */
+#define TRACE_AI_OFF_BD2     0x34    /* BattleAI → лучший dist² (uint, H3) */
+#define TRACE_AI_OFF_CODE    0x38    /* BattleAI → код решения (int, H3/H5) */
+#define TRACE_POS_OFF_X      0x0c    /* LDPos → x */
+#define TRACE_POS_OFF_Y      0x10    /* LDPos → y */
+#define TRACE_NODE_OFF_POS   0x00    /* узел (Candidate/PathState) → LDPos* */
+#define TRACE_NODE_OFF_G     0x18    /* PathState.g_cost */
+#define TRACE_NODE_OFF_H     0x20    /* PathState.h10000 */
+#define TRACE_NODE_OFF_COST  0x24    /* PathState.metric */
 
 #define TRACE_UNITS          64      /* ordinal'ы юнитов: ptr → id */
 
@@ -38,6 +57,8 @@
 void *g_h1_cont = NULL;   /* 0x44bdff */
 void *g_h1_je   = NULL;   /* 0x44be58 — цель нативного `je` */
 void *g_h2_cont = NULL;   /* 0x44d07b */
+void *g_h3_cont = NULL;   /* 0x44cbd5 */
+void *g_h3_callee = NULL; /* 0x45eee0 (FUN_0045eee0, native::fn) */
 void *g_h7_cont = NULL;   /* 0x45dd78 */
 
 static int  g_enabled = 0;
@@ -47,13 +68,31 @@ static void *g_tick_unit = NULL;   /* сохранён H1; читается H2 *
 static volatile LONGLONG g_tick_t0 = 0;
 static volatile LONG g_vis = 0;
 
-/* Аккумуляторы вызова e0a0 (H4); поля i1/i2/endpoint'ов пока sentinel'ы —
- * значения будут подключены хуками Фазы 3/4. Счётчик нужен уже сейчас,
- * чтобы H4 реально выполнял сброс на входе функции. */
+/* H3: поля тика (последняя запись 45eee0 за тик; sentinel — не было вызова). */
+static int          g_tick_code = -1;
+static int          g_tick_trk  = -1;
+static unsigned int g_tick_bd2  = 0xFFFFFFFFu;
+
+/* Один слот на вызов e0a0 внутри тика (поля 7–21 п. 1.7): вызов №1 (filter=1)
+ * и №2 (filter=2). Слот выбирается счётчиком H4; поля — H5 (узел-возврат,
+ * [this+0x38]) и H6 (латчи цикла, endpoint'ы). */
+typedef struct {
+    int  used;                  /* выход e0a0 был (эпилог native / return порта) */
+    int  c;                     /* [this+0x38] на выходе (H5) → c1/c2 */
+    int  x, y;                  /* pos возвращённого узла (H5) */
+    long g, h10k, cost;         /* узел +0x18/+0x20/+0x24 (H5) */
+    long latches;               /* H6: число латчей цикла (rescan) */
+    int  seen;                  /* H6: был хотя бы один непустой кандидат */
+    int  fx, fy;                /* H6: первый непустой кандидат (LDPos) */
+    int  lx, ly;                /* H6: последний непустой кандидат */
+} trace_e0a0_slot;
+
+static trace_e0a0_slot g_slot[2];
+static int  g_slot_cur = 0;        /* 1-й/2-й вызов e0a0 в тике (индекс 0/1) */
+static void *g_e0a0_this = NULL;   /* ECX входа e0a0 (BattleAI) — H5: +0x38 */
+
+/* Счётчик входов e0a0 за тик: H4 (сброс), выбор слота trace. */
 static volatile LONG g_e0a0_calls = 0;
-static volatile LONG g_e0a0_iters = 0;
-static int g_ep_first_valid = 0;
-static int g_ep_last_valid = 0;
 
 /* uint-таблица ordinal'ов: id = порядок первого появления указателя. */
 static void *g_unit_ptr[TRACE_UNITS];
@@ -123,6 +162,23 @@ static int trace_unit_id(void *unit)
     return -1;                  /* таблица переполнена — ordinal неизвестен */
 }
 
+static void trace_slot_reset(trace_e0a0_slot *s)
+{
+    s->used = 0;
+    s->c = -1;
+    s->x = -1;
+    s->y = -1;
+    s->g = -1;
+    s->h10k = -1;
+    s->cost = -1;
+    s->latches = 0;
+    s->seen = 0;
+    s->fx = -1;
+    s->fy = -1;
+    s->lx = -1;
+    s->ly = -1;
+}
+
 void __cdecl battle_trace_tick_begin(void *unit)
 {
     if (!g_enabled) {
@@ -134,9 +190,13 @@ void __cdecl battle_trace_tick_begin(void *unit)
     g_tick_t0 = ld_now_us();
     g_vis = 0;
     g_e0a0_calls = 0;
-    g_e0a0_iters = 0;
-    g_ep_first_valid = 0;
-    g_ep_last_valid = 0;
+    g_slot_cur = 0;
+    g_e0a0_this = NULL;
+    g_tick_code = -1;
+    g_tick_trk = -1;
+    g_tick_bd2 = 0xFFFFFFFFu;
+    trace_slot_reset(&g_slot[0]);
+    trace_slot_reset(&g_slot[1]);
 }
 
 /* Строка пишется ДО воспроизведения украденных байт эпилога.
@@ -159,16 +219,28 @@ void __cdecl battle_trace_tick_end(int al, void *esp)
     void *unit;
     void *this_ptr;
 
-    /* Поля следующих фаз — sentinel'ы (решение 2.0 плана). */
-    const int  code = -1;
-    const int  c1 = -1, x1 = -1, y1 = -1;
-    const long i1 = -1L;
-    const int  fx = -1, fy = -1, lx = -1, ly = -1;
-    const int  c2 = -1, x2 = -1, y2 = -1;
-    const long i2 = -1L;
-    const long g = -1L, h10k = -1L, cost = -1L;
-    const int  trk = -1;
-    const unsigned int bd2 = 0xFFFFFFFFu;
+    /* H3 (код/trk/bd2) и слоты вызовов e0a0 (H5/H6) — заполнены в течение тика. */
+    const trace_e0a0_slot *sl1 = &g_slot[0];
+    const trace_e0a0_slot *sl2 = &g_slot[1];
+    const trace_e0a0_slot *last = sl2->used ? sl2 : (sl1->used ? sl1 : NULL);
+    const int  code = g_tick_code;
+    const int  trk = g_tick_trk;
+    const unsigned int bd2 = g_tick_bd2;
+    const int  c1 = sl1->used ? sl1->c : -1;
+    const int  x1 = sl1->used ? sl1->x : -1;
+    const int  y1 = sl1->used ? sl1->y : -1;
+    const long i1 = sl1->used ? sl1->latches : -1L;
+    const int  fx = (sl1->used && sl1->seen) ? sl1->fx : -1;
+    const int  fy = (sl1->used && sl1->seen) ? sl1->fy : -1;
+    const int  lx = (sl1->used && sl1->seen) ? sl1->lx : -1;
+    const int  ly = (sl1->used && sl1->seen) ? sl1->ly : -1;
+    const int  c2 = sl2->used ? sl2->c : -1;
+    const int  x2 = sl2->used ? sl2->x : -1;
+    const int  y2 = sl2->used ? sl2->y : -1;
+    const long i2 = sl2->used ? sl2->latches : -1L;
+    const long g = last ? last->g : -1L;
+    const long h10k = last ? last->h10k : -1L;
+    const long cost = last ? last->cost : -1L;
 
     if (!g_enabled) {
         return;
@@ -251,16 +323,128 @@ void __cdecl battle_trace_visit(void)
     g_vis++;
 }
 
-void __cdecl battle_trace_e0a0_enter(int filter)
+/* H4: вход FUN_0045e0a0 (native site5 entry или detour s6_target_search).
+ * Счётчик тика выбирает слот: вызов №1 → c1/x1/y1/i1/fx..ly, №2 → c2/x2/y2/i2.
+ * this сохраняется для H5 ([this+0x38]). Сброс слота — здесь, а не на выходе:
+ * выход может не случиться (trap/ранний return вызывающего). */
+void __cdecl battle_trace_e0a0_enter(void *this_, int filter)
+{
+    LONG n;
+
+    if (!g_enabled) {
+        return;
+    }
+    n = InterlockedIncrement(&g_e0a0_calls);
+    g_e0a0_this = this_;
+    g_slot_cur = (n == 1) ? 0 : ((n == 2) ? 1 : -1);
+    if (g_slot_cur >= 0) {
+        trace_slot_reset(&g_slot[g_slot_cur]);
+    }
+    (void)filter;               /* вызов идентифицируется счётчиком (п. 1.7) */
+}
+
+/* H5: выход e0a0 — EAX = возвращённый узел (NULL при пустом скане).
+ * native: эпилоги `83 C4 34 C2 10 00` (s5_epi_hook); порт: return
+ * s6_target_search. Читается узел (+0x00 → LDPos, +0x18/+0x20/+0x24) и
+ * [this+0x38] → c1/c2. */
+void __cdecl battle_trace_e0a0_exit(void *node)
+{
+    trace_e0a0_slot *s;
+
+    if (!g_enabled || g_slot_cur < 0) {
+        return;
+    }
+    s = &g_slot[g_slot_cur];
+    s->used = 1;
+    __try {
+        if (g_e0a0_this != NULL) {
+            s->c = *(const int *)((const unsigned char *)g_e0a0_this +
+                                  TRACE_AI_OFF_CODE);
+        }
+        if (node != NULL) {
+            const unsigned char *n = (const unsigned char *)node;
+            const void *pos = *(void * const *)(n + TRACE_NODE_OFF_POS);
+            if (pos != NULL) {
+                s->x = *(const int *)((const unsigned char *)pos +
+                                      TRACE_POS_OFF_X);
+                s->y = *(const int *)((const unsigned char *)pos +
+                                      TRACE_POS_OFF_Y);
+            }
+            s->g = *(const int *)(n + TRACE_NODE_OFF_G);
+            s->h10k = *(const int *)(n + TRACE_NODE_OFF_H);
+            s->cost = *(const int *)(n + TRACE_NODE_OFF_COST);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        s->c = -1;
+        s->x = -1;
+        s->y = -1;
+        s->g = -1;
+        s->h10k = -1;
+        s->cost = -1;
+    }
+}
+
+/* H6: латч цикла e0a0 — native 0x45e163 (EAX = результат rescan, т.е.
+ * кандидат следующей итерации) и rescan порта. Счётчик латчей = i1/i2;
+ * первый и последний непустой кандидат → (fx,fy)/(lx,ly). У самого первого
+ * кандидата (из начального скана 0x45e103) латча нет — как в native. */
+void __cdecl battle_trace_e0a0_latch(void *cand)
+{
+    trace_e0a0_slot *s;
+
+    if (!g_enabled || g_slot_cur < 0) {
+        return;
+    }
+    s = &g_slot[g_slot_cur];
+    s->latches++;
+    if (cand == NULL) {
+        return;                 /* пустой rescan: латч есть, кандидата нет */
+    }
+    __try {
+        const void *pos = *(void * const *)((const unsigned char *)cand +
+                                            TRACE_NODE_OFF_POS);
+        if (pos != NULL) {
+            int x = *(const int *)((const unsigned char *)pos + TRACE_POS_OFF_X);
+            int y = *(const int *)((const unsigned char *)pos + TRACE_POS_OFF_Y);
+            if (!s->seen) {
+                s->fx = x;
+                s->fy = y;
+                s->seen = 1;
+            }
+            s->lx = x;
+            s->ly = y;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        s->seen = 0;
+        s->fx = -1;
+        s->fy = -1;
+        s->lx = -1;
+        s->ly = -1;
+    }
+}
+
+/* H3: после `call 45eee0` — EAX = код решения (0/1/2/4), ESI = &unit+0x138
+ * (BattleAI). Поля тика: code, trk (+0x30, char), bd2 (+0x34, uint). */
+void __cdecl battle_trace_code(int code, void *ai)
 {
     if (!g_enabled) {
         return;
     }
-    g_e0a0_calls++;
-    g_e0a0_iters = 0;
-    g_ep_first_valid = 0;
-    g_ep_last_valid = 0;
-    (void)filter;
+    g_tick_code = code;
+    if (ai == NULL) {
+        g_tick_trk = -1;
+        g_tick_bd2 = 0xFFFFFFFFu;
+        return;
+    }
+    __try {
+        g_tick_trk = (int)*(const unsigned char *)(
+            (const unsigned char *)ai + TRACE_AI_OFF_TRK);
+        g_tick_bd2 = *(const unsigned int *)((const unsigned char *)ai +
+                                             TRACE_AI_OFF_BD2);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        g_tick_trk = -1;
+        g_tick_bd2 = 0xFFFFFFFFu;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -334,5 +518,36 @@ __declspec(naked) void h7_visit_hook(void)
         push ebx
         mov ebx, dword ptr [esp + 0x68]
         jmp dword ptr [g_h7_cont]
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* H3 — 0x44cbc5: 16 Б = `C7 84 24 C0 00 00 00 00 00 00 00`            */
+/*                 (movl $0,0xc0(%esp)) + `E8 0B 23 01 00`             */
+/*                 (call 0x45eee0); продолжение 0x44cbd5.               */
+/*                                                                     */
+/* ESP-арифметика: на входе хука ESP = S (сайт стоит после `push ecx`   */
+/* @0x44cbc2, поэтому S = ESP сайта); украденный `movl` адресует        */
+/* [S+0xc0] — воспроизводим дословно, поэтому ESP при нём тот же S.     */
+/* 45eee0 — thiscall RET 4 (0x45f382/0x45f413/0x45f425), т.е. после     */
+/* возврата ESP снова S — как в native на 0x44cbd5. pushfd/pushad идут   */
+/* ПОСЛЕ call (флаги post-call — ровно те, что увидит 0x44cbd5), их     */
+/* снятие возвращает ESP = S при jmp; EAX = код 45eee0 (popad сохраняет */
+/* его, т.к. pushad сделан уже с кодом в EAX).                          */
+/* ------------------------------------------------------------------ */
+__declspec(naked) void h3_code_hook(void)
+{
+    __asm {
+        mov dword ptr [esp + 0xc0], 0     /* украденная инструкция 1 */
+        call dword ptr [g_h3_callee]      /* украденная инструкция 2 (0x45eee0) */
+        pushfd                            /* ESP = S-4; флаги post-call */
+        pushad                            /* ESP = S-36 */
+        push esi                          /* arg2: &unit+0x138 (BattleAI) */
+        push eax                          /* arg1: код */
+        call battle_trace_code
+        add esp, 8                        /* ESP = S-32 */
+        popad                             /* ESP = S-4; EAX = код */
+        popfd                             /* ESP = S; флаги post-call */
+        jmp dword ptr [g_h3_cont]         /* ESP = S == native @0x44cbd5 */
     }
 }

@@ -42,7 +42,7 @@ site3 считает FP-последовательность `cave3` (x87: `fild
 | `battle/target.cpp` | цикл поиска цели `FUN_0045e0a0` и callees (`ce80`/`c880`/`c5a0`/`c4b0`/`dd70`), хуки site5 (диагностика) и site6 (faithful-порт + счётчики цикла). |
 | `battle/move.cpp` | движение/выбор точки `FUN_0045eee0` (Фаза 4 плана; каркас, кода нет). |
 | `battle/tick.{cpp,h} + trace.h` | тик `FUN_0044bdd0` (Фаза 5) и trace-каркас `LDHOOK_BATTLE_TRACE` (формат строки — п. 1.7 плана; API/формат — `trace.h`). |
-| `battle/trace.cpp` | наблюдатели тика H1/H2/H7 + trace-строка (29 полей, sentinel'ы до Фаз 3–5), общий счётчик `vis` с портом `s6_ai_update`, пиннинг seed'а R1..R3. |
+| `battle/trace.cpp` | наблюдатели тика H1/H2/H3/H7 + trace-строка (29 полей; H5/H6 — точки site5/порта), общий счётчик `vis` с портом `s6_ai_update`, пиннинг seed'а R1..R3. |
 | `fetch_headers.py` | официальный Python 2.2.3 (python.org): `Include/*.h` + `PC/pyconfig.h` → `vendor/py223/include/` (untracked) |
 | `build.py` | MSVC x86 (`/LD /MT /EHsc /O2 /W3 /fp:precise`) по списку источников → `build/ldhook/ldhook.pyd` (gitignored). `/fp:precise` обязателен — битовая identity 4:3 в site1/site3 |
 | `smoke_api.py` | локальный смоук Python-API под `vendor/py223` (без игры): `log`/`set_level`/`stats`/`site6_stats`, уровень 0, TypeError, безопасный скан `.text` |
@@ -67,7 +67,7 @@ Python-патчи (`hd_scale.py`, `tex_hook_*.py`), поэтому `probe_exitco
 | `LDHOOK_LOG=0` (`off`) | файл не создаётся, ODS молчит; маркер `ldhook_marker.txt` пишется всегда |
 | `LDHOOK_LOG=1` (дефолт) | диагностика: загрузка, установка сайтов, guard identity, первый вызов хука |
 | `LDHOOK_LOG=2` (`debug`) | + числовая трассировка масштабирующего пути (троттлинг: site1 4+1024, site2 4+1024, site3 3+300) |
-| `LDHOOK_BATTLE_TRACE=1` | трассировка боевого тика (`battle/trace.cpp`, формат — `battle/trace.h`): одна строка `BATTLE …` на вызов `FUN_0044bdd0`; хуки H1/H2/H7 ставятся только при включённом флаге |
+| `LDHOOK_BATTLE_TRACE=1` | трассировка боевого тика (`battle/trace.cpp`, формат — `battle/trace.h`): одна строка `BATTLE …` на вызов `FUN_0044bdd0`; хуки H1/H2/H3/H7 ставятся только при включённом флаге (H5/H6 читаются из трамплинов site5 либо из порта site6) |
 | `LDHOOK_SEED=<uint32>` | пиннинг RNG для A/B: `push <константа>` на R1..R3 (`0x49ebcf`, `0x4a7677`, `0x4ae87f`) + `whrandom.seed(7,11,13)` из загрузчика `.pyd`; decimal или `0x`-hex. Не задан — seed-хуки не ставятся |
 
 `ldhook.set_level(n)` из игрового скрипта перекрывает env на лету (возвращает
