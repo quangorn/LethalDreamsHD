@@ -2,7 +2,7 @@
  * боевого порта (PLAN_BATTLE_AI_CPP.md, п. 0.1).
  *
  * Этот TU: инициализация (`initldhook`), Python-API модуля, логгер, троттлинг
- * и замер времени, PE/.text-скан, установка хуков (install_site1/2/3/4/5/6) и
+ * и замер времени, PE/.text-скан, установка хуков (install_site1/2/3/5/6) и
  * общие утилиты. Сайты HD-масштабирования (site1/2/3, naked-хуки, site3_fp) —
  * sites_hd.cpp; боевой слой — battle/* (structs.h, native.cpp, grid.cpp,
  * path.cpp, target.cpp, move.cpp, tick.cpp, trace.h). Общие объявления —
@@ -30,8 +30,8 @@
  *          FUN_0046f970; guard 4*h == 3*w -> запись пропускается, 4:3
  *          остаётся побитово прежним (cave3);
  *   site5 (0x45e0a0 + 0x45e163): диагностика поиска цели FUN_0045e0a0 —
- *          логирование аргументов, кандидатов, метрик, порогов (site4 cap
- *          сохранён в коде, но не вызывается).
+ *          логирование аргументов, кандидатов, метрик, порогов; site6 —
+ *          полный detour на faithful-порт (LDHOOK_SITE6=1).
  *
  * Логика 1:1 с tools/exe/caves/fixall.s; guard'ы (k==1 / 4h==3w) сохранены.
  * EXE НЕ модифицируется на диске: правка ставится в памяти через VirtualProtect
@@ -428,57 +428,12 @@ static void install_site3(void)
             (unsigned)site, (unsigned)g_site3_setter, (unsigned)g_site3_cont);
 }
 
-/* Cap итераций поиска цели (site4): пролог + хвост цикла FUN_0045e0a0.
- * Цели переходов берём из самой функции (entry+7, tail+6, tail+6+rel8),
- * а не из констант VA — переживает любые сдвиги кода при правках EXE. */
-int s4_rel_fits(void *site, void *dest)
+/* E9 rel32 от site до трамплина должен влезать в знаковый диапазон
+ * (общая проверка для всех сайтов: site5/site6 и trace-наблюдатели). */
+int rel32_fits(void *site, void *dest)
 {
     ptrdiff_t d = (unsigned char *)dest - (unsigned char *)site;
     return d > -0x7fff0000 && d < 0x7fff0000;
-}
-
-static void install_site4(void)
-{
-    unsigned char *entry_site;
-    unsigned char *tail_site;
-    long cap = s4_parse_cap();
-    int rel;
-
-    g_site4_cap = cap;
-    if (cap == 0) {
-        ld_info("install_site4: cap=0 (%s) -> hook NOT installed (A/B baseline)",
-                S4_CAP_ENV);
-        return;
-    }
-    entry_site = find_in_text((const unsigned char *)S4_ENTRY_SIG, S4_ENTRY_LEN);
-    tail_site = find_in_text((const unsigned char *)S4_TAIL_SIG, S4_TAIL_LEN);
-    if (entry_site == NULL || tail_site == NULL) {
-        ld_info("install_site4: signature NOT found (entry=%p tail=%p)",
-                (void *)entry_site, (void *)tail_site);
-        return;
-    }
-    rel = (signed char)tail_site[5];
-    g_site4_cont = (void *)(entry_site + S4_ENTRY_LEN);
-    g_site4_nat = (void *)(tail_site + S4_TAIL_LEN);
-    g_site4_top = (void *)(tail_site + S4_TAIL_LEN + rel);
-    ld_info("install_site4: cap=%ld entry=0x%08x tail=0x%08x top=0x%08x exit=0x%08x",
-            cap, (unsigned)entry_site, (unsigned)tail_site,
-            (unsigned)g_site4_top, (unsigned)g_site4_nat);
-    if (!s4_rel_fits(entry_site, (void *)s4_entry_hook) ||
-        !s4_rel_fits(tail_site, (void *)s4_tail_hook)) {
-        ld_info("install_site4: E9 rel32 out of range (EXE 0x%08x, hook 0x%08x)",
-                (unsigned)entry_site, (unsigned)s4_entry_hook);
-        return;
-    }
-    if (!write_jmp(entry_site, (void *)s4_entry_hook, S4_ENTRY_LEN)) {
-        ld_info("install_site4: entry write_jmp FAILED");
-        return;
-    }
-    if (!write_jmp(tail_site, (void *)s4_tail_hook, S4_TAIL_LEN)) {
-        ld_info("install_site4: tail write_jmp FAILED");
-        return;
-    }
-    ld_info("install_site4: hooks installed (entry E9+nop*2, tail E9+nop)");
 }
 
 /* ------------------------------------------------------------------ */
@@ -511,8 +466,8 @@ static void install_site5(void)
             (unsigned)entry_site, (unsigned)tail_site,
             (unsigned)g_site5_top, (unsigned)g_site5_nat);
 
-    if (!s4_rel_fits(entry_site, (void *)s5_entry_hook) ||
-        !s4_rel_fits(tail_site, (void *)s5_tail_hook)) {
+    if (!rel32_fits(entry_site, (void *)s5_entry_hook) ||
+        !rel32_fits(tail_site, (void *)s5_tail_hook)) {
         ld_info("install_site5: E9 rel32 out of range");
         return;
     }
@@ -532,7 +487,7 @@ static void install_site5(void)
         int n = 0;
         while (p + S5_EPI_LEN <= end) {
             if (memcmp(p, S5_EPI_SIG, S5_EPI_LEN) == 0) {
-                if (!s4_rel_fits(p, (void *)s5_epi_hook)) {
+                if (!rel32_fits(p, (void *)s5_epi_hook)) {
                     ld_info("install_site5: epilogue E9 rel32 out of range at 0x%08x",
                             (unsigned)p);
                 } else if (write_jmp(p, (void *)s5_epi_hook, S5_EPI_LEN)) {
@@ -593,7 +548,7 @@ static void install_site6(void)
     }
     (void)&s6_check_timeout;
 
-    if (!s4_rel_fits(entry_site, (void *)s6_entry_hook)) {
+    if (!rel32_fits(entry_site, (void *)s6_entry_hook)) {
         ld_info("install_site6: E9 rel32 out of range");
         return;
     }
@@ -638,9 +593,9 @@ static void install_trace_sites(void)
     ld_info("install_trace_sites: h1=0x%08x h2=0x%08x h7=0x%08x je=0x%08x",
             (unsigned)h1, (unsigned)h2, (unsigned)h7, (unsigned)g_h1_je);
 
-    if (!s4_rel_fits(h1, (void *)h1_tick_hook) ||
-        !s4_rel_fits(h2, (void *)h2_epilogue_hook) ||
-        !s4_rel_fits(h7, (void *)h7_visit_hook)) {
+    if (!rel32_fits(h1, (void *)h1_tick_hook) ||
+        !rel32_fits(h2, (void *)h2_epilogue_hook) ||
+        !rel32_fits(h7, (void *)h7_visit_hook)) {
         ld_info("install_trace_sites: E9 rel32 out of range");
         return;
     }
@@ -778,43 +733,26 @@ static PyObject *ld_py_set_level(PyObject *self, PyObject *args)
     return PyInt_FromLong((long)old);
 }
 
+/* stats(): счётчики API + faithful-цикл e0a0 (п. 3.4).
+ *   (site1, site2, site3, level,
+ *    fc_calls, fc_iters, fc_code1, fc_code3, fc_code4, fc_rot,
+ *    fc_us_sum, fc_us_max)
+ * fc_* — вызовы faithful-цикла, сумма итераций, коды выхода 1/3/4
+ * (code=0 — пустой скан, = fc_calls − fc_code1 − fc_code3 − fc_code4),
+ * ротации (rescan после не-сработавшего гейта), µs сумма/максимум. */
 static PyObject *ld_py_stats(PyObject *self, PyObject *args)
 {
     (void)self;
     if (!PyArg_ParseTuple(args, "")) {
         return NULL;
     }
-    return Py_BuildValue("(llll)", (long)g_site1_calls, (long)g_site2_calls,
-                         (long)g_site3_calls, (long)g_log_level);
-}
-
-static PyObject *ld_py_set_cap(PyObject *self, PyObject *args)
-{
-    int cap;
-    long old;
-    (void)self;
-    if (!PyArg_ParseTuple(args, "i:set_cap", &cap)) {
-        return NULL;
-    }
-    if (cap < 0) {
-        cap = 0;
-    }
-    old = (long)g_site4_cap;
-    g_site4_cap = (LONG)cap;
-    ld_info("set_cap: %ld -> %d (iterations per FUN_0045e0a0 call)",
-            old, cap);
-    return PyInt_FromLong(old);
-}
-
-static PyObject *ld_py_diag_stats(PyObject *self, PyObject *args)
-{
-    (void)self;
-    if (!PyArg_ParseTuple(args, "")) {
-        return NULL;
-    }
-    return Py_BuildValue("(lllll)", (long)g_site5_calls,
-                         (long)g_site5_heavy, (long)g_site5_max,
-                         (long)g_site5_iter, (long)g_log_level);
+    return Py_BuildValue("(llllllllllLL)", (long)g_site1_calls,
+                         (long)g_site2_calls, (long)g_site3_calls,
+                         (long)g_log_level,
+                         (long)g_site6_calls, (long)g_site6_iter_sum,
+                         (long)g_site6_code1, (long)g_site6_code3,
+                         (long)g_site6_code4, (long)g_site6_rot,
+                         (LONGLONG)g_s6_us_sum, (LONGLONG)g_s6_us_max);
 }
 
 static PyObject *ld_py_site6_stats(PyObject *self, PyObject *args)
@@ -828,30 +766,14 @@ static PyObject *ld_py_site6_stats(PyObject *self, PyObject *args)
                          (long)g_log_level);
 }
 
-static PyObject *ld_py_cap_stats(PyObject *self, PyObject *args)
-{
-    (void)self;
-    if (!PyArg_ParseTuple(args, "")) {
-        return NULL;
-    }
-    return Py_BuildValue("(lllll)", (long)g_site4_calls, (long)g_site4_caps,
-                         (long)g_site4_heavy, (long)g_site4_max,
-                         (long)g_site4_cap);
-}
-
 static PyMethodDef ldhook_methods[] = {
     {"log", ld_py_log, METH_VARARGS,
      "log(msg): write an info line to hdlog.txt (no-op at level 0)"},
     {"set_level", ld_py_set_level, METH_VARARGS,
      "set_level(n): 0=off, 1=info (default), 2=debug; returns previous level"},
     {"stats", ld_py_stats, METH_VARARGS,
-     "stats(): (site1_calls, site2_calls, site3_calls, log_level)"},
-    {"set_cap", ld_py_set_cap, METH_VARARGS,
-     "set_cap(n): battle target-search iteration cap (0=off); returns previous"},
-    {"cap_stats", ld_py_cap_stats, METH_VARARGS,
-     "cap_stats(): (calls, caps, heavy, max_iter, cap)"},
-    {"diag_stats", ld_py_diag_stats, METH_VARARGS,
-     "diag_stats(): (calls, heavy, max_iter, cur_iter, log_level)"},
+     "stats(): (site1, site2, site3, level, fc_calls, fc_iters, fc_code1, "
+     "fc_code3, fc_code4, fc_rot, fc_us_sum, fc_us_max)"},
     {"site6_stats", ld_py_site6_stats, METH_VARARGS,
      "site6_stats(): (calls, heavy, max_iter, log_level)"},
     {NULL, NULL, 0, NULL}

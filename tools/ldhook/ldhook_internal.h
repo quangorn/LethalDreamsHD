@@ -2,7 +2,7 @@
  * (Фаза 0, PLAN_BATTLE_AI_CPP.md): логгер, троттлинг и замер времени, утилиты
  * установки хуков, трамплины и счётчики сайтов.
  * ОпределяющиеTU: логгер/утилиты — ldhook.cpp; сайт1/2/3 — sites_hd.cpp;
- * сайт4/5/6 — battle/target.cpp.
+ * сайт5/6 — battle/target.cpp.
  */
 #ifndef LDHOOK_INTERNAL_H
 #define LDHOOK_INTERNAL_H
@@ -34,7 +34,7 @@ LONGLONG ld_now_us(void);
 
 /* ---------------- Общие утилиты установки (определяются в ldhook.cpp) -------- */
 /* E9 rel32 от site до трамплина должен влезать в знаковый диапазон. */
-int s4_rel_fits(void *site, void *dest);
+int rel32_fits(void *site, void *dest);
 
 /* ---------------- site1/2/3 (sites_hd.cpp) ---------------- */
 /* Сигнатуры сайтов — только для установки хуков (ldhook.cpp). */
@@ -56,26 +56,6 @@ extern void *g_site3_cont;      /* site+5: продолжение RenderWorld */
 void site1_hook(void);          /* __declspec(naked) — определение в sites_hd.cpp */
 void site2_hook(void);
 void site3_hook(void);
-
-/* ---------------- site4 (cap итераций e0a0; мёртвый код, снятие — Фаза 3) ---- */
-extern volatile LONG g_site4_calls;
-extern volatile LONG g_site4_caps;
-extern volatile LONG g_site4_heavy;
-extern volatile LONG g_site4_max;
-extern volatile LONG g_site4_cap;
-LONG s4_parse_cap(void);        /* env LDHOOK_CAP, дефолт 32 */
-extern void *g_site4_cont;      /* entry+7: продолжение пролога */
-extern void *g_site4_top;       /* верх цикла (цель jne) */
-extern void *g_site4_nat;       /* tail+6: штатный выход цикла */
-
-#define S4_CAP_ENV     "LDHOOK_CAP"
-#define S4_ENTRY_SIG   "\x8b\x44\x24\x10\x83\xec\x34"   /* mov eax,[esp+0x10]; sub esp,0x34 */
-#define S4_ENTRY_LEN   7
-#define S4_TAIL_SIG    "\x8b\xf0\x3b\xf5\x75\xae"       /* mov esi,eax; cmp esi,ebp; jne -0x52 */
-#define S4_TAIL_LEN    6
-
-void s4_entry_hook(void);       /* __declspec(naked) — определение в battle/target.cpp */
-void s4_tail_hook(void);
 
 /* ---------------- site5 (диагностика e0a0) ---------------- */
 extern volatile LONG g_site5_calls;
@@ -107,6 +87,14 @@ void s5_epi_hook(void);
 extern volatile LONG g_site6_calls;
 extern volatile LONG g_site6_heavy;
 extern volatile LONG g_site6_max;
+/* Faithful-цикл (п. 3.4): итерации, коды 1/3/4, ротации, µs (ldhook.stats). */
+extern volatile LONG g_site6_iter_sum;
+extern volatile LONG g_site6_code1;
+extern volatile LONG g_site6_code3;
+extern volatile LONG g_site6_code4;
+extern volatile LONG g_site6_rot;
+extern volatile LONGLONG g_s6_us_sum;
+extern volatile LONGLONG g_s6_us_max;
 
 void s6_entry_hook(void);       /* __declspec(naked) — battle/target.cpp */
 

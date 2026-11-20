@@ -27,18 +27,13 @@ def main():
     m.log('hello from local test')
     assert m.set_level(2) in (1, 2), 'set_level returns previous level'
     s = m.stats()
-    assert len(s) == 4 and s[3] == 2, 'stats tuple (site1, site2, site3, level)'
+    assert len(s) == 12 and s[3] == 2, ('stats tuple (site1, site2, site3, level, '
+                                        'fc_calls, fc_iters, fc_code1, fc_code3, '
+                                        'fc_code4, fc_rot, fc_us_sum, fc_us_max)')
     sys.stdout.write('stats -> %r\n' % (s,))
 
-    c = m.cap_stats()
-    assert len(c) == 5, 'cap_stats tuple (calls, caps, heavy, max, cap)'
-    assert m.set_cap(32) == 32, 'set_cap returns previous value'
-    assert m.cap_stats()[4] == 32, 'set_cap stores new cap'
-    sys.stdout.write('cap_stats -> %r\n' % (m.cap_stats(),))
-
-    d = m.diag_stats()
-    assert len(d) == 5, 'diag_stats tuple (calls, heavy, max_iter, cur_iter, level)'
-    sys.stdout.write('diag_stats -> %r\n' % (d,))
+    for name in ('set_cap', 'cap_stats', 'diag_stats'):
+        assert not hasattr(m, name), '%s must be removed from the API' % name
 
     s6 = m.site6_stats()
     assert len(s6) == 4, 'site6_stats tuple (calls, heavy, max_iter, level)'

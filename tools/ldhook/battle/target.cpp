@@ -1,8 +1,8 @@
 /* battle/target.cpp — цикл поиска цели FUN_0045e0a0, его callees и хуки сайтов
- * (site4 cap, site5 диагностика, site6 полный detour). Код перенесён 1:1 из
- * ldhook.cpp; обращения к полям — через battle/structs.h.
+ * (site5 диагностика, site6 полный detour). Код перенесён 1:1 из ldhook.cpp;
+ * обращения к полям — через battle/structs.h.
  *
- * Установка хуков (install_site4/5/6) — в ldhook.cpp; трамплины (s4/s5/s6_*_hook)
+ * Установка хуков (install_site5/6) — в ldhook.cpp; трамплины (s5/s6_*_hook)
  * определяются здесь, они объявлены в ldhook_internal.h.
  */
 #include <windows.h>
@@ -15,144 +15,10 @@
 #include "trace.h"
 
 /* ------------------------------------------------------------------ */
-/* site4 — cap итераций цикла поиска цели (FUN_0045e0a0): тормоза боя. */
-/*                                                                    */
-/* Сайт цикла (установленный EXE, проверено 18.11.2026):               */
-/*   0x45e117 верх итерации; хвост 0x45e163:                          */
-/*     mov esi,eax (2) | cmp esi,ebp (2) | jne 0x45e117 (2) = 6 байт; */
-/*   0x45e0a0 пролог: mov eax,[esp+0x10] (4) | sub esp,0x34 (3)=7 Б;  */
-/*   0x45e169 штатный выход цикла (pop ebx; ...; ret 0x10).           */
-/*                                                                    */
-/* Патология (docs/PERF_BATTLE.md): до ~4400 итераций, 71–73 мс; норма */
-/* ~2 итерации. Cap ограничивает итерации и выходит штатным «не        */
-/* найдено»: eax=esi=0 -> 0x45e169 (та же точка, что у обычного        */
-/* NULL-выхода цикла: вызывающий обрабатывает «цель не выбрана»).      */
-/*                                                                    */
-/* Счётчик итераций сбрасывается на ВХОДЕ функции (второй крошечный    */
-/* хук): иначе после «найдено» остаток счётчика переезжает на следующий */
-/* вызов. Если FUN_0045e0a0 окажется реентерабельной, внутренний вызов */
-/* просто сбросит счётчик (cap ослабнет, но не ужесточится).           */
-/* Cap: env LDHOOK_CAP (дефолт 32; 0 = хук не ставится, чистый A/B).    */
-/* Код мёртвый (site4 не вызывается); снятие — Фаза 3 плана.            */
-/* ------------------------------------------------------------------ */
-
-#define S4_HEAVY_ITER  20        /* > нормы (~2): считаем вызов тяжёлым */
-#define S4_CAP_DEFAULT 32
-
-volatile LONG g_site4_calls = 0;  /* вызовов FUN_0045e0a0 */
-volatile LONG g_site4_caps = 0;   /* срабатываний cap */
-volatile LONG g_site4_heavy = 0;  /* вызовов с >S4_HEAVY_ITER итерациями */
-volatile LONG g_site4_max = 0;    /* максимум итераций на вызов */
-volatile LONG g_site4_cap = S4_CAP_DEFAULT;
-static volatile LONG g_site4_iter = 0;   /* итерации текущего вызова */
-static volatile LONG g_site4_dbg = 0;
-static volatile LONG g_site4_cap_dbg = 0;
-
-void *g_site4_cont = NULL;        /* entry+7: продолжение пролога */
-void *g_site4_top = NULL;         /* верх цикла (цель jne) */
-void *g_site4_nat = NULL;         /* tail+6: штатный выход цикла */
-
-/* Вход функции: зафиксировать итерации прошлого вызова и сбросить счётчик. */
-static void __cdecl s4_entry_impl(void)
-{
-    LONG prev = g_site4_iter;
-
-    InterlockedIncrement(&g_site4_calls);
-    if (prev > g_site4_max) {
-        g_site4_max = prev;
-    }
-    if (prev > S4_HEAVY_ITER) {
-        InterlockedIncrement(&g_site4_heavy);
-    }
-    g_site4_iter = 0;
-    if (ld_rate(&g_site4_dbg, 4, 512)) {
-        ld_debug("site4: entry #%ld prev_iter=%ld max=%ld heavy=%ld caps=%ld cap=%ld",
-                 (long)g_site4_calls, prev, (long)g_site4_max,
-                 (long)g_site4_heavy, (long)g_site4_caps, g_site4_cap);
-    }
-}
-
-/* Cap сработал: выход «цель не найдена». */
-static void __cdecl s4_cap_impl(void)
-{
-    LONG caps = InterlockedIncrement(&g_site4_caps);
-
-    if (caps <= 3 || (caps % 128) == 0) {
-        ld_info("site4: cap %ld fired (cap=%ld, call #%ld)",
-                caps, g_site4_cap, (long)g_site4_calls);
-    }
-}
-
-/* Трамплин входа: повторяет украденные 7 байт и уходит в entry+7. */
-__declspec(naked) void s4_entry_hook(void)
-{
-    __asm {
-        push eax
-        push edx
-        push ecx
-        call s4_entry_impl
-        pop ecx
-        pop edx
-        pop eax
-        mov eax, dword ptr [esp + 0x10]
-        sub esp, 0x34
-        jmp dword ptr [g_site4_cont]
-    }
-}
-
-/* Трамплин хвоста: повторяет mov/cmp, затем либо штатный выход (esi==0),
- * либо счёт итераций с проверкой cap. Cap -> eax=esi=0 -> штатный выход. */
-__declspec(naked) void s4_tail_hook(void)
-{
-    __asm {
-        mov esi, eax
-        cmp esi, ebp
-        jne count_iter
-        jmp dword ptr [g_site4_nat]
-    count_iter:
-        inc dword ptr [g_site4_iter]
-        mov eax, dword ptr [g_site4_iter]
-        cmp eax, dword ptr [g_site4_cap]
-        jbe loop_again
-        xor eax, eax
-        xor esi, esi
-        push eax
-        push edx
-        push ecx
-        call s4_cap_impl
-        pop ecx
-        pop edx
-        pop eax
-        jmp dword ptr [g_site4_nat]
-    loop_again:
-        mov eax, esi
-        jmp dword ptr [g_site4_top]
-    }
-}
-
-LONG s4_parse_cap(void)
-{
-    const char *s = getenv(S4_CAP_ENV);
-    long v;
-
-    if (s == NULL || *s == '\0') {
-        return S4_CAP_DEFAULT;
-    }
-    v = strtol(s, NULL, 10);
-    if (v < 0) {
-        v = 0;
-    }
-    if (v > 100000) {
-        v = 100000;
-    }
-    return (LONG)v;
-}
-
-/* ------------------------------------------------------------------ */
 /* site5 — диагностика поиска цели (FUN_0045e0a0): логирование.       */
 /*                                                                    */
-/* Заменяет cap-подход site4. На входе и каждой итерации цикла        */
-/* пишет в hdlog.txt: аргументы, кандидата, метрику [obj+0x24],       */
+/* На входе и каждой итерации цикла пишет в hdlog.txt: аргументы,     */
+/* кандидата, метрику [obj+0x24],                                      */
 /* порог расстояния [this+0x34], состояние трекинга [this+0x30].      */
 /*                                                                    */
 /* Уровни логирования:                                                */
@@ -160,7 +26,7 @@ LONG s4_parse_cap(void)
 /*   LDHOOK_LOG=2 (debug): первые 4 итерации + каждый 256-й;          */
 /*                                                                    */
 /* Сайты: пролог 0x45e0a0 (7 Б) + хвост цикла 0x45e163 (6 Б) —       */
-/* те же сигнатуры, что у site4.                                       */
+/* те же сигнатуры, что у site6 (S5_ и S6_ — одни и те же байты).      */
 /* ------------------------------------------------------------------ */
 
 #define S5_HEAVY_ITER  20
@@ -446,8 +312,16 @@ volatile LONG g_site6_calls = 0;
 volatile LONG g_site6_heavy = 0;
 volatile LONG g_site6_max = 0;
 static volatile LONG g_site6_dbg = 0;
-static volatile LONGLONG g_s6_us_sum = 0; /* Фаза 4 A/B: сумма/максимум микросекунд */
-static volatile LONGLONG g_s6_us_max = 0;
+/* Счётчики faithful-цикла (п. 3.4), читаются ldhook.stats(): сумма
+ * итераций, распределение кодов 1/3/4, число ротаций (rescan после
+ * не-сработавшего гейта), сумма/максимум микросекунд вызова. */
+volatile LONG g_site6_iter_sum = 0;
+volatile LONG g_site6_code1 = 0;
+volatile LONG g_site6_code3 = 0;
+volatile LONG g_site6_code4 = 0;
+volatile LONG g_site6_rot = 0;
+volatile LONGLONG g_s6_us_sum = 0;      /* Фаза 4 A/B: сумма/максимум микросекунд */
+volatile LONGLONG g_s6_us_max = 0;
 /* Фаза 4 A/B: сводка по окнам времени (5 с): вызовы и µs за период,
  * пишется на выходе из вызова при закрытии окна. */
 #define S6_WINDOW_US 5000000
@@ -1089,6 +963,7 @@ static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
             break;
         }
         cur = s6_scan_map(this_, filter);                  /* @0x45e15e: rescan */
+        InterlockedIncrement(&g_site6_rot);                /* ротация (п. 3.4) */
     }
 
     /* Единственная запись кода — под guard'ом param_4 != NULL; при пустом скане
@@ -1097,12 +972,20 @@ static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
         *out_code = code;
     }
 
-    /* Статистика (счётчики п. 3.4). */
+    /* Статистика (счётчики п. 3.4): итерации, распределение кодов 1/3/4
+     * (code==0 — пустой скан), ротации считаются на rescan. */
     if (iters > g_site6_max) {
         g_site6_max = iters;
     }
     if (iters > S6_HEAVY_ITER) {
         InterlockedIncrement(&g_site6_heavy);
+    }
+    InterlockedAdd(&g_site6_iter_sum, iters);
+    switch (code) {
+    case 1:  InterlockedIncrement(&g_site6_code1); break;
+    case 3:  InterlockedIncrement(&g_site6_code3); break;
+    case 4:  InterlockedIncrement(&g_site6_code4); break;
+    default: break;                        /* 0 — пустой скан */
     }
     {
         LONGLONG now = ld_now_us();        /* Фаза 4 A/B: длительность вызова */
