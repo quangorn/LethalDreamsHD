@@ -336,6 +336,7 @@ extern "C" {
     static Call *g_cur = NULL;
     static size_t g_pi = 0, g_hi = 0, g_ti = 0;
     static std::vector<int *> g_fake_path;
+    static std::map<int, int *> g_pos_obj;   /* ключ occ → канонический LDPos */
     static std::vector<int> g_iter_seq;      /* пары x,y; -1/-1 = null */
     static int g_exit_node[2];
     static int g_exit_code = -1, g_exit_iters = -1;
@@ -365,6 +366,7 @@ struct Rep {
     TreeNode m1head;
     RepMap2 m2;
     std::vector<RNode *> nodes;
+    std::vector<TreeNode *> m1nodes;  /* map1: tn->value = PathState (объект) */
     std::vector<PathLeaf> pathPool;
     int nilBuf[8];
 };
@@ -379,17 +381,17 @@ static int occ_key_of(LDPos *p) {
 
 static void rep_rebuild_m1(Rep *r) {
     TreeNode *nil = rep_nil(r);
-    size_t i, n = r->nodes.size();
+    size_t i, n = r->m1nodes.size();
     for (i = 0; i < n; i++) {
-        r->nodes[i]->tn.left = nil;
-        r->nodes[i]->tn.right = (i + 1 < n) ? &r->nodes[i + 1]->tn : &r->m1head;
-        r->nodes[i]->tn.parent = (i > 0) ? &r->nodes[i - 1]->tn : &r->m1head;
-        r->nodes[i]->tn.key = 0;            /* native dd00: map1 key = 0 */
-        r->nodes[i]->tn.value = &r->nodes[i]->ps;
-        r->nodes[i]->tn.is_nil = 0;
+        TreeNode *tn = r->m1nodes[i];
+        tn->left = nil;
+        tn->right = (i + 1 < n) ? r->m1nodes[i + 1] : &r->m1head;
+        tn->parent = (i > 0) ? r->m1nodes[i - 1] : &r->m1head;
+        tn->key = 0;                        /* native dd00: map1 key = 0 */
+        tn->is_nil = 0;
     }
-    r->m1head.left = n ? &r->nodes[0]->tn : &r->m1head;
-    r->m1head.parent = n ? &r->nodes[n - 1]->tn : &r->m1head;
+    r->m1head.left = n ? r->m1nodes[0] : &r->m1head;
+    r->m1head.parent = n ? r->m1nodes[n - 1] : &r->m1head;
     r->m1head.right = &r->m1head;
     r->m1head.is_nil = 1;
 }
@@ -465,14 +467,18 @@ static void rep_build(Rep *r, const Call &c) {
         n->ps.max_sentinel = 0x4b18967f;
         n->parentPos.x = src.px; n->parentPos.y = src.py;
         n->parentStub.pos = &n->parentPos;
-        n->ps.parent = &n->parentStub;
+        n->ps.parent = (src.px == -1 && src.py == -1) ? NULL : &n->parentStub;
         for (int k = 0; k < 9; k++) {
             n->nbrPos[k].x = src.nbr[k][0];
             n->nbrPos[k].y = src.nbr[k][1];
             n->nbrStub[k].pos = &n->nbrPos[k];
-            n->ps.nbr[k] = &n->nbrStub[k];
+            /* (-1,-1) — NULL-сосед в захвате (cap_read_ps_pos пишет -1,-1). */
+            n->ps.nbr[k] = (src.nbr[k][0] == -1 && src.nbr[k][1] == -1)
+                           ? NULL : &n->nbrStub[k];
         }
         r->nodes.push_back(n);
+        n->tn.value = &n->ps;
+        r->m1nodes.push_back(&n->tn);
         bypos[occ_key_of(&n->pos)] = n;
     }
     /* Связки: nbr/parent указывают на узлы с той же позицией; если узла в
@@ -496,15 +502,28 @@ static void rep_build(Rep *r, const Call &c) {
         }
     }
     /* cmp/anchor: нативная gate1 — сравнение УКАЗАТЕЛЕЙ cur->pos == cmp;
-     * восстанавливаем его через совпадение координат (идентичность по pos). */
+     * восстанавливаем через канонический объект координат (см. replay_path_next). */
+    g_pos_obj.clear();
     for (i = 0; i < c.map1.size(); i++) {
         RNode *n = r->nodes[i];
-        if (n->pos.x == c.cmp[0] && n->pos.y == c.cmp[1]) {
-            r->cmpPtr = &n->pos;
+        g_pos_obj[occ_key_of(&n->pos)] = (int *)(void *)&n->pos;
+    }
+    {
+        int key = occ_key_of(&r->cmpPos);
+        std::map<int, int *>::const_iterator it = g_pos_obj.find(key);
+        if (it == g_pos_obj.end()) {
+            r->cmpPos.x = c.cmp[0]; r->cmpPos.y = c.cmp[1];
+            g_pos_obj[key] = (int *)(void *)&r->cmpPos;
+            r->cmpPtr = &r->cmpPos;
+        } else {
+            r->cmpPtr = (LDPos *)(void *)it->second;
         }
-        if (n->pos.x == c.anchor[0] && n->pos.y == c.anchor[1]) {
-            ai->anchor = &n->pos;
-        }
+    }
+    {
+        int key = occ_key_of(&r->anchorPos);
+        std::map<int, int *>::const_iterator it = g_pos_obj.find(key);
+        ai->anchor = (it == g_pos_obj.end())
+                     ? &r->anchorPos : (LDPos *)(void *)it->second;
     }
     rep_rebuild_m1(r);
     ai->cand_head = &r->m1head;
@@ -527,6 +546,7 @@ static void rep_build(Rep *r, const Call &c) {
     g_fake_path.clear();
     g_iter_seq.clear();
     g_have_exit = false;
+    g_replay_leaf_underflow = 0;      /* флаг — на вызов, не на прогон */
 }
 
 static const Call *rep_cur(void) { return g_cur; }
@@ -552,9 +572,16 @@ extern "C" void *replay_path_next(void) {
     }
     PathLeaf pl = c->leaves_path[g_pi++];
     if (pl.null) return NULL;
-    int *obj = (int *)calloc(4, sizeof(int));   /* +0x00..+0x0f */
+    /* Канонический объект на координаты: нативный cb40 возвращает сам LDPos
+     * ячейки сетки, один и тот же при повторных запросах; identity cur->pos ==
+     * cmp держится на равенстве указателей, поэтому копии недопустимы. */
+    int key = (int)(((unsigned short)pl.w[4] << 16) | (unsigned short)pl.w[3]);
+    std::map<int, int *>::const_iterator it = g_pos_obj.find(key);
+    if (it != g_pos_obj.end()) return it->second;
+    int *obj = (int *)calloc(8, sizeof(int));   /* +0x00..+0x1f */
     for (int k = 0; k < 5; k++) obj[k] = pl.w[k];
     g_fake_path.push_back(obj);
+    g_pos_obj[key] = obj;
     return obj;
 }
 
@@ -617,22 +644,28 @@ int tree_lookup(void *world, unsigned int key) { (void)world; (void)key; return 
 void register_occupied_slot(void *ai, LDObject *obj) {
     Rep *r = (Rep *)ai;
     PathState *ps = (PathState *)obj;
-    LDPos *p = ps ? ps->pos : NULL;
-    TreeNode *tn = new TreeNode;
+    LDPos *p;
+    TreeNode *tn;
+    TreeNode *m2tn;
+
+    if (ps == NULL) return;
+    p = ps->pos;
+    /* FUN_0045dd00: объект в map1 (key=0, value=obj) и в map2 (key=coords).
+     * map1 хранит сам объект — identity cur->pos == cmp сравнивает указатели. */
+    tn = new TreeNode;
     memset(tn, 0, sizeof(*tn));
-    tn->key = p ? occ_key_of(p) : 0;
-    tn->value = obj;
+    tn->value = ps;
     tn->is_nil = 0;
-    r->m2.nodes.push_back(tn);
-    rep_rebuild_m2(r);
-    RNode *n = new RNode;
-    if (ps) {
-        n->ps = *ps;                 /* копия (указатели остаются на старые узлы) */
-        if (ps->pos) { n->pos = *ps->pos; n->ps.pos = &n->pos; }
-    }
-    r->nodes.push_back(n);
+    r->m1nodes.push_back(tn);
+    m2tn = new TreeNode;
+    memset(m2tn, 0, sizeof(*m2tn));
+    m2tn->key = p ? occ_key_of(p) : 0;
+    m2tn->value = obj;
+    m2tn->is_nil = 0;
+    r->m2.nodes.push_back(m2tn);
     rep_rebuild_m1(r);
-    ((BattleAI *)(void *)r->aiBuf)->reserved_70 = (int)r->nodes.size();
+    rep_rebuild_m2(r);
+    ((BattleAI *)(void *)r->aiBuf)->reserved_70 = (int)r->m1nodes.size();
 }
 int vcall0(void *receiver, unsigned int off) { (void)receiver; (void)off; return 0; }
 int vcall1(void *receiver, unsigned int off, int arg) {
@@ -746,7 +779,11 @@ static void write_res_port(FILE *f, const Call &c, Rep *r) {
     write_out_map1(f, r);
     fputs(",\"occ_after\":", f);
     write_out_occ(f, r);
-    fprintf(f, ",\"leaf_underflow\":%d}\n", g_replay_leaf_underflow);
+    fprintf(f, ",\"leaf_used\":[%u,%u,%u],\"leaf_cap\":[%u,%u,%u]"
+            ",\"leaf_underflow\":%d}\n",
+            (unsigned)g_pi, (unsigned)g_hi, (unsigned)g_ti,
+            (unsigned)c.leaves_path.size(), (unsigned)c.leaves_heur.size(),
+            (unsigned)c.leaves_timeout.size(), g_replay_leaf_underflow);
 }
 
 /* --------------------------------- main --------------------------------- */
@@ -758,7 +795,9 @@ static bool read_line(FILE *f, std::string &out) {
         if (ch == '\n') return true;
         out.push_back((char)ch);
     }
-    return !out.empty();
+    out.clear();          /* хвостовая недописанная запись (игра погашена
+                             посреди записи) не является строкой захвата */
+    return false;
 }
 
 int main(int argc, char **argv) {
@@ -824,6 +863,12 @@ int main(int argc, char **argv) {
     for (size_t i = 0; i < calls.size(); i++) {
         Call *c = calls[i];
         if (!c->has_res) {
+            if (i + 1 == calls.size()) {
+                /* Захват обрезан при гашении игры — последний вызов без res. */
+                fprintf(stderr, "WARN: trailing cap seq=%d without res ignored\n",
+                        c->seq);
+                break;
+            }
             fprintf(stderr, "ERROR: cap seq=%d has no res record\n", c->seq);
             rc = 2;
             break;

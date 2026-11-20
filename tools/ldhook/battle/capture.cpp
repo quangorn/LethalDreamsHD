@@ -5,11 +5,11 @@
  * итерации, iter_seq из H6, map1_after, occ_after + поток результатов
  * нативных листьев cb40/c690/c5a0). Чтение игровой памяти — под __try/__except.
  *
- * Листья перехватываются на их call-site внутри нативного e0a0/dd70 (4 сайта,
- * сигнатуры в ldhook_internal.h): EAX оригинала логируется в поток `leaf`
- * текущего вызова. Харнесс подменяет эти вызовы stub'ами, возвращающими
- * захваченные значения в том же порядке (grid/pathfinding-сетка не
- * реконструируется — это открытый вопрос Фазы 2.1).
+ * Листья перехватываются на ВХОДЕ их функций (E9, 5 Б; пролог воспроизводит
+ * трамплин, возврат перехватывается cap_ret_*): EAX оригинала логируется в
+ * поток `leaf` текущего вызова. Харнесс подменяет эти вызовы stub'ами,
+ * возвращающими захваченные значения в том же порядке (grid/pathfinding-сетка
+ * не реконструируется — это открытый вопрос Фазы 2.1).
  *
  * Всё opt-in: без LDHOOK_BATTLE_CAPTURE файл не открывается, хуки листьев
  * не ставятся, impl-функции возвращаются сразу.
@@ -71,8 +71,6 @@ static int       g_map_trap = 0;
 static void *g_fn_cb40 = NULL;
 static void *g_fn_heur = NULL;
 static void *g_fn_timeout = NULL;
-volatile int g_cap_res = 0;        /* EAX оригинала, переживает вызов impl */
-volatile int g_cap_a1 = 0, g_cap_a2 = 0;  /* аргументы call-site (копируются на входе) */
 
 void battle_capture_init(void)
 {
@@ -142,6 +140,34 @@ static int cap_occ_key(const cap_pos *p)
     return (int)(((unsigned short)p->y << 16) | (unsigned short)p->x);
 }
 
+/* Candidate/PathState: координаты не в самом объекте, а в его +0x00 → LDPos
+ * (`pos`), координаты LDPos +0x0c/+0x10 (structs.h). */
+static int cap_read_cand_pos(void *cand, cap_pos *out)
+{
+    void *pos = NULL;
+
+    __try {
+        pos = (cand != NULL) ? *(void **)cand : NULL;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        pos = NULL;
+    }
+    return cap_read_pos(pos, out);
+}
+
+/* PathState* → его LDPos* (родитель/соседи хранят PathState, координаты — в
+ * PathState.pos, structs.h: +0x04 parent, +0x34..0x54 nbr[9]). */
+static int cap_read_ps_pos(PathState *ps, cap_pos *out)
+{
+    LDPos *p = NULL;
+
+    __try {
+        p = (ps != NULL) ? ps->pos : NULL;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        p = NULL;
+    }
+    return cap_read_pos(p, out);
+}
+
 static int cap_read_node(TreeNode *tn, cap_node *out)
 {
     PathState *n;
@@ -164,9 +190,9 @@ static int cap_read_node(TreeNode *tn, cap_node *out)
         out->d2 = n->dist2;
         out->h10k = n->h10000;
         out->cost = n->metric;
-        cap_read_pos(n->parent, &out->parent);
+        cap_read_ps_pos(n->parent, &out->parent);
         for (i = 0; i < 9; i++) {
-            cap_read_pos(n->nbr[i], &out->nbr[i]);
+            cap_read_ps_pos(n->nbr[i], &out->nbr[i]);
         }
         out->occ_key = cap_occ_key(&out->pos);
         return 1;
@@ -377,8 +403,8 @@ void battle_capture_e0a0_enter(void *this_, int filter, void *cmp,
     fprintf(g_file, "{\"v\":1,\"kind\":\"cap\",\"seq\":%d,\"tick\":%d,"
             "\"unit\":%d,\"fn\":\"e0a0\",\"args\":{\"filter\":%d,"
             "\"cmp\":[%d,%d],\"timeout_bits\":%u,\"out_ptr\":%d},"
-            "\"ai\":{\"timer_bits\":%08x,\"final_bits\":%08x,"
-            "\"dist_bits\":%08x,\"yrad\":%d,\"xrad\":%d,\"rect\":[%d,%d,%d,%d],"
+            "\"ai\":{\"timer_bits\":%u,\"final_bits\":%u,"
+            "\"dist_bits\":%u,\"yrad\":%d,\"xrad\":%d,\"rect\":[%d,%d,%d,%d],"
             "\"anchor\":[%d,%d],\"trk\":%d,\"bd2\":%u,\"code\":%d,"
             "\"ctx_flags\":%u,\"world_scale_bits\":%u},",
             g_seq, g_tick, g_unit, g_filter, g_cmp.x, g_cmp.y, g_timeout_bits,
@@ -415,7 +441,7 @@ void battle_capture_latch(void *cand)
     if (g_iter_n >= g_iter_cap) {
         return;
     }
-    cap_read_pos(cand, &g_iter[g_iter_n++]);   /* NULL → (-1,-1) → null */
+    cap_read_cand_pos(cand, &g_iter[g_iter_n++]);   /* NULL → (-1,-1) → null */
 }
 
 void battle_capture_leaf(int kind, int value, const int *words)
@@ -469,11 +495,9 @@ void battle_capture_e0a0_exit(void *node)
         code = -1;
     }
     if (node != NULL) {
-        __try {
-            node_x = *((const int *)((const unsigned char *)node + 0x0c));
-            node_y = *((const int *)((const unsigned char *)node + 0x10));
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-            node_x = -2; node_y = -2;
+        cap_pos np;
+        if (cap_read_cand_pos(node, &np)) {
+            node_x = np.x; node_y = np.y;
         }
     }
     /* iters = число кандидатов. H6-латч = rescan; сработавший gate (node !=
@@ -513,17 +537,26 @@ void battle_capture_e0a0_exit(void *node)
 
 static void *g_cont_cb40 = NULL, *g_cont_heur = NULL, *g_cont_timeout = NULL;
 static void *g_ret_cb40 = NULL, *g_ret_heur = NULL, *g_ret_timeout = NULL;
+/* IAT-слот timeGetTime EXE (VA 0x4ec27c): украденный `call *0x4ec27c` из
+ * пролога c5a0 (MSVC inline asm не принимает литеральный адрес в call). */
+static void *g_iat_timer = (void *)(size_t)S6_VA_timeGetTime;
+
+/* Определения ниже (naked); объявления нужны для `offset` в трамплинах. */
+void cap_ret_cb40(void);
+void cap_ret_heur(void);
+void cap_ret_timeout(void);
+void __cdecl cap_impl_path(int value);
+void __cdecl cap_impl_heur(int value);
+void __cdecl cap_impl_timeout(int value);
 
 void battle_capture_set_leaf_fns(void *cb40, void *heur, void *timeout)
 {
     g_fn_cb40 = cb40;
     g_fn_heur = heur;
     g_fn_timeout = timeout;
-    /* cb40: 9 Б `83 EC 3C 53 55 56 57 8B F1`; c690: 6 Б `55 8B E9 8B 4D 00`;
-     * c5a0: 10 Б `51 56 8B F1 FF 15 7C C2 4E 00` (включая call timeGetTime). */
-    if (cb40 != NULL)     g_cont_cb40 = (unsigned char *)cb40 + 9;
-    if (heur != NULL)     g_cont_heur = (unsigned char *)heur + 6;
-    if (timeout != NULL)  g_cont_timeout = (unsigned char *)timeout + 10;
+    if (cb40 != NULL)    g_cont_cb40 = (unsigned char *)cb40 + CAP_STOLEN_CB40;
+    if (heur != NULL)    g_cont_heur = (unsigned char *)heur + CAP_STOLEN_HEUR;
+    if (timeout != NULL) g_cont_timeout = (unsigned char *)timeout + CAP_STOLEN_TIMEOUT;
 }
 
 void __declspec(naked) cap_fn_cb40_hook(void)
@@ -564,7 +597,8 @@ void __declspec(naked) cap_fn_timeout_hook(void)
         push ecx                       /* украденные байты c5a0 */
         push esi
         mov esi, ecx
-        call dword ptr [0x4ec27c]      /* call *IAT timeGetTime */
+        mov eax, dword ptr [g_iat_timer]
+        call dword ptr [eax]           /* call *0x4ec27c (timeGetTime) */
         jmp dword ptr [g_cont_timeout]
     }
 }
@@ -617,116 +651,14 @@ void __declspec(naked) cap_ret_timeout(void)
     }
 }
 
-void __cdecl cap_impl_path(int a1, int a2, int value);
+void __cdecl cap_impl_path(int value);
 void __cdecl cap_impl_heur(int value);
 void __cdecl cap_impl_timeout(int value);
 
-void __declspec(naked) cap_cb40_hook(void)
-{
-    __asm {
-        push eax
-        push ecx
-        push edx
-        /* ESP = S-12; [ESP+16]=S+4=arg1, [ESP+20]=S+8=arg2 */
-        mov eax, dword ptr [esp + 16]
-        mov dword ptr [g_cap_a1], eax
-        mov eax, dword ptr [esp + 20]
-        mov dword ptr [g_cap_a2], eax
-        mov ecx, dword ptr [esp + 4]  /* восстановить this (thiscall) */
-        push dword ptr [g_cap_a2]
-        push dword ptr [g_cap_a1]
-        call dword ptr [g_fn_cb40]    /* ECX = this, RET 8 */
-        mov dword ptr [g_cap_res], eax
-        /* логируем: impl(a1, a2, EAX), cdecl */
-        push dword ptr [g_cap_res]
-        push dword ptr [g_cap_a2]
-        push dword ptr [g_cap_a1]
-        call cap_impl_path
-        add esp, 12
-        pop edx
-        pop ecx
-        pop eax
-        mov eax, dword ptr [g_cap_res]
-        add esp, 8                    /* аргументы исходного call-site */
-        ret
-    }
-}
-
-void __declspec(naked) cap_heur1_hook(void)
-{
-    __asm {
-        push eax
-        push ecx
-        push edx
-        mov ecx, dword ptr [esp + 4]  /* восстановить this после cap_trace */
-        push dword ptr [esp + 16]     /* arg1 (slot) */
-        call dword ptr [g_fn_heur]    /* ECX = this, RET 4 */
-        mov dword ptr [g_cap_res], eax
-        push eax
-        call cap_impl_heur
-        add esp, 4
-        pop edx
-        pop ecx
-        pop eax
-        mov eax, dword ptr [g_cap_res]
-        add esp, 4
-        ret
-    }
-}
-
-void __declspec(naked) cap_heur2_hook(void)
-{
-    __asm {
-        push eax
-        push ecx
-        push edx
-        mov ecx, dword ptr [esp + 4]  /* восстановить this */
-        push dword ptr [esp + 16]     /* arg1 (slot) */
-        call dword ptr [g_fn_heur]    /* ECX = this, RET 4 */
-        mov dword ptr [g_cap_res], eax
-        push eax
-        call cap_impl_heur
-        add esp, 4
-        pop edx
-        pop ecx
-        pop eax
-        mov eax, dword ptr [g_cap_res]
-        add esp, 4
-        ret
-    }
-}
-
-void __declspec(naked) cap_timeout_hook(void)
-{
-    __asm {
-        push eax
-        push ecx
-        push edx
-        mov ecx, dword ptr [esp + 4]  /* восстановить this */
-        push dword ptr [esp + 16]     /* arg1 (float-биты) */
-        call dword ptr [g_fn_timeout] /* ECX = this, RET 4 */
-        mov dword ptr [g_cap_res], eax
-        push eax
-        call cap_impl_timeout
-        add esp, 4
-        pop edx
-        pop ecx
-        pop eax
-        mov eax, dword ptr [g_cap_res]
-        add esp, 4
-        ret
-    }
-}
-
-void __cdecl cap_impl_path(int a1, int a2, int value)
+void __cdecl cap_impl_path(int value)
 {
     int words[CAP_WORDS];
-    static volatile LONG dbg = 0;
 
-    (void)a1; (void)a2;
-    if (ld_rate(&dbg, 6, 1000000)) {
-        ld_info("cap_impl: path value=%p", (void *)(size_t)value);
-    }
     if (value == 0) {
         battle_capture_leaf(CAP_LEAF_PATH, 0, NULL);
         return;
@@ -741,18 +673,13 @@ void __cdecl cap_impl_path(int a1, int a2, int value)
 
 void __cdecl cap_impl_heur(int value)
 {
-    static volatile LONG dbg = 0;
-    if (ld_rate(&dbg, 6, 1000000)) {
-        ld_info("cap_impl: heur value=%d", value);
-    }
     battle_capture_leaf(CAP_LEAF_HEUR, value, NULL);
 }
 
 void __cdecl cap_impl_timeout(int value)
 {
-    static volatile LONG dbg = 0;
-    if (ld_rate(&dbg, 6, 1000000)) {
-        ld_info("cap_impl: timeout value=%d", value);
-    }
-    battle_capture_leaf(CAP_LEAF_TIMEOUT, value, NULL);
+    /* c5a0 возвращает флаг в AL (`xor al,al` / `mov $1,al` @0x45c5d1/0x45c5d7),
+     * верхние байты EAX — мусор (ms из timeGetTime); потребитель @0x45e153
+     * тестирует только AL. Пишем семантический 0/1. */
+    battle_capture_leaf(CAP_LEAF_TIMEOUT, value & 0xff, NULL);
 }

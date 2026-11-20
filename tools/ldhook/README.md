@@ -178,3 +178,19 @@ python3 tools/ldhook/patch_ui.py --restore   # откат: вернуть ui.pyc
 История: cap итераций (`site4`, 19.11.2026) лаги убирал, но ломал агро (31%
 поисков → «цель не найдена»); код и API сняты в п. 3.4 плана. Разбор —
 `docs/PERF_BATTLE.md`, «Ревизия плана».
+
+## Офлайн replay-харнесс e0a0 (LDHOOK_BATTLE_CAPTURE)
+
+Опционально; без `LDHOOK_BATTLE_CAPTURE` файл не пишется, хуки листьев не
+ставятся. Хуки — на входе cb40/c690/c5a0 (`E9`, 5 Б), поток листьев пишется в
+`res`. Прогон в scratch-дереве (`$env:LD_GAME`), не в установке:
+
+```
+python3 tools/ldhook/build.py
+python3 tools/probes/battle_replay_build.py
+build/ldhook/battle_replay.exe <capture.jsonl> <res_port.jsonl>   # затем battle_replay_diff.py
+```
+
+Диагностика `battle_replay_diff.py`: rc 0 равно, 1 расхождение, 2 битый вход,
+3 короткий диапазон. Известное ограничение: реконструкция карты кандидатов
+(вставки dd00) не 1:1 с нативной — см. `docs/TASK_battle_replay_handoff.md`.

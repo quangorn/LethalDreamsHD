@@ -46,3 +46,10 @@ Runner log: `D:/tmp/cygwin/opencode/ld/ldhook/tree/hdlog.txt`; scratch EXE basel
 
 ## 6. Warnings
 Never delete files; installed game `D:/Games/LethalDreams` READ-ONLY (use scratch tree only). Always `taskkill /F /IM LETHALDREAMS.EXE` after runs. Do not guess slot layouts without `game_dis.txt` / `docs/PLAN_BATTLE_AI_CPP.md` evidence. Keep writes opt-in; verify `check_state.py --quick` after installed-game changes.
+
+## 7. State after 20.11.2026 round (function-entry hooks)
+- Build green; leaf hooks at function entry (`CAP_VA_*`, prologue memcmp, `cap_ret_*`). Capture mask 7: 253 calls, no crash (was 0xC0000005 at the first call).
+- Capture fixes: latch/exit read `Candidate->pos` (+0) instead of +0xc; parent/nbr via `PathState->pos`; dword bits written decimal (hex broke JSON); timeout recorded as the AL flag (`test al,al` @0x45e153).
+- Harness: one canonical LDPos per cell (identity `pos==cmp`), `nbr`/`parent` NULL instead of (-1,-1) stubs, `register_occupied_slot` inserts the same object into map1 (key 0) and map2, truncated trailing line tolerated.
+- Diff: first divergence `seq=1 field=iters` (native 116 vs port 71). Port drains all 493 path leaves by iteration 71, so leaf streams desync from call 1 — map1/occupancy reconstruction is not 1:1. `node`/`code` match seq 1..158; first `node` divergence `seq=159`.
+- Open: reproduce `FUN_0045d810` insert order (key 0) into map1 so leaf consumption matches, then re-run diff for the tick-16 case.

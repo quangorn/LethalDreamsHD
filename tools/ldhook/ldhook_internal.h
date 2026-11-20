@@ -128,16 +128,23 @@ extern void *g_h7_cont;         /* 0x45dd78 */
 #define R_SIG_LEN   7
 
 /* ---------------- capture-наблюдатели листьев (LDHOOK_BATTLE_CAPTURE) ----- */
-/* 5-байтовые E8 call внутри нативного e0a0/dd70; уникальны в .text baseline. */
-#define CAP_CB40_SIG    "\xe8\x24\xec\xff\xff"   /* 0x45df17: call FUN_0045cb40 */
-#define CAP_HEUR1_SIG   "\xe8\x15\xe7\xff\xff"   /* 0x45df76: call FUN_0045c690 */
-#define CAP_HEUR2_SIG   "\xe8\xa0\xe6\xff\xff"   /* 0x45dfeb: call FUN_0045c690 */
-#define CAP_TIMEOUT_SIG "\xe8\x4d\xe4\xff\xff"   /* 0x45e14e: call FUN_0045c5a0 */
-#define CAP_CALL_LEN    5
+/* Хук на ВХОДЕ функции-листа: E9 rel32 (5 Б) вместо первых байт пролога;
+ * пролог воспроизводится в трамплине, затем jmp на cont = entry+stolen.
+ * Адреса — по VA (не find_in_text: прологи не уникальны в .text), байты
+ * проверяются memcmp по сигнатуре (game_dis.txt 0x45c5a0/0x45c690/0x45cb40). */
+#define CAP_ENTRY_LEN     5
+#define CAP_VA_CB40       0x45cb40u     /* RET 8;  пролог 9 Б */
+#define CAP_VA_HEUR       0x45c690u     /* RET 4;  пролог 6 Б */
+#define CAP_VA_TIMEOUT    0x45c5a0u     /* RET 4;  пролог 10 Б (call timeGetTime) */
+#define CAP_STOLEN_CB40     9
+#define CAP_STOLEN_HEUR     6
+#define CAP_STOLEN_TIMEOUT 10
+#define CAP_PROL_CB40     "\x83\xec\x3c\x53\x55\x56\x57\x8b\xf1"
+#define CAP_PROL_HEUR     "\x55\x8b\xe9\x8b\x4d\x00"
+#define CAP_PROL_TIMEOUT  "\x51\x56\x8b\xf1\xff\x15\x7c\xc2\x4e\x00"
 
-void cap_cb40_hook(void);        /* __declspec(naked) — battle/capture.cpp */
-void cap_heur1_hook(void);
-void cap_heur2_hook(void);
-void cap_timeout_hook(void);
+void cap_fn_cb40_hook(void);     /* __declspec(naked) — battle/capture.cpp */
+void cap_fn_heur_hook(void);
+void cap_fn_timeout_hook(void);
 
 #endif /* LDHOOK_INTERNAL_H */

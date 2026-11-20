@@ -43,38 +43,45 @@ def parse_args(argv):
     return files[0], files[1], prefix, fields, limit
 
 
+def read_lines(path):
+    """Строки файла; хвостовая недописанная запись (обрыв при гашении игры)
+    отбрасывается, чтобы aborted capture не давал rc 2."""
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        data = fh.read()
+    lines = data.split("\n")
+    if lines and lines[-1] != "":
+        lines.pop()
+    return lines
+
+
 def load_native(path):
     """seq -> (rec, raw_line, tick, unit). Native result lives in `res`."""
     out = {}
-    with open(path, "r", encoding="utf-8", errors="replace") as fh:
-        for raw in fh:
-            line = raw.rstrip("\n")
-            if not line.strip():
-                continue
-            rec = json.loads(line)
-            if rec.get("kind") != "res":
-                continue
-            seq = rec.get("seq")
-            if not isinstance(seq, int) or seq in out:
-                raise ValueError("bad/duplicate native res seq: %r" % seq)
-            out[seq] = (rec, line)
+    for line in read_lines(path):
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        if rec.get("kind") != "res":
+            continue
+        seq = rec.get("seq")
+        if not isinstance(seq, int) or seq in out:
+            raise ValueError("bad/duplicate native res seq: %r" % seq)
+        out[seq] = (rec, line)
     return out
 
 
 def load_port(path):
     out = {}
-    with open(path, "r", encoding="utf-8", errors="replace") as fh:
-        for raw in fh:
-            line = raw.rstrip("\n")
-            if not line.strip():
-                continue
-            rec = json.loads(line)
-            if rec.get("kind") != "res_port":
-                continue
-            seq = rec.get("seq")
-            if not isinstance(seq, int) or seq in out:
-                raise ValueError("bad/duplicate port seq: %r" % seq)
-            out[seq] = (rec, line)
+    for line in read_lines(path):
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        if rec.get("kind") != "res_port":
+            continue
+        seq = rec.get("seq")
+        if not isinstance(seq, int) or seq in out:
+            raise ValueError("bad/duplicate port seq: %r" % seq)
+        out[seq] = (rec, line)
     return out
 
 

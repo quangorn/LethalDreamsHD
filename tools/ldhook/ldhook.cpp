@@ -563,38 +563,45 @@ static void install_site6(void)
 /* ------------------------------------------------------------------ */
 /* Capture-наблюдатели нативных листьев — только при LDHOOK_BATTLE_CAPTURE.
  * Ставятся ТОЛЬКО в native-режиме (site6 выключен): в порт-режиме те же
- * листья реализованы C++ и харнесс подменяет их сам. Четыре 5-байтовых
- * E8 call заменяются на E9 к трамплинам, вызывающим оригинал.          */
+ * листья реализованы C++ и харнесс подменяет их сам. Хук — на ВХОДЕ функции
+ * (E9, 5 Б): трамплин воспроизводит украденный пролог и перехватывает возврат.
+ * Маска LDHOOK_BATTLE_CAPTURE_LEAF: 1=cb40, 2=c690, 4=c5a0 (дефолт 7).   */
 /* ------------------------------------------------------------------ */
+
+static int cap_prologue_ok(void *fn, const char *sig, int len)
+{
+    return fn != NULL && memcmp(fn, sig, (size_t)len) == 0;
+}
 
 static void install_capture_sites(void)
 {
-    unsigned char *s1, *s2, *s3, *s4;
+    void *cb40 = native::fn(CAP_VA_CB40);
+    void *heur = native::fn(CAP_VA_HEUR);
+    void *tout = native::fn(CAP_VA_TIMEOUT);
+    const char *leafenv;
+    int leafmask;
 
     if (!battle_capture_enabled()) {
         return;
     }
-    const char *leafenv = getenv("LDHOOK_BATTLE_CAPTURE_LEAF");
-    int leafmask = (leafenv != NULL && *leafenv != '\0') ? atoi(leafenv) : 15;
-    battle_capture_set_leaf_fns(native::fn(0x45cb40), native::fn(0x45c690),
-                                native::fn(0x45c5a0));
-    s1 = find_in_text((const unsigned char *)CAP_CB40_SIG, CAP_CALL_LEN);
-    s2 = find_in_text((const unsigned char *)CAP_HEUR1_SIG, CAP_CALL_LEN);
-    s3 = find_in_text((const unsigned char *)CAP_HEUR2_SIG, CAP_CALL_LEN);
-    s4 = find_in_text((const unsigned char *)CAP_TIMEOUT_SIG, CAP_CALL_LEN);
-    if (s1 == NULL || s2 == NULL || s3 == NULL || s4 == NULL) {
-        ld_info("install_capture_sites: signature NOT found "
-                "(cb40=%p h1=%p h2=%p to=%p) — leaf streams empty",
-                (void *)s1, (void *)s2, (void *)s3, (void *)s4);
+    leafenv = getenv("LDHOOK_BATTLE_CAPTURE_LEAF");
+    leafmask = (leafenv != NULL && *leafenv != '\0') ? atoi(leafenv) : 7;
+    if (!cap_prologue_ok(cb40, CAP_PROL_CB40, CAP_STOLEN_CB40) ||
+        !cap_prologue_ok(heur, CAP_PROL_HEUR, CAP_STOLEN_HEUR) ||
+        !cap_prologue_ok(tout, CAP_PROL_TIMEOUT, CAP_STOLEN_TIMEOUT)) {
+        ld_info("install_capture_sites: prologue mismatch at VA "
+                "(cb40=%p heur=%p to=%p) — leaf hooks NOT installed",
+                cb40, heur, tout);
         return;
     }
-    if ((leafmask & 1) && !write_jmp(s1, (void *)cap_cb40_hook, CAP_CALL_LEN)) return;
-    if ((leafmask & 2) && !write_jmp(s2, (void *)cap_heur1_hook, CAP_CALL_LEN)) return;
-    if ((leafmask & 4) && !write_jmp(s3, (void *)cap_heur2_hook, CAP_CALL_LEN)) return;
-    if ((leafmask & 8) && !write_jmp(s4, (void *)cap_timeout_hook, CAP_CALL_LEN)) return;
-    ld_info("install_capture_sites: leaf hooks installed mask=%d "
-            "(cb40=0x%08x heur=0x%08x/0x%08x timeout=0x%08x)",
-            leafmask, (unsigned)s1, (unsigned)s2, (unsigned)s3, (unsigned)s4);
+    battle_capture_set_leaf_fns(cb40, heur, tout);
+    if ((leafmask & 1) && !write_jmp(cb40, (void *)cap_fn_cb40_hook, CAP_ENTRY_LEN)) return;
+    if ((leafmask & 2) && !write_jmp(heur, (void *)cap_fn_heur_hook, CAP_ENTRY_LEN)) return;
+    if ((leafmask & 4) && !write_jmp(tout, (void *)cap_fn_timeout_hook, CAP_ENTRY_LEN)) return;
+    ld_info("install_capture_sites: leaf entry hooks installed mask=%d "
+            "(cb40=0x%08x heur=0x%08x timeout=0x%08x)",
+            leafmask, (unsigned)(size_t)cb40, (unsigned)(size_t)heur,
+            (unsigned)(size_t)tout);
 }
 
 /* ------------------------------------------------------------------ */
