@@ -30,7 +30,7 @@ COMPARE = [
 
 USAGE = ("usage: trace_diff.py <native.log> <port.log> "
          "[--prefix=N|--tail=N] [--fields=a,b,c] "
-         "[--align=tick|pos] [--limit=N]")
+         "[--align=tick|pos|ordinal] [--limit=N]")
 
 
 def parse(path):
@@ -67,6 +67,23 @@ def keyed(rows):
     return out
 
 
+def keyed_ordinal(rows):
+    """Map (unit, ordinal) -> (index, raw line, rec); ordinal = per-unit line
+    index in file order. Removes the effect of unit scheduling jitter between
+    runs (same unit, same n-th call). None if a line lacks `unit`."""
+    out = {}
+    seen = {}
+    for idx, (raw, rec) in enumerate(rows):
+        u = rec.get("unit")
+        if u is None:
+            return None
+        seen[u] = seen.get(u, 0) + 1
+        key = (u, seen[u])
+        if key not in out:
+            out[key] = (idx, raw, rec)
+    return out
+
+
 def key_order(key):
     def order(v):
         try:
@@ -98,7 +115,7 @@ def parse_args(argv):
             raise SystemExit(2)
         else:
             files.append(a)
-    if align not in ("tick", "pos") or limit < 1 or prefix < 0 or tail < 0:
+    if align not in ("tick", "pos", "ordinal") or limit < 1 or prefix < 0 or tail < 0:
         raise SystemExit(2)
     return files, prefix, tail, fields, align, limit
 
@@ -139,13 +156,13 @@ def main(argv):
         print("port: no BATTLE lines")
         return 2
 
-    nat_key = keyed(nat) if align == "tick" else None
-    port_key = keyed(port) if align == "tick" else None
-    if align == "tick" and (nat_key is None or port_key is None):
+    nat_key = keyed(nat) if align == "tick" else (keyed_ordinal(nat) if align == "ordinal" else None)
+    port_key = keyed(port) if align == "tick" else (keyed_ordinal(port) if align == "ordinal" else None)
+    if align != "pos" and (nat_key is None or port_key is None):
         print("tick/unit missing; falling back to positional alignment")
         align = "pos"
 
-    if align == "tick":
+    if align in ("tick", "ordinal"):
         common = sorted((k for k in nat_key if k in port_key), key=key_order)
         if not common:
             print("common range: empty (native=%d port=%d keys)"
@@ -161,8 +178,8 @@ def main(argv):
             common = common[-tail:]
         if prefix:
             common = common[:prefix]
-        print("compared range: tick %s..%s, %d common keys (align=tick)"
-              % (common[0][0], common[-1][0], len(common)))
+        print("compared range: %s..%s, %d common keys (align=%s)"
+              % (common[0], common[-1], len(common), align))
         pairs = []
         for k in common:
             ni, nraw, nrec = nat_key[k]
