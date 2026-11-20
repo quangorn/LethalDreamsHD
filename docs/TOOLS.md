@@ -335,22 +335,27 @@ python3 tools/tex/hook_ground.py --tree <дерево> --restore   # ориги�
   (снимок оверленда — `tools/archive/probes/probe_loadshot.ps1 … -Mode new`).
 - Съёмка боя: `tools/probes/probe_battleshot.ps1` — новая игра, скип уроков Enter'ом,
   клики по канвасным тайлам, обнаружение боя по строке `SCENE battle` в `hdlog.txt`.
-- Вход в бой из сейва — `tools/probes/battle_test.ps1` (канвас 1024x768; эталонный сейв — верхняя строка
-  списка): «Вспомнить» (350,107) → слот (280,161) → **Enter×2** (Да в диалоге подтверждения) → планета
-  (672,542) → «Атака» (413,524) → **Enter** («Атака?» = Да) → слот 2-го слева заклинания (473,733) →
-  ПКМ-удержание на земле (500,430), **3 волны**. Space (VK 32) = пауза боя, в сценарии не используется;
-  диалоги подтверждаются Enter'ом. Детект `SCENE battle` требует dev-сборки `hd_scale.pyc` (`HD_LOG=1`);
-  сейвы игра читает из `Documents\Boolat Games\Lethal Dreams\Saves` (профиль пользователя, SLOTn).
-- DSL шагов: `wait / click / hover / rclick / hold / key / wave / waves / shot / cpu / waitfor`.
-  Волна — `wave:SX:SY:CX:CY[:MS]` или `waves` (N из `-Waves`); заклинание и точка каста —
-  `-SpellX/-SpellY/-CastX/-CastY/-HoldMs`. Ряд иконок центрируется по канвас 512, шаг 35, `sp_y=714`
-  (`ui/battlemenu.py`): x i-й иконки = `512 − n·17.5 + 35i + 16`, n — число боевых заклинаний сейва.
-- Запуск (env обязательны, без `-GameRoot` скрипт падает `GameRoot не задан`):
+- Раннер шагов над игрой: `tools/probes/perform_action_in_game.ps1` — последовательность действий,
+  координаты (канвас 1024x768) и паузы приходят аргументами. DSL: `wait / waitload / waitattack /
+  waitbattle / click / hover / rclick / hold / key / wave / waves / shot / cpu`; durations —
+  `-LoadSec/-AttackSec/-BattleSec/-WaveGapMs/-ClickGapMs/-HoldMs`; волны — `-Waves` +
+  `-SpellX/-SpellY/-CastX/-CastY`.
+- Обёртки с захардкоженными аргументами: `tools/probes/battle_169.ps1` (3840x2160 F=1) и
+  `tools/probes/battle_43.ps1` (1440x1080 F=1), один и тот же набор шагов: «Вспомнить» (350,107) →
+  слот (280,161) → **Enter×2** (Да в диалоге) → `waitload` → планета (672,542) → «Атака» (413,524) →
+  `waitattack` → **Enter** («Атака?» = Да) → `waitbattle` → **key:32** (снимает стартовую паузу боя;
+  больше Space не слать) → 3 волны призыва: клик слота 2-го слева (473,733), ПКМ-удержание на земле
+  (500,430) → `shot:summons`. Эталонный сейв — верхняя строка списка
+  (`Documents\Boolat Games\Lethal Dreams\Saves`).
+- Ряд иконок заклинаний центрируется по канвас 512, шаг 35, `sp_y=714` (`ui/battlemenu.py`):
+  x i-й иконки = `512 − n·17.5 + 35i + 16`, n — число боевых заклинаний сейва.
+- Запуск обёрток (env обязательны, без `-GameRoot` раннер падает `GameRoot не задан`):
 
 ```
-LD_GAME="<tree>" LD_SHOTS="<shots>" LDHOOK_LOG=1 \
-  powershell -NoProfile -ExecutionPolicy Bypass -File tools/probes/battle_test.ps1 \
-  -W 3840 -H 2160 -F 1 -Tag battle -MenuSec 6 [-Waves N] [-SpellX .. -SpellY .. -CastX .. -CastY ..]
+LD_GAME="<tree>" LD_SHOTS="<shots>" \
+  powershell -NoProfile -ExecutionPolicy Bypass -File tools/probes/battle_169.ps1 [-Waves N] [-Tag ..]
+LD_GAME="<tree>" LD_SHOTS="<shots>" \
+  powershell -NoProfile -ExecutionPolicy Bypass -File tools/probes/battle_43.ps1 [-Waves N] [-Tag ..]
 ```
 
 - Проверка после прогонов: снапшот md5+mtime установки до/после (diff обязан быть

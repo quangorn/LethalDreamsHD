@@ -170,10 +170,9 @@ PRISTINE 2967, HD_PACK 1379, ALLOWED 728, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0
 - `[P]` Cap тормозов боя (site4, 19.11.2026): пролог `0x45e0a0` + хвост цикла `0x45e163` в `ldhook.pyd`,
   env `LDHOOK_CAP`; в поставку **не идёт** — прогон показал «лаги уходят, агро ломается»
   (31% поисков упираются в cap). Установка откачена в чистое состояние (`ui/ui.pyc ae59f601…`).
-- `[P]` Контрольный прогон боя `tools/probes/battle_test.ps1` (20.11.2026): дефолты `MenuSec=6`, `-Waves 3`
-  (verb `waves`), снимок через 1 с `shot:summons`, без `waitfor`; Enter×2 при загрузке сейва, Enter на «Атака?»,
-  Space не слать; критерий — ≥2 саммона рядом с персонажем — `docs/PLAN_BATTLE_AI_CPP.md`, `docs/TOOLS.md`.
-  Грабля — `docs/PITFALLS.md`.
+- `[P]` Контрольный прогон боя — обёртки `tools/probes/battle_169.ps1` (16:9) и `battle_43.ps1` (4:3) над раннером
+  `perform_action_in_game.ps1` (20.11.2026): `MenuSec=6`, `-Waves 3`, снимок `shot:summons`; Enter×2 при загрузке
+  сейва, Enter на «Атака?», один `key:32` сразу после входа в бой (снимает стартовую паузу боя). Грабля — `docs/PITFALLS.md`.
 - `[P]` Фаза 0 порта боя закрыта (19.11.2026): монолит `tools/ldhook/ldhook.cpp` разбит на TU (`sites_hd.cpp`,
   `battle/*`), `battle/structs.h` с именованными полями, каркас trace `LDHOOK_BATTLE_TRACE`; поведение site1/site2/site3/site5/site6 не изменилось — `docs/PLAN_BATTLE_AI_CPP.md`.
 - `[U]` Цель порта боя (19.11.2026): читаемая C++-реализация боевой логики и поиска пути

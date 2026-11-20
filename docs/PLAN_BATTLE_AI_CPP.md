@@ -85,10 +85,10 @@ FUN_0044bdd0  тик боевого AI (верхний уровень)
 
 ### Боевой гейт (снимок саммонов)
 
-`tools/probes/battle_test.ps1` на установке (`config[game.root]`, `3840x2160`, `LDHOOK_LOG=1`).
-Сценарий: вход в бой по фиксированным шагам **без `waitfor`** (детект `SCENE battle`
-ненадёжен) → 3 волны призыва (каст по земле, по 2 саммона за волну) → **снимок через
-1 с после 3-й волны** → игра гасится.
+`tools/probes/battle_169.ps1` (обёртка `perform_action_in_game.ps1`, аргументы захардкожены)
+на установке (`config[game.root]`, `3840x2160`; A/B на scratch — `LDHOOK_LOG=1`).
+Сценарий: вход в бой по фиксированным шагам → 3 волны призыва (каст по земле, `-Waves 3`) →
+**снимок через 1 с после 3-й волны** → игра гасится.
 
 Критерий: на снимке рядом с персонажем **≥2 призванных саммона**. Точка спавна фиксирована
 (`FIXED_ENTRANCE_INDEX = 5`, `patches/bdomain.py`; `docs/PATCHES.md`), дистанция до ближайшего врага
@@ -311,7 +311,7 @@ ld_info("BATTLE tick=%ld unit=%d code=%d u170=%d al=%d out=%d "
    ротаций, µs; Python API `log`/`set_level`/`stats`; `set_cap`/`cap_stats`/`diag_stats`
    удалить; `install_site4` и константы site4 удалить, site5 — по решению 1.7.
 
-Гейт: бой A/B на одном сейве `battle_test.ps1`; в trace — ротация кандидатов,
+Гейт: бой A/B на одном сейве `battle_169.ps1`; в trace — ротация кандидатов,
 нет «scan → NULL», code=4 на 2-й итерации как у native; крашей нет; Боевой гейт;
 рецензия.
 
@@ -358,7 +358,7 @@ rc 0); рецензия.
 1. Офлайн: `build.py` → `check_sites.py` (`installable`) → `smoke_api.py`.
 2. 4:3 identity и битовый эталон: `probe_exitcode.ps1` (`matrix[0] 0x3FA646F1 →
    0x3F7987FA`, `k==1` identity); site1/2/3 не затронуты.
-3. Бой: `battle_test.ps1` (дефолты `MenuSec=6`, `-Waves 3`, `cpu:SEC`) — baseline
+3. Бой: `battle_169.ps1` (дефолты `MenuSec=6`, `-Waves 3`, `cpu:SEC`) — baseline
    (`LDHOOK_SITE6=0`) vs порт; trace-диф решений и Боевой гейт (спавн фиксирован
    `FIXED_ENTRANCE_INDEX` — снимки одного индекса сравнимы попиксельно).
 4. Установка: снапшот diff = 0, `check_state.py --quick` rc 0; md5 нового `.pyd` —
@@ -402,7 +402,8 @@ rc 0); рецензия.
 - Код: `tools/ldhook/ldhook.cpp` + `tools/ldhook/battle/*`.
 - Документ алгоритма: `docs/OBSERVATIONS_BATTLE_AI.md`.
 - Сборка/аудит: `tools/ldhook/build.py`, `check_sites.py`, `smoke_api.py`.
-- Зонды: `tools/probes/probe_exitcode.ps1`, `tools/probes/battle_test.ps1`.
+- Зонды: `tools/probes/probe_exitcode.ps1`, `tools/probes/perform_action_in_game.ps1` (раннер) и
+  его обёртки `battle_169.ps1` (16:9), `battle_43.ps1` (4:3).
 - Старый план (`docs/archive/PLAN_BATTLE_AI_PORT.md`) — история, не канон.
 
 ## Коммиты
