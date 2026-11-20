@@ -27,6 +27,7 @@
 #define CAP_MAX_CALLS   400        /* дефолтный предел пар cap/res */
 #define CAP_MAX_NODES   20000      /* предохранитель обхода map1/map2 */
 #define CAP_MAX_LEAF    32768      /* предохранитель потока листьев */
+#define CAP_MAX_ITER    65536      /* предохранитель iter_seq (H6-латч) */
 #define CAP_WORDS       5          /* dword'ы возвращённого cb40-объекта */
 
 typedef struct {
@@ -39,6 +40,7 @@ typedef struct {
     cap_pos parent;
     cap_pos nbr[9];
     int occ_key;
+    int pos_addr;               /* LDPos* — ключ map1 (dd00: ключ = указатель) */
 } cap_node;
 
 static int   g_enabled = 0;
@@ -51,8 +53,9 @@ static int   g_closed = 0;
 static cap_node *g_nodes = NULL;
 static int      *g_occ = NULL;
 static cap_pos  *g_iter = NULL;
-static int       g_iter_cap = 4096;
+static int       g_iter_cap = CAP_MAX_ITER;
 static int      *g_path = NULL;
+static int      *g_pptr = NULL;      /* указатель, возвращённый cb40 (identity) */
 static int      *g_heur = NULL;
 static int      *g_tout = NULL;
 
@@ -60,6 +63,7 @@ static void     *g_this = NULL;
 static void     *g_out_code = NULL;
 static int       g_filter = 0;
 static cap_pos   g_cmp = { -1, -1 };
+static int       g_cmp_addr = 0;     /* LDPos* цели — identity-гейт e0a0 */
 static unsigned int g_timeout_bits = 0;
 static int       g_tick = -1, g_unit = -1;
 static int       g_iter_n = 0, g_node_n = 0, g_occ_n = 0;
@@ -98,11 +102,12 @@ void battle_capture_init(void)
     g_occ = (int *)malloc((size_t)CAP_MAX_NODES * sizeof(int));
     g_iter = (cap_pos *)malloc((size_t)g_iter_cap * sizeof(cap_pos));
     g_path = (int *)malloc((size_t)CAP_MAX_LEAF * CAP_WORDS * sizeof(int));
+    g_pptr = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
     g_heur = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
     g_tout = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
-    if (!g_nodes || !g_occ || !g_iter || !g_path || !g_heur || !g_tout) {
+    if (!g_nodes || !g_occ || !g_iter || !g_path || !g_pptr || !g_heur || !g_tout) {
         free(g_nodes); free(g_occ); free(g_iter);
-        free(g_path); free(g_heur); free(g_tout);
+        free(g_path); free(g_pptr); free(g_heur); free(g_tout);
         fclose(g_file); g_file = NULL;
         ld_info("battle_capture: out of memory — capture OFF");
         return;
@@ -195,6 +200,7 @@ static int cap_read_node(TreeNode *tn, cap_node *out)
             cap_read_ps_pos(n->nbr[i], &out->nbr[i]);
         }
         out->occ_key = cap_occ_key(&out->pos);
+        out->pos_addr = (int)(size_t)(void *)n->pos;
         return 1;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         out->pos.x = -1; out->pos.y = -1;
@@ -253,7 +259,7 @@ static void cap_write_node(FILE *f, const cap_node *n)
     for (i = 0; i < 9; i++) {
         fprintf(f, "%s[%d,%d]", i ? "," : "", n->nbr[i].x, n->nbr[i].y);
     }
-    fprintf(f, "],\"occ_key\":%d}", n->occ_key);
+    fprintf(f, "],\"occ_key\":%d,\"pos_addr\":%d}", n->occ_key, n->pos_addr);
 }
 
 static void cap_write_map1(FILE *f)
@@ -380,6 +386,7 @@ void battle_capture_e0a0_enter(void *this_, int filter, void *cmp,
     g_leaf_overflow = 0;
 
     cap_read_pos(cmp, &g_cmp);
+    g_cmp_addr = (int)(size_t)cmp;
     __try {
         if (self != NULL) {
             memcpy(&timer, &self->timer_start_sec, sizeof(timer));
@@ -402,12 +409,13 @@ void battle_capture_e0a0_enter(void *this_, int filter, void *cmp,
     g_seq++;
     fprintf(g_file, "{\"v\":1,\"kind\":\"cap\",\"seq\":%d,\"tick\":%d,"
             "\"unit\":%d,\"fn\":\"e0a0\",\"args\":{\"filter\":%d,"
-            "\"cmp\":[%d,%d],\"timeout_bits\":%u,\"out_ptr\":%d},"
+            "\"cmp\":[%d,%d],\"cmp_addr\":%d,\"timeout_bits\":%u,\"out_ptr\":%d},"
             "\"ai\":{\"timer_bits\":%u,\"final_bits\":%u,"
             "\"dist_bits\":%u,\"yrad\":%d,\"xrad\":%d,\"rect\":[%d,%d,%d,%d],"
             "\"anchor\":[%d,%d],\"trk\":%d,\"bd2\":%u,\"code\":%d,"
             "\"ctx_flags\":%u,\"world_scale_bits\":%u},",
-            g_seq, g_tick, g_unit, g_filter, g_cmp.x, g_cmp.y, g_timeout_bits,
+            g_seq, g_tick, g_unit, g_filter, g_cmp.x, g_cmp.y, g_cmp_addr,
+            g_timeout_bits,
             out_code ? 1 : 0, timer, finalb, distb,
             self ? self->y_radius : -1, self ? self->x_radius : -1,
             self ? self->canvas_rect.left : -1, self ? self->canvas_rect.top : -1,
@@ -450,19 +458,23 @@ void battle_capture_leaf(int kind, int value, const int *words)
         return;
     }
     if (kind == CAP_LEAF_PATH) {
+        int leaf_index = g_path_n / CAP_WORDS;
         if (g_path_n + CAP_WORDS > CAP_MAX_LEAF * CAP_WORDS) {
             g_leaf_overflow = 1;
             return;
         }
         if (value == 0 || words == NULL) {
-            g_path[g_path_n++] = 0x7fffffff;    /* NULL-маркер */
+            g_pptr[leaf_index] = 0;             /* NULL-маркер */
+            g_path[g_path_n++] = 0x7fffffff;
             g_path_n += CAP_WORDS - 1;
             return;
         }
+        g_pptr[leaf_index] = value;             /* LDPos* — ключ/identity */
         __try {
             memcpy(&g_path[g_path_n], words, CAP_WORDS * sizeof(int));
             g_path_n += CAP_WORDS;
         } __except (EXCEPTION_EXECUTE_HANDLER) {
+            g_pptr[leaf_index] = 0;
             g_path[g_path_n++] = 0x7fffffff;
             g_path_n += CAP_WORDS - 1;
         }
@@ -511,6 +523,8 @@ void battle_capture_e0a0_exit(void *node)
     }
     fprintf(g_file, ",\"code\":%d,\"iters\":%d,\"iter_seq\":", code, iters);
     cap_write_iter(g_file);
+    fprintf(g_file, ",\"iter_cap\":%d,\"iter_overflow\":%d", g_iter_cap,
+            (g_iter_n >= g_iter_cap) ? 1 : 0);
     /* map1_after/occ_after — состояние после вызова (источник новых узлов). */
     cap_read_map1(self);
     cap_read_occ(self);
@@ -521,6 +535,8 @@ void battle_capture_e0a0_exit(void *node)
     /* Поток листьев нативных калlee (перепроецируется харнессом). */
     fputs(",\"leaf\":{\"path\":", g_file);
     cap_write_path(g_file);
+    fputs(",\"ptr\":", g_file);
+    cap_write_ints(g_file, g_pptr, g_path_n / CAP_WORDS);
     fputs(",\"heur\":", g_file);
     cap_write_ints(g_file, g_heur, g_heur_n);
     fputs(",\"timeout\":", g_file);

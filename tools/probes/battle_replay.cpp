@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <string>
 #include <vector>
 #include <map>
@@ -26,6 +27,8 @@
 #include "../ldhook/battle/native.h"
 
 /* --------------------------- минимальный JSON --------------------------- */
+
+static int replay_trace_level(void);      /* определён ниже (логгер) */
 
 struct JVal {
     enum T { NUL, BOOL, NUM, STR, ARR, OBJ } t;
@@ -191,6 +194,12 @@ static const JVal &jarr(const JVal &v, const char *key, const char *where) {
     return x;
 }
 static bool jisnull(const JVal &v) { return v.t == JVal::NUL; }
+static bool jhas(const JVal &v, const char *key) {
+    return v.t == JVal::OBJ && v.o.find(key) != v.o.end();
+}
+static long long jint_opt(const JVal &v, const char *key, long long def) {
+    return jhas(v, key) ? jint(v, key, "record") : def;
+}
 static long long jnum(const JVal &v, const char *where) {
     if (v.t != JVal::NUM) {
         throw std::runtime_error(std::string(where) + ": expected number");
@@ -203,14 +212,16 @@ static long long jnum(const JVal &v, const char *where) {
 struct CapNode {
     int x, y, filter, g, d2, h10k, cost;
     int px, py, occ_key;
+    int pos_addr;                   /* LDPos* (ключ map1, identity-гейт) */
     int nbr[9][2];
 };
-struct PathLeaf { bool null; int w[5]; };
+struct PathLeaf { bool null; int w[5]; int addr; };
 
 struct Call {
     JVal cap;                       /* исходная cap-запись */
     int seq, tick, unit, filter, out_ptr;
     int cmp[2];
+    int cmp_addr;
     unsigned timeout_bits;
     unsigned timer_bits, final_bits, dist_bits, ctx_flags, world_scale_bits;
     int yrad, xrad, rect[4], anchor[2], trk;
@@ -245,6 +256,7 @@ static void read_call(Call &c, const JVal &cap, const JVal *res) {
     c.unit = (int)jint(cap, "unit", "cap");
     c.filter = (int)jint(args, "filter", "cap.args");
     read_pos(jget(args, "cmp", "cap.args"), c.cmp, "cap.args.cmp");
+    c.cmp_addr = (int)jint_opt(args, "cmp_addr", 0);
     c.timeout_bits = (unsigned)jint(args, "timeout_bits", "cap.args");
     c.out_ptr = (int)jint(args, "out_ptr", "cap.args");
 
@@ -276,6 +288,7 @@ static void read_call(Call &c, const JVal &cap, const JVal *res) {
         n.cost = (int)jint(e, "cost", "cap.map1");
         read_pos(jget(e, "parent", "cap.map1"), &n.px, "cap.map1.parent");
         n.occ_key = (int)jint(e, "occ_key", "cap.map1");
+        n.pos_addr = (int)jint_opt(e, "pos_addr", 0);
         const JVal &nb = jarr(e, "nbr", "cap.map1");
         for (int k = 0; k < 9 && k < (int)nb.a.size(); k++) {
             read_pos(nb.a[k], n.nbr[k], "cap.map1.nbr");
@@ -303,6 +316,10 @@ static void read_leaves(Call &c, const JVal &res) {
     {
         const JVal &leaf = jget(res, "leaf", "res");
         const JVal &lp = jarr(leaf, "path", "res.leaf");
+        const JVal *ptr = jhas(leaf, "ptr") ? &jget(leaf, "ptr", "res.leaf") : NULL;
+        if (ptr != NULL && ptr->t != JVal::ARR) {
+            ptr = NULL;
+        }
         for (size_t i = 0; i < lp.a.size(); i++) {
             PathLeaf pl;
             memset(&pl, 0, sizeof(pl));
@@ -314,6 +331,13 @@ static void read_leaves(Call &c, const JVal &res) {
                 for (size_t k = 0; k < 5 && k < lp.a[i].a.size(); k++) {
                     pl.w[k] = (int)jnum(lp.a[i].a[k], "res.leaf.path");
                 }
+            }
+            if (ptr != NULL && i < ptr->a.size()) {
+                pl.addr = (int)jnum(ptr->a[i], "res.leaf.ptr");
+                if (pl.addr == 0) pl.null = true;   /* NULL-маркер указателя */
+            } else if (!pl.null) {
+                throw std::runtime_error("res.leaf.path: 'ptr' missing "
+                                         "(capture without LDPos addresses)");
             }
             c.leaves_path.push_back(pl);
         }
@@ -336,7 +360,12 @@ extern "C" {
     static Call *g_cur = NULL;
     static size_t g_pi = 0, g_hi = 0, g_ti = 0;
     static std::vector<int *> g_fake_path;
-    static std::map<int, int *> g_pos_obj;   /* ключ occ → канонический LDPos */
+    /* Identity: нативный LDPos* — ключ map1 и операнд гейта cur->pos==cmp
+     * (@0x45e137). Ключ карты — реальный адрес из захвата; объект(ы) харнеса,
+     * выступающие его носителем, отображаются в тот же адрес. 0x100000000|
+     * occ_key — запасной ключ для захватов без адресов (координаты). */
+    static std::map<unsigned long long, int *> g_pos_obj;
+    static std::map<int *, unsigned long long> g_obj_key;
     static std::vector<int> g_iter_seq;      /* пары x,y; -1/-1 = null */
     static int g_exit_node[2];
     static int g_exit_code = -1, g_exit_iters = -1;
@@ -375,19 +404,59 @@ static TreeNode *rep_nil(Rep *r) {
     return (TreeNode *)(void *)r->nilBuf;
 }
 
+/* Текущая реплика вызова: нативный ABI map2 — объект std::map ВНУТРИ BattleAI
+ * (dd70 `lea 0x74(%edi),%ecx` @0x45dec8, head по +0x78), поэтому target.cpp
+ * передаёт &self->map2 = aiBuf+0x74. Харнес держит RepMap2 отдельно — резолв
+ * по этому адресу. */
+static Rep *g_rep = NULL;
+
 static int occ_key_of(LDPos *p) {
     return (int)(((unsigned short)p->y << 16) | (unsigned short)p->x);
+}
+
+/* Ключи identity-карты: реальный адрес LDPos из захвата; запасной режим —
+ * 0x100000000|occ_key (только для старых захватов без адресов). */
+static unsigned long long pos_key_addr(int addr) {
+    return (unsigned long long)(unsigned)addr;
+}
+static unsigned long long pos_key_coord(int x, int y) {
+    return 0x100000000ULL |
+           (unsigned long long)((((unsigned short)y << 16) | (unsigned short)x));
+}
+
+/* Порядок map1 задаётся КЛЮЧОМ узла — указателем LDPos (dd00 передаёт
+ * &obj->pos в insert, 0xc(%узла) сравнивается в 45d810). tn->key = реальный
+ * адрес из захвата (pos_addr); новые узлы получают адрес своего
+ * cb40-результата (leaf ptr). Запасной режим (старый захват без адресов):
+ * (x,y)-мажор — так отсортированы все map1/map1_after таких записей.
+ * Порядок важен: s6_scan_map берёт строго минимум метрики (при равных —
+ * первый in-order). */
+static bool m1_less(TreeNode *a, TreeNode *b) {
+    unsigned ka = (unsigned)a->key, kb = (unsigned)b->key;
+    if (ka != 0 && kb != 0) {
+        return ka < kb;
+    }
+    {
+        PathState *pa = (PathState *)a->value;
+        PathState *pb = (PathState *)b->value;
+        LDPos *qa = pa ? pa->pos : NULL;
+        LDPos *qb = pb ? pb->pos : NULL;
+        int ax = qa ? qa->x : -1, ay = qa ? qa->y : -1;
+        int bx = qb ? qb->x : -1, by = qb ? qb->y : -1;
+        if (ax != bx) return ax < bx;
+        return ay < by;
+    }
 }
 
 static void rep_rebuild_m1(Rep *r) {
     TreeNode *nil = rep_nil(r);
     size_t i, n = r->m1nodes.size();
+    std::sort(r->m1nodes.begin(), r->m1nodes.end(), m1_less);
     for (i = 0; i < n; i++) {
         TreeNode *tn = r->m1nodes[i];
         tn->left = nil;
         tn->right = (i + 1 < n) ? r->m1nodes[i + 1] : &r->m1head;
         tn->parent = (i > 0) ? r->m1nodes[i - 1] : &r->m1head;
-        tn->key = 0;                        /* native dd00: map1 key = 0 */
         tn->is_nil = 0;
     }
     r->m1head.left = n ? r->m1nodes[0] : &r->m1head;
@@ -478,6 +547,7 @@ static void rep_build(Rep *r, const Call &c) {
         }
         r->nodes.push_back(n);
         n->tn.value = &n->ps;
+        n->tn.key = src.pos_addr;
         r->m1nodes.push_back(&n->tn);
         bypos[occ_key_of(&n->pos)] = n;
     }
@@ -502,26 +572,36 @@ static void rep_build(Rep *r, const Call &c) {
         }
     }
     /* cmp/anchor: нативная gate1 — сравнение УКАЗАТЕЛЕЙ cur->pos == cmp;
-     * восстанавливаем через канонический объект координат (см. replay_path_next). */
+     * identity воспроизводится по реальным адресам LDPos из захвата. */
     g_pos_obj.clear();
+    g_obj_key.clear();
     for (i = 0; i < c.map1.size(); i++) {
         RNode *n = r->nodes[i];
-        g_pos_obj[occ_key_of(&n->pos)] = (int *)(void *)&n->pos;
+        unsigned long long k = (c.map1[i].pos_addr != 0)
+            ? pos_key_addr(c.map1[i].pos_addr)
+            : pos_key_coord(n->pos.x, n->pos.y);
+        g_pos_obj[k] = (int *)(void *)&n->pos;
+        g_obj_key[(int *)(void *)&n->pos] = k;
     }
     {
-        int key = occ_key_of(&r->cmpPos);
-        std::map<int, int *>::const_iterator it = g_pos_obj.find(key);
+        unsigned long long key;
+        std::map<unsigned long long, int *>::const_iterator it;
+        r->cmpPos.x = c.cmp[0]; r->cmpPos.y = c.cmp[1];
+        key = (c.cmp_addr != 0) ? pos_key_addr(c.cmp_addr)
+                                : pos_key_coord(c.cmp[0], c.cmp[1]);
+        it = g_pos_obj.find(key);
         if (it == g_pos_obj.end()) {
-            r->cmpPos.x = c.cmp[0]; r->cmpPos.y = c.cmp[1];
             g_pos_obj[key] = (int *)(void *)&r->cmpPos;
+            g_obj_key[(int *)(void *)&r->cmpPos] = key;
             r->cmpPtr = &r->cmpPos;
         } else {
             r->cmpPtr = (LDPos *)(void *)it->second;
         }
     }
     {
-        int key = occ_key_of(&r->anchorPos);
-        std::map<int, int *>::const_iterator it = g_pos_obj.find(key);
+        unsigned long long key = pos_key_coord(c.anchor[0], c.anchor[1]);
+        std::map<unsigned long long, int *>::const_iterator it =
+            g_pos_obj.find(key);
         ai->anchor = (it == g_pos_obj.end())
                      ? &r->anchorPos : (LDPos *)(void *)it->second;
     }
@@ -572,16 +652,19 @@ extern "C" void *replay_path_next(void) {
     }
     PathLeaf pl = c->leaves_path[g_pi++];
     if (pl.null) return NULL;
-    /* Канонический объект на координаты: нативный cb40 возвращает сам LDPos
-     * ячейки сетки, один и тот же при повторных запросах; identity cur->pos ==
-     * cmp держится на равенстве указателей, поэтому копии недопустимы. */
-    int key = (int)(((unsigned short)pl.w[4] << 16) | (unsigned short)pl.w[3]);
-    std::map<int, int *>::const_iterator it = g_pos_obj.find(key);
+    /* Объект-носитель реального адреса LDPos из захвата: нативный cb40
+     * возвращает тот же LDPos, что потом лежит в pfs->pos, поэтому identity
+     * cur->pos == cmp — это равенство адресов, а не координат. */
+    unsigned long long key = (pl.addr != 0)
+        ? pos_key_addr(pl.addr)
+        : pos_key_coord(pl.w[3], pl.w[4]);
+    std::map<unsigned long long, int *>::const_iterator it = g_pos_obj.find(key);
     if (it != g_pos_obj.end()) return it->second;
     int *obj = (int *)calloc(8, sizeof(int));   /* +0x00..+0x1f */
     for (int k = 0; k < 5; k++) obj[k] = pl.w[k];
     g_fake_path.push_back(obj);
     g_pos_obj[key] = obj;
+    g_obj_key[obj] = key;
     return obj;
 }
 
@@ -628,13 +711,31 @@ TreeNode *lower_bound(void *map, unsigned int key, void *hint) {
     return s6_map_lower_bound(&((RepMap2 *)map)->head, key);
 }
 TreeNode *lower_bound_slots(void *map, int *out, int *key) {
-    RepMap2 *m = (RepMap2 *)map;
-    TreeNode *found = &m->head;
+    RepMap2 *m;
+    TreeNode *found;
+    if (g_rep != NULL &&
+        map == (void *)((unsigned char *)g_rep->aiBuf + 0x74)) {
+        m = &g_rep->m2;
+    } else {
+        m = (RepMap2 *)map;
+    }
+    found = &m->head;
+    /* Нативный FUN_00434bc0 (lower_bound) + проверка @0x45ded2: занятым
+     * считается только ТОЧНЫЙ ключ; lower_bound ушёл вправо → head (end). */
     for (size_t i = 0; i < m->nodes.size(); i++) {
-        if ((unsigned)m->nodes[i]->key >= (unsigned)*key) {
+        unsigned ek = (unsigned)m->nodes[i]->key;
+        if (ek == (unsigned)*key) {
             found = m->nodes[i];
             break;
         }
+        if (ek > (unsigned)*key) {
+            break;                      /* exact-match нет → head */
+        }
+    }
+    if (replay_trace_level() >= 2) {
+        fprintf(stderr, "lb: key=%d size=%u found=%s val=%p\n", *key,
+                (unsigned)m->nodes.size(),
+                found == &m->head ? "head" : "node", found->value);
     }
     *out = (int)(size_t)found;
     return found;
@@ -650,12 +751,22 @@ void register_occupied_slot(void *ai, LDObject *obj) {
 
     if (ps == NULL) return;
     p = ps->pos;
-    /* FUN_0045dd00: объект в map1 (key=0, value=obj) и в map2 (key=coords).
-     * map1 хранит сам объект — identity cur->pos == cmp сравнивает указатели. */
+    /* FUN_0045dd00: объект в map1 (ключ = LDPos*, ключ узла = pos_addr) и в
+     * map2 (ключ = координаты). map1 хранит сам объект — identity
+     * cur->pos == cmp сравнивает указатели. */
     tn = new TreeNode;
     memset(tn, 0, sizeof(*tn));
     tn->value = ps;
     tn->is_nil = 0;
+    {
+        /* Ключ map1 = адрес LDPos (нативный dd00); у new-узла это адрес его
+         * cb40-результата из replay_path_next. Нет адреса — 0 (старый захват,
+         * тогда порядок задаёт (x,y)-фолбэк в m1_less). */
+        std::map<int *, unsigned long long>::const_iterator ai_it =
+            g_obj_key.find((int *)(void *)p);
+        tn->key = (ai_it != g_obj_key.end())
+                  ? (int)(unsigned)ai_it->second : 0;
+    }
     r->m1nodes.push_back(tn);
     m2tn = new TreeNode;
     memset(m2tn, 0, sizeof(*m2tn));
@@ -663,6 +774,11 @@ void register_occupied_slot(void *ai, LDObject *obj) {
     m2tn->value = obj;
     m2tn->is_nil = 0;
     r->m2.nodes.push_back(m2tn);
+    if (replay_trace_level() >= 2) {
+        fprintf(stderr, "register: obj=%p pos=(%d,%d) key=%d m2size=%u\n",
+                (void *)obj, p ? p->x : -1, p ? p->y : -1, m2tn->key,
+                (unsigned)r->m2.nodes.size());
+    }
     rep_rebuild_m1(r);
     rep_rebuild_m2(r);
     ((BattleAI *)(void *)r->aiBuf)->reserved_70 = (int)r->m1nodes.size();
@@ -683,12 +799,38 @@ void *operator_new(unsigned int size) { return calloc(1, size); }
 void deallocate(void *ptr) { free(ptr); }
 } /* namespace native */
 
-/* Логгер/утилиты, нужные battle/*.cpp */
+/* Логгер/утилиты, нужные battle/*.cpp. LD_REPLAY_TRACE=1/2 включает вывод
+ * порта в stderr (1 — info, 2 — info+debug), по умолчанию тишина. */
 volatile LONG g_log_level = 0;
-void ld_info(const char *fmt, ...) { (void)fmt; }
-void ld_debug(const char *fmt, ...) { (void)fmt; }
+static int replay_trace_level(void) {
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("LD_REPLAY_TRACE");
+        v = (s != NULL && *s != '\0') ? atoi(s) : 0;
+    }
+    return v;
+}
+static void replay_trace(const char *fmt, va_list ap) {
+    vfprintf(stderr, fmt, ap);
+    fputc('\n', stderr);
+}
+void ld_info(const char *fmt, ...) {
+    va_list ap;
+    if (replay_trace_level() < 1) return;
+    va_start(ap, fmt);
+    replay_trace(fmt, ap);
+    va_end(ap);
+}
+void ld_debug(const char *fmt, ...) {
+    va_list ap;
+    if (replay_trace_level() < 2) return;
+    va_start(ap, fmt);
+    replay_trace(fmt, ap);
+    va_end(ap);
+}
 int ld_rate(volatile LONG *ctr, LONG first, LONG each) {
-    (void)ctr; (void)first; (void)each; return 0;
+    (void)ctr; (void)first; (void)each;
+    return (replay_trace_level() >= 2) ? 1 : 0;   /* LD_REPLAY_TRACE=2 → всё */
 }
 LONGLONG ld_now_us(void) { return 0; }
 void battle_trace_e0a0_enter(void *this_, int filter) { (void)this_; (void)filter; }
@@ -814,6 +956,9 @@ int main(int argc, char **argv) {
         return 2;
     }
     inpath = argv[1]; outpath = argv[2];
+    if (replay_trace_level() >= 2) {
+        g_log_level = 2;                /* LD_DEBUG (ldhook_internal.h) */
+    }
     fin = fopen(inpath, "rb");
     if (fin == NULL) {
         fprintf(stderr, "ERROR: cannot open capture '%s'\n", inpath);
@@ -876,6 +1021,7 @@ int main(int argc, char **argv) {
         Rep *r = new Rep;
         try {
             rep_build(r, *c);
+            g_rep = r;
             BattleAI *ai = (BattleAI *)(void *)r->aiBuf;
             void *cmpPos = (void *)r->cmpPtr;
             int out_code = 0;
@@ -886,6 +1032,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "ERROR: replay seq=%d failed: %s\n", c->seq, e.what());
             rc = 2;
         }
+        g_rep = NULL;
         delete r;
     }
     fclose(fout);
