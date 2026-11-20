@@ -335,8 +335,10 @@ GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
  * пропускается; ключ = (word(ebp)<<16)|word(edi) (@0x45cbfc..0x45cc07);
  * lower_bound(map2, &LS(0x44), &LS(0x38)) @0x45cc28; узел == occ_head → NOT
  * занято (@0x45cc2d/0x45cc32; занято → сразу хвост); тесты знаков edi<0/
- * ebp<0 (@0x45cc3f/0x45cc45) → 0; границы !(L[0x30] > size_x), !(L[0x34] >
- * size_y) (FILD @0x45cc4d..0x45cc6f, grid = game_ctx[8]) → 0; узел CALL
+ * ebp<0 (@0x45cc3f/0x45cc45) → 0; границы !(size_x > L[0x30]), !(size_y >
+ * L[0x34]) (FILD-порядок: ST0 = size (@0x45cc51/0x45cc65), ST1 = счётчик
+ * (@0x45cc4d/0x45cc61); маска 0x41 → выход при size <= счётчик, grid =
+ * game_ctx[8]) → 0; узел CALL
  * 0x4570d0(grid, edi, ebp) — x=inner, y=outer (@0x45cc77, RET 8), NULL → 0
  * (@0x45cc80); p7 = imax(|L[0x1c]|,|L[0x24]|) (@0x45cc86..0x45cca2);
  * рекурсия CALL c3a0 @0x45ccc1: p1=узел, p2=spec[0], p3=&spec+0x10 (int,
@@ -400,8 +402,10 @@ void *s6_path_search(BattleAI *self, PathState *spec)
                             if (ebp < 0) { return NULL; }   /* @0x45cc47 JL */
                             grid = (GridLevel *)(INT_PTR)
                                 *(const int *)((const unsigned char *)self->game_ctx + 8);  /* @0x45cc3c */
-                            if (!(LS(0x30) > grid->size_x)) { return NULL; }  /* FILD @0x45cc4d..0x45cc5b */
-                            if (!(LS(0x34) > grid->size_y)) { return NULL; }  /* FILD @0x45cc61..0x45cc6f */
+                            /* FCOMPP ST0=size_x (FILD @0x45cc51) vs ST1=edi (FILD @0x45cc4d):
+                             * маска 0x41 (C3|C0) → выход, когда size_x <= edi. */
+                            if (!(grid->size_x > LS(0x30))) { return NULL; }  /* @0x45cc4d..0x45cc5b */
+                            if (!(grid->size_y > LS(0x34))) { return NULL; }  /* @0x45cc61..0x45cc6f */
                             node2 = s6_grid_lookup(grid, edi, ebp);  /* @0x45cc77: x=inner, y=outer */
                             if (node2 == NULL) { return NULL; }     /* @0x45cc80 */
                             p7 = s6_imax(s6_iabs(LS(0x1c)), s6_iabs(LS(0x24)));  /* @0x45cc86..0x45cca2 */
@@ -441,15 +445,17 @@ void *s6_path_search(BattleAI *self, PathState *spec)
         }
     }
 
-    /* Финальный гейт 0x45cd3e..0x45cd73: флаги world[0x120] vs [0x4ec37c]=
-     * 0.0f (@0x45cd4d) перекрываются вторым FNSTSW (@0x45cd5e); успех ⟺
-     * NOT(out < min) ИЛИ NOT(threshold + out > min), min = bits(L[0x10]),
-     * out = spec->out_metric. Возврат L[0x40] (@0x45cd3a). */
+    /* Финальный гейт 0x45cd3e..0x45cd73: первый FCOMPS (world[0x120] vs 0.0f
+     * @0x45cd4d) мёртв — его флаги перекрывает второй FNSTSW (@0x45cd5e).
+     * Успех ⟺ JP(маска 0x5, FCOMPS(out, L[0x10]) @0x45cd57) — «не (out < min)»,
+     * ИЛИ JNE(маска 0x41, FCOMPS(final_threshold+out, L[0x10]) @0x45cd6a) —
+     * «thr+out <= min». min = bits(L[0x10]), out = spec->out_metric. Возврат
+     * L[0x40] (@0x45cd3a). */
     {
         float outv = spec->out_metric;
         float minv = s6_bits_get(LS(0x10));
 
-        if (!(outv < minv) || (self->final_threshold + outv >= minv)) {
+        if (!(outv < minv) || (self->final_threshold + outv <= minv)) {
             return (void *)(INT_PTR)LS(0x40);
         }
     }

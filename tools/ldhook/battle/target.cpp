@@ -566,10 +566,10 @@ int s6_heuristic(void *this_, int *slot)
 
     obj1 = native::vcall0(world, 0x40);            /* CALL *[EDX+0x40] @0x45c5ef */
     a1 = *(int *)(obj1 + 0x244);                   /* EAX = [obj1+0x244] @0x45c5f7 → слот S-0x1c @0x45c5ff */
-    obj2 = native::vcall1(world, 0x40, a1);        /* CALL *[EDX+0x40] @0x45c603. Допущение: форма с
-                                                    * одним int-аргументом (a1 в spilled-слоте S-0x1c,
-                                                    * `MOV EDI,[ESP+0x2C]` @0x45c617 читает arg1-слот);
-                                                    * листинг не фиксирует число аргументов vtable- call. */
+    obj2 = native::vcall0(world, 0x40);           /* CALL *[EDX+0x40] @0x45c603 — пушей между
+                                                    * 0x45c5ff и 0x45c603 нет: форма та же, что у
+                                                    * первого вызова (ECX = world, без аргументов);
+                                                    * a1 — значение [obj1+0x244], не аргумент. */
     obj3 = *(int *)(obj2 + 0x228);                 /* EBX = [obj2+0x228] @0x45c606 — только receiver @0x45c63b */
     w120 = *(int *)(world + 0x120);                /* EDX @0x45c611 → слот S-0x18 @0x45c624 */
 
@@ -781,9 +781,10 @@ int s6_ai_update(void *this_, void *cand, int arg2)
                                                               /* grid root @0x45dee4/0x45dee7 */
 
         x_start = s6_imax(pos->x - 1, 0);                     /* @0x45dd85/0x45dda5 */
-        x_max   = s6_grid_clamp(level->size_x, pos->x + 1);   /* @0x45dd8c..0x45ddd9 */
+        x_max   = s6_grid_clamp(level->size_x, pos->x + 1);   /* @0x45dd8c..@0x45ddd9 */
         y_start = s6_imax(pos->y - 1, 0);                     /* @0x45dd91/0x45dda9 */
         y_max   = s6_grid_clamp(level->size_y, pos->y + 1);   /* @0x45dde1..0x45ddfc */
+
 
         if (x_start > x_max) {                                /* @0x45de0e JG 0x45e08d */
             return 1;
