@@ -346,7 +346,8 @@ python3 tools/tex/hook_ground.py --tree <дерево> --restore   # ориги�
   `waitattack` → **Enter** («Атака?» = Да) → `waitbattle` → **key:32** (снимает стартовую паузу боя;
   больше Space не слать) → 3 волны призыва: клик слота 2-го слева (473,733), ПКМ-удержание на земле
   (500,430) → `shot:summons`. Эталонный сейв — верхняя строка списка
-  (`Documents\Boolat Games\Lethal Dreams\Saves`).
+  (`Documents\Boolat Games\Lethal Dreams\Saves`). Обёртка 4:3 возвращает `hd.cfg` установки к
+  `3840 2160 32 1` (`-RestoreCfg`).
 - Ряд иконок заклинаний центрируется по канвас 512, шаг 35, `sp_y=714` (`ui/battlemenu.py`):
   x i-й иконки = `512 − n·17.5 + 35i + 16`, n — число боевых заклинаний сейва.
 - Запуск обёрток (env обязательны, без `-GameRoot` раннер падает `GameRoot не задан`):

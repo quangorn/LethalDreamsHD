@@ -7,6 +7,7 @@
 #       [-GameRoot <дерево>] [-ShotsDir <каталог>]
 #       [-Waves 3] [-SpellX 473 -SpellY 733 -CastX 500 -CastY 430]
 #       [-LoadSec 10] [-AttackSec 5] [-BattleSec 6] [-WaveGapMs 1000] [-ClickGapMs 200]
+#       [-RestoreCfg "<W H BPP F>"]  — записать hd.cfg после прогона (обёртка 4:3 возвращает 4K)
 #
 # DSL шагов (через ';', координаты — канвас 1024x768, общий для 4:3 и 16:9):
 #   wait:SEC         пауза SEC секунд
@@ -42,6 +43,7 @@ param([int]$W = 3840, [int]$H = 2160, [int]$F = 1, [string]$Tag = "battle",
       [double]$CastX = 500, [double]$CastY = 430,
       [double]$LoadSec = 10, [double]$AttackSec = 5, [double]$BattleSec = 6,
       [int]$WaveGapMs = 1000, [int]$ClickGapMs = 200,
+      [string]$RestoreCfg = "",
       [switch]$NoKill, [string]$GameRoot = $env:LD_GAME, [string]$ShotsDir = $env:LD_SHOTS)
 if (-not $GameRoot) { throw "GameRoot не задан: -GameRoot <дерево> или LD_GAME" }
 if (-not (Test-Path (Join-Path $GameRoot "LETHALDREAMS.EXE"))) { throw "Нет LETHALDREAMS.EXE в $GameRoot" }
@@ -227,4 +229,8 @@ if (-not $NoKill) {
   Log "KILL taskkill /F /IM LETHALDREAMS.EXE"
 } else {
   Log "LEAVE running pid=$($p.Id)"
+}
+if ($RestoreCfg) {
+  Set-Content -Path (Join-Path $GameRoot "hd.cfg") -Value $RestoreCfg -Encoding ASCII
+  Log "CFG restore $RestoreCfg"
 }
