@@ -21,7 +21,7 @@
 #ifdef BATTLE_REPLAY
 extern "C" int g_replay_override;
 extern "C" void *replay_path_next(void);
-extern "C" void replay_note_path_res(void *result);
+extern "C" void *replay_note_path_res(void *result);
 #endif
 
 /* In-order successor по std::_Tree (порт FUN_0047f800, без вызова). */
@@ -548,7 +548,7 @@ void *s6_path_search(BattleAI *self, PathState *spec)
     }
     {
         void *r = s6_path_search_body(self, spec);
-        replay_note_path_res(r);          /* v5: наблюдатель реального cb40 */
+        r = replay_note_path_res(r);      /* v5: cb40-результат + identity-носитель */
         return r;
     }
 #else

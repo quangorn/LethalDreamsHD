@@ -1499,30 +1499,43 @@ extern "C" void replay_note_rescan(void *cand) {
 }
 
 /* ---------------- v5: наблюдатели реальных листьев порта ---------------- */
-extern "C" void replay_note_path_res(void *result)
+/* Identity: replay_note_path_res возвращает КАНОНИЧЕСКИЙ носитель ключа
+ * (один LDPos = один объект). Цель скана @0x45e137 (cur->pos == cmp) отдаёт
+ * cmp-носитель, иначе гейт сравнивает два разных объекта и путь @0x45e173
+ * (code=1) не срабатывает (defect: node native=[246,109] port=null). */
+extern "C" void *replay_note_path_res(void *result)
 {
     const Call *c = rep_cur();
     PathLeaf pl;
     memset(&pl, 0, sizeof(pl));
     if (result == NULL) {
         pl.null = true;
-    } else {
-        for (int k = 0; k < 5; k++) pl.w[k] = ((int *)result)[k];
-        /* Identity: нативный адрес LDPos из захвата по совпавшим координатам —
-         * только для порядка map1, не как подмена результата поиска. */
-        unsigned long long key = pos_key_coord(pl.w[3], pl.w[4]);
-        if (c != NULL && g_pi < c->leaves_path.size()) {
-            const PathLeaf &nat = c->leaves_path[g_pi];
-            if (!nat.null && nat.w[3] == pl.w[3] && nat.w[4] == pl.w[4] &&
-                nat.addr != 0) {
-                key = pos_key_addr(nat.addr);
-            }
-        }
-        g_pi++;
-        g_pos_obj[key] = (int *)result;
-        g_obj_key[(int *)result] = key;
+        if (c != NULL) const_cast<Call *>(c)->port_path.push_back(pl);
+        return NULL;
     }
+    for (int k = 0; k < 5; k++) pl.w[k] = ((int *)result)[k];
+    /* Identity: нативный адрес LDPos из захвата по совпавшим координатам —
+     * только для порядка map1, не как подмена результата поиска. */
+    unsigned long long key = pos_key_coord(pl.w[3], pl.w[4]);
+    if (c != NULL && g_pi < c->leaves_path.size()) {
+        const PathLeaf &nat = c->leaves_path[g_pi];
+        if (!nat.null && nat.w[3] == pl.w[3] && nat.w[4] == pl.w[4] &&
+            nat.addr != 0) {
+            key = pos_key_addr(nat.addr);
+        }
+    }
+    g_pi++;
+    std::map<unsigned long long, int *>::const_iterator canon =
+        g_pos_obj.find(key);
+    if (canon != g_pos_obj.end()) {
+        /* Один LDPos — один объект: цель скана отдаёт cmp-носитель. */
+        if (c != NULL) const_cast<Call *>(c)->port_path.push_back(pl);
+        return canon->second;
+    }
+    g_pos_obj[key] = (int *)result;
+    g_obj_key[(int *)result] = key;
     if (c != NULL) const_cast<Call *>(c)->port_path.push_back(pl);
+    return result;
 }
 
 extern "C" void replay_note_heur(int value)
