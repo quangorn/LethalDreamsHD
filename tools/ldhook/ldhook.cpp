@@ -583,11 +583,10 @@ static void install_site6(void)
     ld_info("install_site6: entry=0x%08x tail=0x%08x (callees ported to C)",
             (unsigned)entry_site, (unsigned)tail_site);
 
-    /* Кэш timeGetTime из IAT EXE (VA 0x4ec27c) для s6_check_timeout. EXE без
-     * ASLR (imagebase 0x400000) → base+RVA валиден как абсолютный адрес.
-     * Порт c5a0 (чистый предикат, побочных эффектов нет) в микро-цикле не
-     * вызывается: таймаут заменён границей цикла 2 итерации; ссылка — чтобы
-     * функция не удалялась. */
+    /* Кэш timeGetTime из IAT EXE (VA 0x4ec27c) — игровой таймер предиката
+     * s6_check_timeout (native `call *0x4ec27c`, п. 3.3). EXE без ASLR
+     * (imagebase 0x400000) → base+RVA валиден как абсолютный адрес.
+     * Предикат вызывается faithful-циклом s6_target_search (@0x45e14e). */
     {
         void *iat = native::fn(S6_VA_timeGetTime);
         g_s6_gettime = (iat != NULL) ? (PFN_timeGetTime)*(void **)iat : NULL;

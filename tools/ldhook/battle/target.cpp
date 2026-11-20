@@ -459,6 +459,36 @@ static volatile LONG g_s6_visit = 0;      /* счётчик визитов dd70 
 
 PFN_timeGetTime g_s6_gettime = NULL;      /* кэш timeGetTime из IAT EXE */
 
+/* Игровой таймер (native `call *0x4ec27c`, VA 0x4ec27c = timeGetTime, winmm).
+ * Кэш ставит install_site6; если IAT-слот не найден — та же функция из уже
+ * загруженного winmm (игра импортирует только timeGetTime, checks15 1.5(б)),
+ * а не другой источник времени: GetTickCount нативным таймером не является.
+ * Разрешение без malloc, результат кэшируется в g_s6_gettime. */
+static PFN_timeGetTime s6_time_get(void)
+{
+    PFN_timeGetTime fn = g_s6_gettime;
+
+    if (fn == NULL) {
+        HMODULE mm = GetModuleHandleA("winmm.dll");
+        if (mm != NULL) {
+            fn = (PFN_timeGetTime)(void *)GetProcAddress(mm, "timeGetTime");
+        }
+        if (fn != NULL) {
+            g_s6_gettime = fn;
+        }
+    }
+    return fn;
+}
+
+static unsigned long s6_time_ms(void)
+{
+    PFN_timeGetTime fn = s6_time_get();
+
+    /* Кэш пуст и winmm не найден — невозможно: без timeGetTime EXE не
+     * загрузился бы (игра импортирует только её). Часы не подменяем. */
+    return (fn != NULL) ? fn() : 0UL;
+}
+
 /* Один in-order проход std::map (порт FUN_0045ce80): this+0x6c = sentinel.
  * Фильтр [obj+8]==filter, минимум беззнакового [obj+0x24]; возврат LDObject*. */
 LDObject *s6_scan_map(void *this_, int filter)
@@ -541,27 +571,57 @@ int s6_check_distance(void *this_, void *cand)
     }
 }
 
-/* FUN_0045c5a0 — таймаут (thiscall, RET 4, AL; x87; порт 1:1). arg = float-
- * порог (4 Б, передан по значению). ms = timeGetTime() (IAT base+0xec27c);
- * сек = (double)ms*0.001 (коррекция знака 2^32); elapsed = сек − this->[0x4]
- * (float); return elapsed > порог (NaN → 1). Под SEH. */
+/* FUN_0045c5a0 (0x45c5a0..0x45c5da, RET 4, AL; x87; порт 1:1). arg = float-
+ * порог (4 Б, передан по значению). Игровой таймер: `call *0x4ec27c` (IAT
+ * EXE, VA 0x4ec27c = timeGetTime; game_dis.txt 131107-131131). Схема:
+ *   eax = timeGetTime(); test eax,eax; fildl <int>   — знаковое 32-битное;
+ *   jge → пропуск, иначе faddl 0x4ecd10 (= 2^32)      — коррекция переполнения;
+ *   fmull 0x4ecd08 (= 0.001)                          — секунды (double);
+ *   fsubs 0x4(%esi)                                   — − this->[0x4] (float→double);
+ *   fcomps 0x8(%esp) + fnstsw/test $0x5/p            — сравнение с порогом.
+ * Цепочка идёт в 80-битном x87-регистре без промежуточных округлений до
+ * double, поэтому она написана инлайн-асмом: MSVC x86 в этой тулчейн-сборке
+ * даёт `long double` = 64 бита (sizeof 8), т.е. C-код округлил бы fxmul/fxsub
+ * до double и мог бы разойтись с нативом в последнем бите.
+ * Флаги FCOM: equal → C3=C2=1, greater → 0, less → C0=1, unordered → C0=C2=1;
+ * `test $0x5` (C0|C2) + `jp` → возврат 1 ⇔ elapsed ≥ порог, NaN (любой
+ * операнд) → 1. Оба операнда расширяются до 80 бит (fcomps m32 → float→x87).
+ * Сравнение на >= (равенство даёт 1). */
+static const double s6_two32 = 4294967296.0;   /* 0x4ecd10 */
+static const double s6_milli = 0.001;          /* 0x4ecd08 */
+
 int s6_check_timeout(void *this_, void *arg)
 {
     BattleAI *self = (BattleAI *)this_;
     __try {
-        unsigned long ms;
-        double sec;
-        float start, threshold, elapsed;
+        int ms = (int)s6_time_ms();             /* mov eax,[0x4ec27c] */
+        float threshold;
+        int result;
 
-        ms = g_s6_gettime ? g_s6_gettime() : (unsigned long)GetTickCount();
-        sec = (double)(unsigned long)ms * 0.001;   /* мс→сек (unsigned-коррекция) */
-        start = self->timer_start_sec;             /* this->[0x4] — старт (сек) */
-        memcpy(&threshold, &arg, sizeof(float));   /* порог (float по значению) */
-        elapsed = (float)sec - start;
-        if (elapsed != elapsed) {                  /* NaN → timeout */
-            return 1;
+        memcpy(&threshold, &arg, sizeof(float));/* порог (float по значению) */
+        __asm {
+            /* st0 = (double)(int)ms; fildl <int> */
+            fild    dword ptr [ms]
+            mov     eax, [ms]
+            test    eax, eax
+            jge     short s6_to_nofix          /* jge 0x45c5bc */
+            fadd    qword ptr [s6_two32]       /* коррекция 2^32 */
+        s6_to_nofix:
+            fmul    qword ptr [s6_milli]       /* секунды (double) */
+            mov     eax, [self]
+            fsub    dword ptr [eax + 4]        /* − this->[0x4] */
+            fcomp   dword ptr [threshold]      /* fcomps 0x8(%esp) */
+            fnstsw  ax
+            test    ah, 05h                    /* C0|C2 → JP */
+            jp      short s6_to_true
+            xor     eax, eax                   /* 0x45c5d1: xor %al,%al */
+            jmp     short s6_to_done
+        s6_to_true:
+            mov     eax, 1                     /* 0x45c5d7: mov $0x1,%al */
+        s6_to_done:
+            mov     [result], eax
         }
-        return (elapsed > threshold) ? 1 : 0;
+        return result;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return 0;
     }
