@@ -10,7 +10,8 @@
  * точки подмены листьев в battle/*.cpp). Запуск:
  *   battle_replay.exe <capture.jsonl> <res_port.jsonl>
  *
- *房间里
+ * Точки сравнения — replay_note_* / native::-stub'ы; режим v5 (по умолчанию)
+ * прогоняет порт на реконструированной сетке, --leaf-replay оставляет старый A/B.
  */
 #include <windows.h>
 #include <stdio.h>
@@ -301,6 +302,11 @@ static unsigned char g_obj2buf[0x100];  /* +0x228 = &g_obj3buf */
 static int g_last_grid_x = -1, g_last_grid_y = -1;
 static int g_reg_overflow = 0;      /* resource guard в harness stub */
 
+/* Захваченные слова LDPos (+0x00/+0x04/+0x08 из leaf-потока) по адресу носителя:
+ * нужны, чтобы носитель ключа был заполнен снятыми значениями, а не нулями. */
+struct PosW { int w[5]; PosW() { memset(w, 0, sizeof(w)); } };
+std::map<unsigned long long, PosW> g_pos_w;
+
 static void read_pos(const JVal &v, int *xy, const char *where) {
     if (jisnull(v)) { xy[0] = -1; xy[1] = -1; return; }
     if (v.t != JVal::ARR || v.a.size() != 2) {
@@ -495,6 +501,11 @@ static void read_leaves(Call &c, const JVal &res) {
             } else if (!pl.null) {
                 throw std::runtime_error("res.leaf.path: 'ptr' missing "
                                          "(capture without LDPos addresses)");
+            }
+            if (!pl.null && pl.addr != 0) {
+                PosW pw;
+                for (int k = 0; k < 5; k++) pw.w[k] = pl.w[k];
+                g_pos_w[(unsigned long long)(unsigned)pl.addr] = pw;
             }
             c.leaves_path.push_back(pl);
         }
@@ -983,6 +994,12 @@ struct Rep {
     RepMap2 m2;
     std::vector<RNode *> nodes;
     std::vector<TreeNode *> m1nodes;  /* map1: tn->value = PathState (объект) */
+    /* Полный 64-битный ключ map1 по индексу m1nodes. Поле TreeNode.key — 32 бита
+     * (нативная раскладка узла), поэтому ключ 0x100000000|occ_key в нём обрезается
+     * до 0 и порядок сортировки смешивает адресные и координатные узлы. Порядок
+     * важен: s6_scan_map берёт строго минимум метрики (первый in-order при равенстве).
+     * tn->key остаётся обрезанным — он уходит в игру и в сравнение захвата. */
+    std::vector<unsigned long long> m1keys;
     std::vector<PathLeaf> pathPool;
     int nilBuf[8];
 };
@@ -1018,36 +1035,43 @@ static unsigned long long pos_key_coord(int x, int y) {
  * (x,y)-мажор — так отсортированы все map1/map1_after таких записей.
  * Порядок важен: s6_scan_map берёт строго минимум метрики (при равных —
  * первый in-order). */
-static bool m1_less(TreeNode *a, TreeNode *b) {
-    unsigned ka = (unsigned)a->key, kb = (unsigned)b->key;
-    if (ka != 0 && kb != 0) {
-        return ka < kb;
-    }
-    {
-        PathState *pa = (PathState *)a->value;
-        PathState *pb = (PathState *)b->value;
-        LDPos *qa = pa ? pa->pos : NULL;
-        LDPos *qb = pb ? pb->pos : NULL;
-        int ax = qa ? qa->x : -1, ay = qa ? qa->y : -1;
-        int bx = qb ? qb->x : -1, by = qb ? qb->y : -1;
-        if (ax != bx) return ax < bx;
-        return ay < by;
-    }
+static bool m1_coord_less(TreeNode *a, TreeNode *b) {
+    PathState *pa = (PathState *)a->value;
+    PathState *pb = (PathState *)b->value;
+    LDPos *qa = pa ? pa->pos : NULL;
+    LDPos *qb = pb ? pb->pos : NULL;
+    int ax = qa ? qa->x : -1, ay = qa ? qa->y : -1;
+    int bx = qb ? qb->x : -1, by = qb ? qb->y : -1;
+    if (ax != bx) return ax < bx;
+    return ay < by;
+}
+
+static bool m1_less(std::pair<unsigned long long, TreeNode *> a,
+                    std::pair<unsigned long long, TreeNode *> b)
+{
+    /* Ключ 0 = адреса из захвата нет (старый захват) — порядок задаёт
+     * (x,y)-фолбэк. Полные ключи: адресные узлы (адрес < 0x100000000) идут
+     * раньше координатных, внутри группы — по возрастанию ключа. */
+    if (a.first != 0 && b.first != 0) return a.first < b.first;
+    return m1_coord_less(a.second, b.second);
 }
 
 static void rep_rebuild_m1(Rep *r) {
     TreeNode *nil = rep_nil(r);
     size_t i, n = r->m1nodes.size();
-    std::sort(r->m1nodes.begin(), r->m1nodes.end(), m1_less);
+    std::vector<std::pair<unsigned long long, TreeNode *> > ord;
+    ord.reserve(n);
+    for (i = 0; i < n; i++) ord.push_back(std::make_pair(r->m1keys[i], r->m1nodes[i]));
+    std::sort(ord.begin(), ord.end(), m1_less);
     for (i = 0; i < n; i++) {
-        TreeNode *tn = r->m1nodes[i];
+        TreeNode *tn = ord[i].second;
         tn->left = nil;
-        tn->right = (i + 1 < n) ? r->m1nodes[i + 1] : &r->m1head;
-        tn->parent = (i > 0) ? r->m1nodes[i - 1] : &r->m1head;
+        tn->right = (i + 1 < n) ? ord[i + 1].second : &r->m1head;
+        tn->parent = (i > 0) ? ord[i - 1].second : &r->m1head;
         tn->is_nil = 0;
     }
-    r->m1head.left = n ? r->m1nodes[0] : &r->m1head;
-    r->m1head.parent = n ? r->m1nodes[n - 1] : &r->m1head;
+    r->m1head.left = n ? ord[0].second : &r->m1head;
+    r->m1head.parent = n ? ord[n - 1].second : &r->m1head;
     r->m1head.right = &r->m1head;
     r->m1head.is_nil = 1;
 }
@@ -1079,6 +1103,19 @@ static void rep_rebuild_m2(Rep *r) {
 static std::map<int *, PathState *> g_pos_ps;
 static std::vector<RNode *> g_occ_stubs;
 
+/* Ячейка сетки по координатам — та же цепочка, что s6_grid_lookup (rows[x][y]
+ * → лист cells + idx*0x34). Нужна, чтобы снять слова LDPos с захваченной ячейки. */
+static GridCell *grid_cell_at(int x, int y)
+{
+    if (g_grid == NULL || g_grid_error) return NULL;
+    if (x < 0 || y < 0 || x >= g_grid->sx || y >= g_grid->sy) return NULL;
+    int idx = g_grid->rowptr[x][y];
+    if (idx < 0 || idx >= g_grid->n) return NULL;
+    return &g_grid->cells[idx];
+}
+
+static int g_fill_cell = 0, g_fill_leaf = 0, g_fill_stub = 0;
+
 static int *rp_pos_obj(int addr, int x, int y)
 {
     unsigned long long key = (addr != 0) ? pos_key_addr(addr)
@@ -1087,8 +1124,32 @@ static int *rp_pos_obj(int addr, int x, int y)
     if (it != g_pos_obj.end()) return it->second;
     int *obj = (int *)calloc(8, sizeof(int));
     obj[3] = x; obj[4] = y;
-    obj[7] = (g_grid && !g_grid_error)
-             ? (int)(size_t)&g_grid->levels[g_grid->leaf] : 0;  /* LDPos.level */
+    /* Слова +0x00/+0x04/+0x08 и level +0x1c: носитель — grid-клетка этих
+     * координат (spec->pos, path.cpp), поэтому снимаются с захваченной ячейки.
+     * Ключ пришёл из адреса — берём слова этого адреса из leaf-потока захвата.
+     * Ни ячейки, ни адреса в захвате нет — остаётся минимальная заглушка (нули):
+     * этих данных в захвате v5 нет. */
+    GridCell *c = grid_cell_at(x, y);
+    if (c != NULL && *(int *)((unsigned char *)c + 0x0c) == x &&
+        *(int *)((unsigned char *)c + 0x10) == y) {
+        obj[0] = *(int *)((unsigned char *)c + 0x00);
+        obj[1] = *(int *)((unsigned char *)c + 0x04);
+        obj[2] = *(int *)((unsigned char *)c + 0x08);
+        obj[7] = *(int *)((unsigned char *)c + 0x1c);   /* LDPos.level */
+        g_fill_cell++;
+    } else {
+        std::map<unsigned long long, PosW>::const_iterator pw = g_pos_w.find(key);
+        if (pw != g_pos_w.end()) {
+            obj[0] = pw->second.w[0];
+            obj[1] = pw->second.w[1];
+            obj[2] = pw->second.w[2];
+            g_fill_leaf++;
+        } else {
+            g_fill_stub++;
+        }
+        obj[7] = (g_grid && !g_grid_error)
+                 ? (int)(size_t)&g_grid->levels[g_grid->leaf] : 0;  /* LDPos.level */
+    }
     g_pos_obj[key] = obj;
     g_obj_key[obj] = key;
     return obj;
@@ -1209,6 +1270,7 @@ static void rep_build(Rep *r, const Call &c) {
         n->tn.value = &n->ps;
         n->tn.key = src.pos_addr;
         r->m1nodes.push_back(&n->tn);
+        r->m1keys.push_back(src.pos_addr != 0 ? pos_key_addr(src.pos_addr) : 0ULL);
         bypos[occ_key_of(&n->pos)] = n;
     }
     /* Связки: nbr/parent указывают на узлы с той же позицией; если узла в
@@ -1511,6 +1573,9 @@ extern "C" void *replay_note_path_res(void *result)
     if (result == NULL) {
         pl.null = true;
         if (c != NULL) const_cast<Call *>(c)->port_path.push_back(pl);
+        /* Нативный null-лист тоже потребляет свой индекс: иначе addr-уточнение
+         * выше читает устаревший индекс и пары съезжают. */
+        if (c != NULL && g_pi < c->leaves_path.size()) g_pi++;
         return NULL;
     }
     for (int k = 0; k < 5; k++) pl.w[k] = ((int *)result)[k];
@@ -1730,8 +1795,17 @@ void register_occupied_slot(void *ai, LDObject *obj) {
      * начать лавинообразно регистрировать узлы. Ограничиваем рост map1 по
      * нативному размеру вызова, чтобы прогон завершился и показал divergence. */
     {
+        /* Множитель cap (`LD_REPLAY_CAP_MULT`) — контрольный эксперимент: cap не
+         * должен влиять на префикс потока. По умолчанию 1 (cap без изменений). */
+        static int mult = -1;
+        if (mult < 0) {
+            const char *s = getenv("LD_REPLAY_CAP_MULT");
+            mult = (s != NULL && *s != '\0') ? atoi(s) : 1;
+            if (mult < 1) mult = 1;
+        }
         size_t cap = (g_cur != NULL) ? g_cur->map1.size() * 4 + 100 : 5000;
         if (cap < 500) cap = 500;
+        cap *= (size_t)mult;
         if (r->m1nodes.size() >= cap) {
             g_reg_overflow = 1;
             return;
@@ -1751,8 +1825,11 @@ void register_occupied_slot(void *ai, LDObject *obj) {
          * тогда порядок задаёт (x,y)-фолбэк в m1_less). */
         std::map<int *, unsigned long long>::const_iterator ai_it =
             g_obj_key.find((int *)(void *)p);
-        tn->key = (ai_it != g_obj_key.end())
-                  ? (int)(unsigned)ai_it->second : 0;
+        unsigned long long full = (ai_it != g_obj_key.end()) ? ai_it->second : 0ULL;
+        /* Игровой ключ узла остаётся 32-битным (раскладка TreeNode); полный
+         * ключ нужен только для сортировки map1. */
+        tn->key = (int)(unsigned)full;
+        r->m1keys.push_back(full);
     }
     r->m1nodes.push_back(tn);
     m2tn = new TreeNode;
@@ -1991,6 +2068,60 @@ static void write_res_port(FILE *f, const Call &c, Rep *r) {
             g_reg_overflow);
 }
 
+/* Контрольный дамп расхождения (`LD_REPLAY_DIV_DUMP=1`): что харнесс-сетка
+ * отдаёт на координатах первого расхождения, и сколько map1-узлов без адреса
+ * из захвата (полный ключ 0 → порядок задаёт (x,y)-фолбэк). */
+static int replay_div_dump_on(void)
+{
+    static int v = -1;
+    if (v < 0) {
+        const char *s = getenv("LD_REPLAY_DIV_DUMP");
+        v = (s != NULL && *s != '\0') ? atoi(s) : 0;
+    }
+    return v;
+}
+
+static void replay_dump_div(const Call &c, Rep *r)
+{
+    size_t i = 0, k;
+    while (i < c.leaves_path.size() && i < c.port_path.size() &&
+           path_leaf_eq(c.leaves_path[i], c.port_path[i])) i++;
+    const PathLeaf *nat = (i < c.leaves_path.size()) ? &c.leaves_path[i] : NULL;
+    const PathLeaf *prt = (i < c.port_path.size()) ? &c.port_path[i] : NULL;
+    int x = nat ? nat->w[3] : -1, y = nat ? nat->w[4] : -1;
+    GridCell *cell = grid_cell_at(x, y);
+    unsigned key = (unsigned)(((unsigned short)y << 16) | (unsigned short)x);
+    int rowidx = -1, status = 0, minb = 0, maxb = 0, lvl = 0;
+    size_t zero = 0, coord = 0;
+    if (g_grid != NULL && !g_grid_error) {
+        if (x >= 0 && y >= 0 && x < g_grid->sx && y < g_grid->sy)
+            rowidx = g_grid->rowptr[x][y];
+        std::map<unsigned int, int>::const_iterator it = g_grid->tree.find(key);
+        status = (it == g_grid->tree.end()) ? 0 : it->second;
+        if (cell != NULL) {
+            minb = *(int *)((unsigned char *)cell + 0x14);
+            maxb = *(int *)((unsigned char *)cell + 0x18);
+            lvl = *(int *)((unsigned char *)cell + 0x1c);
+        }
+    }
+    for (k = 0; k < r->m1keys.size(); k++) {
+        if (r->m1keys[k] == 0ULL) zero++;
+        if (r->m1keys[k] >= 0x100000000ULL) coord++;   /* ключ 0x100000000|occ_key */
+    }
+    fprintf(stderr, "DIV seq=%d idx=%u nat=%s port=%s cell=(%d,%d) row_idx=%d "
+                    "min_bits=0x%x max_bits=0x%x status=%d level=0x%x "
+                    "m1_nodes=%u m1_key_zero=%u m1_key_coord=%u "
+                    "fill_cell=%d fill_leaf=%d fill_stub=%d "
+                    "underflow=%d overflow=%d\n",
+            c.seq, (unsigned)i,
+            (nat == NULL) ? "EOF" : (nat->null ? "null" : path_leaf_str(*nat).c_str()),
+            (prt == NULL) ? "EOF" : (prt->null ? "null" : path_leaf_str(*prt).c_str()),
+            x, y, rowidx, minb, maxb, status, (unsigned)lvl,
+            (unsigned)r->m1nodes.size(), (unsigned)zero, (unsigned)coord,
+            g_fill_cell, g_fill_leaf, g_fill_stub,
+            g_replay_leaf_underflow, g_reg_overflow);
+}
+
 /* --------------------------------- main --------------------------------- */
 
 static bool read_line(FILE *f, std::string &out) {
@@ -2209,6 +2340,7 @@ int main(int argc, char **argv) {
                         first_leaf_detail = lw;
                     }
                     if (!req || !leq) {
+                        if (replay_div_dump_on()) replay_dump_div(*c, r);
                         fprintf(stderr, "DIVERGE seq=%d result=%s leaf=%s%s%s\n",
                                 c->seq, req ? "equal" : "DIFF",
                                 leq ? "equal" : "DIFF",
