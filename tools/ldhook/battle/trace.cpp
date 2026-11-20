@@ -307,7 +307,6 @@ __declspec(naked) void h2_epilogue_hook(void)
         popad
         popfd
         mov ecx, dword ptr [esp + 0x14c] /* украденная инструкция */
-        add esp, 8                       /* 2 nops закрывают 5f/5e @0x44d07b/7c */
         jmp dword ptr [g_h2_cont]
     }
 }
