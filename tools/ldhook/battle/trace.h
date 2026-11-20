@@ -42,9 +42,10 @@ int  battle_trace_enabled(void);
  * отметка времени начала тика. */
 void battle_trace_tick_begin(void *unit);
 
-/* H2 (0x44d074): AL, EBP=unit, ESP кадра (для [esp+0x164] = param_3) —
- * читает поля и пишет строку; вызывается ДО воспроизведения украденных байт. */
-void battle_trace_tick_end(int al, void *unit, void *esp);
+/* H2 (0x44d074): AL, esp кадра (для [esp+0x164] = param_3) —
+ * читает поля через g_tick_unit и пишет строку; вызывается ДО воспроизведения
+ * украденных байт. */
+void battle_trace_tick_end(int al, void *esp);
 
 /* H7 (0x45dd70) и вход порта s6_ai_update: один счётчик vis на тик. */
 void battle_trace_visit(void);

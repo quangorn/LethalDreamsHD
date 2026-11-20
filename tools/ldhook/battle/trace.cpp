@@ -24,7 +24,7 @@
 
 /* Оффсеты, которых нет в struct BattleAI (размер зафиксирован только до
  * +0x7c): размер map1 и размер map2 читаются эпилогом 44bdd0. */
-#define TRACE_UNIT_OFF_AI    0x138   /* unit → BattleAI* */
+#define TRACE_UNIT_OFF_AI    0x138   /* unit → BattleAI (встроен по адресу unit+0x138) */
 #define TRACE_UNIT_OFF_U170  0x170   /* unit → dispatch-ветка */
 #define TRACE_UNIT_OFF_M0    0xa4    /* unit → 3 float-бита результата 45e1d0 */
 #define TRACE_UNIT_OFF_M2    0xac
@@ -43,6 +43,7 @@ void *g_h7_cont = NULL;   /* 0x45dd78 */
 static int  g_enabled = 0;
 static volatile LONG g_tick_no = 0;
 static int  g_tick_unit_id = -1;
+static void *g_tick_unit = NULL;   /* сохранён H1; читается H2 */
 static volatile LONGLONG g_tick_t0 = 0;
 static volatile LONG g_vis = 0;
 
@@ -127,6 +128,7 @@ void __cdecl battle_trace_tick_begin(void *unit)
     if (!g_enabled) {
         return;
     }
+    g_tick_unit = unit;
     g_tick_unit_id = trace_unit_id(unit);
     InterlockedIncrement(&g_tick_no);
     g_tick_t0 = ld_now_us();
@@ -137,8 +139,9 @@ void __cdecl battle_trace_tick_begin(void *unit)
     g_ep_last_valid = 0;
 }
 
-/* Строка пишется ДО воспроизведения украденных байт эпилога. */
-void __cdecl battle_trace_tick_end(int al, void *unit, void *esp)
+/* Строка пишется ДО воспроизведения украденных байт эпилога.
+ * unit берётся из g_tick_unit (сохранён H1), esp — из кадра для [esp+0x164]. */
+void __cdecl battle_trace_tick_end(int al, void *esp)
 {
     long tick;
     int unit_id;
@@ -152,8 +155,9 @@ void __cdecl battle_trace_tick_end(int al, void *unit, void *esp)
     unsigned int m2 = 0xFFFFFFFFu;
     unsigned int ai = 0;
     LONGLONG us = 0;
-    void *ai_ptr = NULL;
     int trap = 0;
+    void *unit;
+    void *this_ptr;
 
     /* Поля следующих фаз — sentinel'ы (решение 2.0 плана). */
     const int  code = -1;
@@ -172,9 +176,15 @@ void __cdecl battle_trace_tick_end(int al, void *unit, void *esp)
 
     tick = g_tick_no;
     unit_id = g_tick_unit_id;
+    unit = g_tick_unit;
+    this_ptr = NULL;
 
     __try {
         if (unit != NULL) {
+            /* BattleAI встроен в unit по адресу unit+0x138 (this передаётся
+             * как адрес, а не значение); map1 в BattleAI+0x68, map2 в +0x74,
+             * size в +0x70/+0x7c (MSVC std::map: head+4, size+8). */
+            this_ptr = (void *)((const unsigned char *)unit + TRACE_UNIT_OFF_AI);
             u170 = *(const int *)((const unsigned char *)unit +
                                   TRACE_UNIT_OFF_U170);
             m0 = *(const unsigned int *)((const unsigned char *)unit +
@@ -183,13 +193,11 @@ void __cdecl battle_trace_tick_end(int al, void *unit, void *esp)
                                          TRACE_UNIT_OFF_M0 + 4);
             m2 = *(const unsigned int *)((const unsigned char *)unit +
                                          TRACE_UNIT_OFF_M2);
-            ai_ptr = *(void * const *)((const unsigned char *)unit +
-                                       TRACE_UNIT_OFF_AI);
-            if (ai_ptr != NULL) {
-                ai = (unsigned int)(size_t)ai_ptr;
-                s1 = *(const long *)((const unsigned char *)ai_ptr +
+            if (this_ptr != NULL) {
+                ai = (unsigned int)(size_t)this_ptr;
+                s1 = *(const long *)((const unsigned char *)this_ptr +
                                      TRACE_AI_OFF_S1);
-                s2 = *(const long *)((const unsigned char *)ai_ptr +
+                s2 = *(const long *)((const unsigned char *)this_ptr +
                                      TRACE_AI_OFF_S2);
             }
         }
@@ -287,8 +295,8 @@ __declspec(naked) void h1_tick_hook(void)
 
 /* ------------------------------------------------------------------ */
 /* H2 — 0x44d074: 8B 8C 24 4C 01 00 00 (mov ecx,[esp+0x14c]);          */
-/*                 продолжение 0x44d07b. AL — возврат 44bdd0, EBP —     */
-/*                 unit, [esp+0x164] — param_3.                         */
+/*                 продолжение 0x44d07b. unit берётся из g_tick_unit,    */
+/*                 [esp+0x164] — param_3 (out-код).                     */
 /* ------------------------------------------------------------------ */
 __declspec(naked) void h2_epilogue_hook(void)
 {
@@ -297,13 +305,11 @@ __declspec(naked) void h2_epilogue_hook(void)
         pushad
         mov edx, dword ptr [esp + 12]    /* сохранённый ESP (S-4) */
         add edx, 4                       /* исходный ESP (S) */
-        mov ecx, dword ptr [esp + 8]     /* сохранённый EBP = unit */
         movzx eax, byte ptr [esp + 28]   /* сохранённый AL */
-        push edx                         /* arg3: esp кадра */
-        push ecx                         /* arg2: unit */
+        push edx                         /* arg2: esp кадра */
         push eax                         /* arg1: al */
         call battle_trace_tick_end
-        add esp, 12
+        add esp, 8
         popad
         popfd
         mov ecx, dword ptr [esp + 0x14c] /* украденная инструкция */
