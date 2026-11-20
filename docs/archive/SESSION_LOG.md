@@ -4,6 +4,18 @@
 реализовано. Актуальное состояние — `docs/STATE.md`, пайплайны — `docs/PIPELINE.md`,
 отменённые планы — `docs/archive/CANCELLED_Q_MODE.md`, грабли — `docs/PITFALLS.md`.
 
+## Сессия 2026-11-20: порт `e0a0`/`dd70` до Фазы 3 (trace + офлайн-replay)
+
+- `[P]` Фазы 2 и 3 закрыты по коду; решения 2.0/2.8 (гейт Фазы 2 живой `s1/s2/vis`
+  перенесён в Фазу 3) — `docs/PLAN_BATTLE_AI_CPP.md`.
+- `[P]` Трассировка: `BATTLE` 29 полей + `STATEFP` (`battle/trace.cpp`), хуки H1/H2/H3/H4/H5/H6/H7,
+  пиннинг `LDHOOK_SEED`; сравнение `tools/probes/trace_diff.py --align=ordinal`.
+- `[P]` Офлайн-харнесс: `LDHOOK_BATTLE_CAPTURE` (v3) + `tools/probes/battle_replay.cpp` +
+  `battle_replay_diff.py`; на нативном входе rc 0. Открыто: порт держит +3 слота map1
+  с 38-го вызова юнита 3 (`register_occupied_slot`/ветка 1 `dd70`), гейт Фазы 3 не закрыт.
+- `[U]` Модели сабагентов: strata — только мелкие задачи и всегда с ревью; Hy4 Flash —
+  сложные (может не справиться); DS 4.1 Flash — резерв после провала другой модели.
+
 ## Сессия 2026-11-20: точка спавна отряда в бою фиксирована (индекс 5)
 
 - `[P]` Спавн отряда и стартовая камера в бою — вход `EntrancePoints[5]` на всех боевых картах
