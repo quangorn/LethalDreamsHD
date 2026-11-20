@@ -441,6 +441,7 @@ struct RegEvent {
     int seq, x, y, pos_addr, filter, g, cost;
 };
 static std::vector<RegEvent> g_reg_events;   /* единственный источник новых узлов map1 */
+#define RP_REG_EVENT_MAX 100000              /* потолок накопленных reg-событий (--chained) */
 
 struct AStateNode {
     int x, y, pos_addr;
@@ -589,7 +590,10 @@ static std::string reg_branch_for(const AStateNode &n, int seq) {
     return "no register event this seq (not a branch-1 insertion)";
 }
 
-static std::string diff_after(const AState &nat, const AState &port, int seq) {
+static std::string diff_after(const AState &nat, const AState &port, int seq,
+                              int *p_ai_diff = NULL, bool *p_ai_compared = NULL) {
+    if (p_ai_diff) *p_ai_diff = 0;
+    if (p_ai_compared) *p_ai_compared = false;
     std::map<std::string, const AStateNode *> an, bn;
     for (size_t i = 0; i < nat.map1.size(); i++) an[anode_key(nat.map1[i])] = &nat.map1[i];
     for (size_t i = 0; i < port.map1.size(); i++) bn[anode_key(port.map1[i])] = &port.map1[i];
@@ -688,6 +692,8 @@ static std::string diff_after(const AState &nat, const AState &port, int seq) {
                 (unsigned)nat.map1.size(), (unsigned)port.map1.size(),
                 added, removed, changed, (unsigned)nat.occ.size(),
                 (unsigned)port.occ.size(), occ_add, occ_rm, ai_diff);
+    if (p_ai_diff) *p_ai_diff = ai_diff;
+    if (p_ai_compared) *p_ai_compared = (nat.has_ai && port.has_ai);
     return std::string(head) + s;
 }
 
@@ -1322,6 +1328,9 @@ void register_occupied_slot(void *ai, LDObject *obj) {
         ev.g = ps->g_cost;
         ev.cost = ps->metric;
         g_reg_events.push_back(ev);
+        if (g_reg_events.size() > RP_REG_EVENT_MAX) {
+            g_reg_events.erase(g_reg_events.begin());   /* накопление под потолок */
+        }
     }
     if (replay_trace_level() >= 2) {
         fprintf(stderr, "register: seq=%d obj=%p pos=(%d,%d) pos_addr=0x%x "
@@ -1587,6 +1596,7 @@ int main(int argc, char **argv) {
         Rep *r = chained ? new Rep : NULL;
         int complete = 0, compared = 0, chain_len = 0, first_div_seq = -1;
         int entry_mismatch = 0, first_entry_seq = -1;
+        int chain_matched = 0, ai_compared = 0, ai_skipped = 0, ai_mismatch = 0;
         std::string first_class, first_detail, first_entry_detail;
         for (size_t i = 0; i < calls.size(); i++) {
             Call *c = calls[i];
@@ -1631,7 +1641,10 @@ int main(int argc, char **argv) {
                     }
                 }
                 g_rep = r;
-                g_reg_events.clear();
+                /* Chained: события накапливаются — carried-узлы были зарегистрированы
+                 * в прошлых seq, их reg-события нужны reg_branch_for. Non-chained:
+                 * реплика на каждый вызов, события не нужны — чистим на seq. */
+                if (!chained) g_reg_events.clear();
                 BattleAI *ai = (BattleAI *)(void *)r->aiBuf;
                 void *cmpPos = (void *)r->cmpPtr;
                 int out_code = 0;
@@ -1648,11 +1661,19 @@ int main(int argc, char **argv) {
                     AState anat, apost;
                     after_from_res(c->res, anat);
                     after_from_rep(r, apost);
-                    std::string ad = diff_after(anat, apost, c->seq);
+                    int ai_diff = 0; bool ai_comp = false;
+                    std::string ad = diff_after(anat, apost, c->seq,
+                                                &ai_diff, &ai_comp);
                     bool after_eq = ad.empty();
                     compared++;
                     chain_len++;
-                    if (!res_eq || !after_eq) {
+                    if (ai_comp) { ai_compared++; ai_mismatch += ai_diff; }
+                    else { ai_skipped++; }
+                    if (res_eq && after_eq) {
+                        /* survived = число цепных вызовов, совпавших подряд до
+                         * первого расхождения. */
+                        if (first_div_seq < 0) chain_matched++;
+                    } else {
                         const char *cls = res_eq ? "MUTATE" : "RESULT";
                         fprintf(stderr, "DIVERGE seq=%d class=%s result=%s "
                                         "after=%s leaf_underflow=%d\n",
@@ -1687,13 +1708,26 @@ int main(int argc, char **argv) {
             printf("replay: %u calls -> %s\n", (unsigned)calls.size(), outpath);
         }
         if (chained) {
+            /* survived = число цепных вызовов, совпавших подряд до первого
+             * расхождения (0, если первый же вызов разошёлся). */
             printf("CHAIN: calls=%d complete=%d chain_length=%d compared=%d "
                    "survived=%d entry_state_mismatch=%d first_entry_seq=%d "
-                   "first_div_seq=%d first_class=%s\n",
+                   "first_div_seq=%d first_class=%s "
+                   "ai_after_compared=%d ai_after_skipped=%d ai_words_mismatch=%d\n",
                    (int)calls.size(), complete, chain_len, compared,
-                   chain_len == complete ? 1 : 0, entry_mismatch,
+                   chain_matched, entry_mismatch,
                    first_entry_seq, first_div_seq,
-                   first_div_seq < 0 ? "NONE" : first_class.c_str());
+                   first_div_seq < 0 ? "NONE" : first_class.c_str(),
+                   ai_compared, ai_skipped, ai_mismatch);
+            if (ai_skipped == 0) {
+                printf("CHAIN: ai_words_after present in all %d calls — scalar "
+                       "block compared, %d slot mismatches\n",
+                       ai_compared, ai_mismatch);
+            } else {
+                printf("CHAIN: ai_words_after absent in %d of %d calls (capture "
+                       "v1..v3) — scalar block NOT compared for those\n",
+                       ai_skipped, compared);
+            }
             if (first_entry_seq >= 0) {
                 printf("CHAIN: native cap entry state differs from carried port "
                        "state at seq=%d (game resets candidate maps between "

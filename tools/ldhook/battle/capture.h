@@ -15,7 +15,9 @@
  * v3 добавляет к cap: `ai_words` — сырой скалярный блок BattleAI +0x00..+0x7f
  * (32 dword; dd70/e0a0 читают эти поля), и `occ_nodes` — для каждого ключа
  * map2 либо null, либо PathState* значения (w[22] dword, ptr[11] identity
- * LDPos*, координаты parent/nbr). v1/v2 записи харнессом читаются как раньше.
+ * LDPos*, координаты parent/nbr). v4 добавляет к res: `ai_words_after` — тот же
+ * скалярный блок, снятый ПОСЛЕ вызова (симметрично cap.ai_words); v1/v2/v3
+ * записи харнессом читаются как раньше.
  */
 #ifndef BATTLE_CAPTURE_H
 #define BATTLE_CAPTURE_H

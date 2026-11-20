@@ -253,6 +253,19 @@ static void cap_read_map1(BattleAI *self)
     }
 }
 
+/* v4: скалярный блок BattleAI +0x00..+0x7f ПОСЛЕ вызова — симметрично
+ * cap.ai_words (тот же блок, тот же снимок), чтобы харнесс сравнивал after-state. */
+static void cap_read_ai_words(BattleAI *self)
+{
+    memset(g_ai_words, 0, sizeof(g_ai_words));
+    __try {
+        if (self != NULL) {
+            memcpy(g_ai_words, self, sizeof(g_ai_words));
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+}
+
 static void cap_read_occ(BattleAI *self)
 {
     TreeNode *head, *cur;
@@ -504,7 +517,7 @@ void battle_capture_e0a0_enter(void *this_, int filter, void *cmp,
     cap_read_occ(self);
 
     g_seq++;
-    fprintf(g_file, "{\"v\":3,\"kind\":\"cap\",\"seq\":%d,\"tick\":%d,"
+    fprintf(g_file, "{\"v\":4,\"kind\":\"cap\",\"seq\":%d,\"tick\":%d,"
             "\"unit\":%d,\"fn\":\"e0a0\",\"args\":{\"filter\":%d,"
             "\"cmp\":[%d,%d],\"cmp_addr\":%d,\"timeout_bits\":%u,\"out_ptr\":%d},"
             "\"ai\":{\"timer_bits\":%u,\"final_bits\":%u,"
@@ -616,7 +629,7 @@ void battle_capture_e0a0_exit(void *node)
     /* iters = число кандидатов. H6-латч = rescan; сработавший gate (node !=
      * NULL) означает, что последний кандидат в iter_seq не попал. */
     iters = g_iter_n + ((node != NULL) ? 1 : 0);
-    fprintf(g_file, "{\"v\":3,\"kind\":\"res\",\"seq\":%d,\"node\":", g_seq);
+    fprintf(g_file, "{\"v\":4,\"kind\":\"res\",\"seq\":%d,\"node\":", g_seq);
     if (node != NULL) {
         fprintf(g_file, "[%d,%d]", node_x, node_y);
     } else {
@@ -633,6 +646,12 @@ void battle_capture_e0a0_exit(void *node)
     cap_write_map1(g_file);
     fputs(",\"occ_after\":", g_file);
     cap_write_ints(g_file, g_occ, g_occ_n);
+    /* v4: скалярный блок BattleAI ПОСЛЕ вызова (тот же снимок, что и другие
+     * after-поля). Харнесс сравнивает его с репликой; старые v1/v2/v3-файлы
+     * ключа не имеют — харнесс пропускает сравнение. */
+    cap_read_ai_words(self);
+    fputs(",\"ai_words_after\":", g_file);
+    cap_write_ai_words(g_file);
     /* Поток листьев нативных калlee (перепроецируется харнессом). */
     fputs(",\"leaf\":{\"path\":", g_file);
     cap_write_path(g_file);

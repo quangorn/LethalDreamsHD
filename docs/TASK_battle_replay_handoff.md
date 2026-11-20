@@ -43,22 +43,29 @@ build/ldhook/battle_replay.exe D:/tmp/cygwin/opencode/ld/replay_capture_addr.jso
 python3 tools/probes/battle_replay_diff.py D:/tmp/cygwin/opencode/ld/replay_capture_addr.jsonl D:/tmp/cygwin/opencode/ld/replay_port.jsonl
 # stderr-лог порта: LD_REPLAY_TRACE=1 (info) / =2 (info+debug, шумно)
 ```
-Runner log: `D:/tmp/cygwin/opencode/ld/ldhook/tree/hdlog.txt`; scratch EXE baseline `45e93d46…`, loader already in `ui.pyc`. Format v2: `cap` + `res` per call; leaf streams (`path`/`ptr`/`heur`/`timeout`) in the `res` record; `args.cmp_addr` + per-node `pos_addr` = LDPos identity; grid = sizes only (pathfinding stubbed). Diff rc: 0 equal, 1 diverge, 2 input error, 3 prefix unmet.
+Runner log: `D:/tmp/cygwin/opencode/ld/ldhook/tree/hdlog.txt`; scratch EXE baseline `45e93d46…`, loader already in `ui.pyc`. Format v4: `cap` + `res` per call; leaf streams (`path`/`ptr`/`heur`/`timeout`) and `ai_words_after` in the `res` record; `args.cmp_addr` + per-node `pos_addr` = LDPos identity; grid = sizes only (pathfinding stubbed). Diff rc: 0 equal, 1 diverge, 2 input error, 3 prefix unmet.
 
 ## 6. Warnings
 Never delete files; installed game `D:/Games/LethalDreams` READ-ONLY (use scratch tree only). Always `taskkill /F /IM LETHALDREAMS.EXE` after runs. Do not guess slot layouts without `game_dis.txt` / `docs/PLAN_BATTLE_AI_CPP.md` evidence. Keep writes opt-in; verify `check_state.py --quick` after installed-game changes.
 
-## 7. State after 20.11.2026, round 2 (faithful map1/map2 replay)
-- Root cause of the `iters` desync was harness-side only: `target.cpp` passes `&self->map2` (= `aiBuf+0x74`, the std::map object embedded in BattleAI, `lea 0x74(%edi),%ecx` @0x45dec8) while the harness kept `RepMap2` elsewhere, so every lookup saw an empty map; occupancy is **exact-key** (`0x434bc0` + check @0x45ded2), not lower_bound-range; map1 order is by the node key = `LDPos*` (dd00 inserts `&obj->pos`; 0x45d810 compares `[node+0xc]`), not insertion order; the gate `cur->pos == cmp` is pointer identity, so coordinates are not enough.
-- Capture v2 adds `args.cmp_addr`, `pos_addr` per map1 node, `leaf.ptr` (cb40 `LDPos*`), `iter_cap`/`iter_overflow`; `CAP_MAX_ITER=65536` (old 4096 truncated the long tick-16 call at 4096 latches). Map1 in-order == `pos_addr` order in all 515 dumps (evidence for the key).
-- Harness: identity and map1 order from captured addresses, map2 resolved to the Rep at `aiBuf+0x74`, exact-key occupancy; `LD_REPLAY_TRACE=1/2` prints the port log to stderr.
-- Validation: `D:/tmp/cygwin/opencode/ld/replay_capture_addr.jsonl` (258 calls) → `replay_port_addr2.jsonl`; `battle_replay_diff.py` **rc 0**, all 257 complete calls equal on node/code/iters/iter_seq/map1_after/occ_after. No port defect; `battle/*.cpp` logic unchanged.
-- tick 16 in this run is unit 4 (seq=14) and matches; the reported "seq=1, iters 116 vs 71" reproduces only with address-less captures — harness artefact, not a port defect.
-- Robustness: bad JSON/missing `ptr`/`res` without `cap`/unreadable file ⇒ `ERROR: …`, rc 2, no crash; truncated trailing line ignored.
-- Open: initial map2 node values are not captured (harness uses NULL → "free path" for those keys; no exposure in this capture); README 3-command section — done (see below).
+## 7. State (faithful map1/map2 replay, offline harness)
 
-### 3.7' chained self-feeding replay (20.11.2026)
-- `battle_replay.cpp`: added `--chained` (default unchanged). Replica is built once from the first complete `cap`, then `rep_rebind()` feeds the port's own map1/map2/identity state into the next call; per-call args/scalars/leaf stream still come from the capture. In-process compare of `node/code/iters/iter_seq` + `map1_after`/`occ_after`/`ai_words_after`; distinct `MUTATE` class when result matches but after-state does not, with node `pos`/`pos_addr`/filter/g/d2/h10k/cost delta and port branch (`dd70` branch 1 → `0x45dd00 register_occupied_slot`). `CHAIN:` summary = calls/chain_length/survived/entry_state_mismatch/first_div_seq/class; rc 0 equal, 1 diverge, 2 input error.
-- Full-battle native capture `D:/tmp/cygwin/opencode/ld/fullbattle_capture.jsonl` (210 calls, ticks 3..269, `LDHOOK_BATTLE_CAPTURE_MAX=2000`, `LDHOOK_SEED=1234567890`, one `key:32` at entry via `battle_43.ps1`, game killed). Non-chained: `battle_replay_diff.py` rc 0, 210/210 equal. Chained: rc 1, **chain_length=210, survived=1**, first divergence **seq=2 class=RESULT** (node native `[260,103]` vs port `null`; after-state map1 native 67 / port 6: +1 −62, occ +1 −62), no `MUTATE` case.
-- The divergence is NOT a port mutation defect: `entry_state_mismatch=209/209`, first at seq=2 — native `cap.map1` = 1 node while carried port state = 6 (`+6 −1`, 5 of 6 from seq-1 branch-1 registrations). The game clears the candidate/occupied maps between e0a0 calls, so a literal self-feeding chain cannot be a faithful Phase 3 gate; **no port fix landed** (no proven defect). Per-call replay remains the valid gate.
-- Limitation: harness stubs pathfinding (grid = sizes only) and replays captured leaf values; the chain validates `dd70`/`e0a0`/`c690` bookkeeping and the port's own map insertions, not the grid search itself. Rerun: `build/ldhook/battle_replay.exe [--chained] D:/tmp/cygwin/opencode/ld/fullbattle_capture.jsonl <out.jsonl>` (build via `python3 tools/probes/battle_replay_build.py`).
+- Capture v4 adds `ai_words_after` to `res` (BattleAI scalar block after the
+  call, symmetric to `cap.ai_words`). v1..v3 lack the key — comparison skipped
+  and stated in `CHAIN`. Harness compares `node/code/iters/iter_seq`,
+  `map1_after`/`occ_after`, `ai_words_after`; ptr-slots of the scalar block are
+  excluded.
+- Harness (`battle_replay.cpp`): map1 order + identity from captured addresses,
+  map2 resolved to Rep at `aiBuf+0x74`, exact-key occupancy. reg-events are
+  keyed by `seq` and kept across calls, so the map1 delta names the port branch
+  (`dd70` branch 1 → `0x45dd00 register_occupied_slot`). Non-chained clears
+  events per seq; chained keeps them under a cap.
+- Gate = per-call replay via `battle_replay_diff.py`. No port defect;
+  `battle/*.cpp` logic unchanged. Bad/missing input ⇒ `ERROR`, rc 2, no crash.
+- `--chained` is a **diagnostic, not a gate**: the game clears map1/map2
+  between `e0a0` calls via `FUN_0045ca70` (called at `0x45efd7` before the seed
+  registration, conditional on bit 7 of `[obj]` flags), so a literal
+  self-feeding chain is not faithful; `entry_state_mismatch` is expected, not a
+  port defect. Chain checks `dd70`/`e0a0`/`c690` bookkeeping and the port's own
+  map insertions, not grid search (stubbed, sizes only). Rerun:
+  `build/ldhook/battle_replay.exe [--chained] <capture.jsonl> <out.jsonl>`.

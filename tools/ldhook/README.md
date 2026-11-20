@@ -197,15 +197,22 @@ build/ldhook/battle_replay.exe [--chained] <capture.jsonl> <res_port.jsonl>
 `cap`, дальше в каждый вызов подаётся СОБСТВЕННОЕ after-state порта; после
 каждого схода сравниваются `node/code/iters/iter_seq` и after-state
 (`map1_after`/`occ_after`/`ai_words_after`). Класс `MUTATE` = результат совпал,
-а состояние нет; в выводе — конкретная дельта (pos/pos_addr/filter/g/cost) и
-ветка порта (`dd70` branch 1 → `0x45dd00`). Итоговая строка `CHAIN:` даёт
-chain_length, survived, entry_state_mismatch, first_div_seq/class; rc 0 равно,
-1 расхождение, 2 битый вход. `LD_REPLAY_TRACE=1/2` — лог порта в stderr.
+а состояние нет; в выводе — дельта (pos/pos_addr/filter/g/cost) и ветка порта
+(`dd70` branch 1 → `0x45dd00`). Итог `CHAIN:` даёт chain_length, survived (=
+число совпавших подряд вызовов до первого расхождения), entry_state_mismatch,
+first_div_seq/class, ai_after_compared/ai_after_skipped/ai_words_mismatch; rc 0
+равно, 1 расхождение, 2 битый вход. `LD_REPLAY_TRACE=1/2` — лог порта в stderr.
 
-Известное ограничение: сетка pathfinding'а заглушена (только размеры), листья
+`ai_words_after` сравнивается только если захват содержит ключ (v4; v1..v3 его
+не пишут — сравнение пропускается и это сказано в строке `CHAIN`).
+
+Ограничение: сетка pathfinding'а заглушена (только размеры), листья
 cb40/c690/c5a0 проигрываются из захвата; цепь проверяет bookkeeping
 `dd70`/`e0a0`/`c690` и собственные вставки порта в map1, но не сам поиск пути.
-Кроме того, игра очищает карты кандидатов **между** вызовами e0a0 (в захвате
-`cap.map1` следующего вызова = 1 узел против сотен в `map1_after` предыдущего),
-поэтому `entry_state_mismatch` в цепи ожидаем и не является дефектом порта.
-Подробности — `docs/TASK_battle_replay_handoff.md` §7.
+
+`--chained` — **диагностика, не гейт**: игра очищает карты кандидатов/занятых
+**между** вызовами e0a0 — `FUN_0045ca70` на `0x45efd7` перед регистрацией seed,
+условно по биту 7 флагов `[obj]` (в захвате `cap.map1` следующего вызова = 1
+узел против сотен в `map1_after`), поэтому `entry_state_mismatch` в цепи ожидаем
+и не дефект порта; faithful-гейт — обычный per-call replay
+(`battle_replay_diff.py`). Подробности — `docs/TASK_battle_replay_handoff.md` §7.
