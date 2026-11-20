@@ -222,7 +222,8 @@ void register_occupied_slot(void *ai, LDObject *obj)
 }
 
 /* Виртуальный вызов `MOV EDX,[receiver]; CALL *[EDX+off]` (ECX = receiver), без
- * стек-аргументов (форма @0x45c5ef/0x45c63b). Оффсет vtable задаётся вызывающим
+ * стек-аргументов (форма @0x45c5ef/0x45c63b, байты FF 52 40 / FF 52 48 —
+ * КОСВЕННЫЙ вызов через память vtable). Оффсет vtable задаётся вызывающим
  * (см. native.h). ABI (число stack-аргументов и ret n) — стек восстанавливается
  * сохранением esp (см. lower_bound). */
 int vcall0(void *receiver, unsigned int voffset)
@@ -234,10 +235,9 @@ int vcall0(void *receiver, unsigned int voffset)
             pushad                         /* esp «до аргументов», регистры в стеке */
             mov esi, esp                   /* сохранённый esp */
             mov ecx, receiver
-            mov edx, ecx
-            mov eax, [edx]                 /* vtable = [receiver] */
+            mov edx, [ecx]                 /* vtable = [receiver] */
             mov edi, voffset
-            add eax, edi
+            mov eax, [edx+edi]             /* CALL *[vtable+off] (не vtable+off!) */
             call eax
             mov res, eax                   /* eax читается до восстановления esp */
             mov esp, esi                   /* стек = сохранённый esp при любом ret n */
@@ -263,10 +263,9 @@ int vcall1(void *receiver, unsigned int voffset, int arg)
             pushad                         /* esp «до аргументов», регистры в стеке */
             mov esi, esp                   /* сохранённый esp */
             mov ecx, receiver
-            mov edx, ecx
-            mov eax, [edx]                 /* vtable = [receiver] */
+            mov edx, [ecx]                 /* vtable = [receiver] */
             mov edi, voffset
-            add eax, edi
+            mov eax, [edx+edi]             /* CALL *[vtable+off] */
             push arg
             call eax
             mov res, eax                   /* eax читается до восстановления esp */

@@ -626,6 +626,7 @@ static volatile LONG g_h_zero = 0;        /* шлюз вернул 0 (и на х
 static volatile LONG g_h_nonzero = 0;     /* шлюз вернул != 0 */
 static volatile LONG g_h_av = 0;          /* AV, перехваченные в native-обёртках c5e0 */
 static volatile LONG g_h_dbg = 0;
+volatile LONG g_heur_stage = 0;           /* LOG=2: тонкая локализация AV в c690/c5e0 */
 
 static void s6_heur_diag(int result, long av_delta)
 {
@@ -686,11 +687,14 @@ int s6_heuristic(void *this_, int *slot)
 {
     char *world = *(char **)(*(char **)(char *)this_ + 4);   /* MOV EAX,[ECX]; MOV ECX,[EAX+4] */
     int obj1, obj2, obj3, obj4;
+    int arg1_bits;           /* FSTPS @0x45c658 пишет в САМ arg1-слот (S+4),
+                              * а НЕ в память по указателю: spec[0] не тронут */
     int a1, w120;            /* S-0x1c @0x45c5ff; S-0x18 @0x45c624 */
     float chain1, chain2;    /* S-0x14 @0x45c637; S-0x38 @0x45c674 (FSTP m32) */
     LDPos *pos;
     float rec1[2], rec2[2];
 
+    g_heur_stage = 10;
     obj1 = native::vcall0(world, 0x40);            /* CALL *[EDX+0x40] @0x45c5ef */
     a1 = *(int *)(obj1 + 0x244);                   /* EAX = [obj1+0x244] @0x45c5f7 → слот S-0x1c @0x45c5ff */
     obj2 = native::vcall0(world, 0x40);           /* CALL *[EDX+0x40] @0x45c603 — пушей между
@@ -700,7 +704,9 @@ int s6_heuristic(void *this_, int *slot)
     obj3 = *(int *)(obj2 + 0x228);                 /* EBX = [obj2+0x228] @0x45c606 — только receiver @0x45c63b */
     w120 = *(int *)(world + 0x120);                /* EDX @0x45c611 → слот S-0x18 @0x45c624 */
 
+    g_heur_stage = 30;
     pos = (LDPos *)*slot;                          /* ECX = [EDI] @0x45c61b */
+    g_heur_stage = 40;                             /* 456b20(pos): pos->level */
     s6_grid_scale_compute(pos, rec1);              /* CALL 0x456b20 @0x45c628, out = S-0x10 (EAX читается @0x45c62d) */
 
     /* @0x45c62d..0x45c637: FLDS rec1[1]; FADD [arg1+0x14] (int-биты float'ом);
@@ -709,15 +715,19 @@ int s6_heuristic(void *this_, int *slot)
      * [ESP+0x24]`, esp = S-0x38) и кладётся в [EBX+8] @0x45c671 = S-0x30. */
     chain1 = (float)((double)rec1[1] + s6_bits_to_float(*(int *)((char *)slot + 0x14)));
 
+    g_heur_stage = 50;
     obj4 = native::vcall0((void *)obj3, 0x48);     /* CALL *[EDX+0x48] @0x45c63b, ECX = obj3 */
 
     /* @0x45c63e..0x45c658: FLDS [ESP+0x10] = a1 (слот S-0x1c, записанный @0x45c5ff);
      * FMULS [obj4+0x34]; FADD [arg1+0x10] (int-биты float'ом); FADD слот S-0x18
-     * = world[0x120] (@0x45c654); FSTP m32 [ESP+0x40] = float в arg1-хранилище. */
-    *(float *)slot = (float)(s6_bits_to_float(a1) * *(float *)((char *)obj4 + 0x34)
-                             + s6_bits_to_float(*(int *)((char *)slot + 0x10))
-                             + s6_bits_to_float(w120));
+     * = world[0x120] (@0x45c654); FSTP m32 [ESP+0x40] = float в САМ СЛОТ arg1
+     * (S+4), а не в spec[0] по указателю — иначе копирование @0x45df9e кладёт
+     * в nbr->pos биты float вместо(path_res) и следующий dd70 падает. */
+    arg1_bits = s6_float_bits((float)(s6_bits_to_float(a1) * *(float *)((char *)obj4 + 0x34)
+                                      + s6_bits_to_float(*(int *)((char *)slot + 0x10))
+                                      + s6_bits_to_float(w120)));
 
+    g_heur_stage = 60;
     s6_grid_scale_compute(pos, rec2);              /* CALL 0x456b20 @0x45c65c, out = S-0x08 (EAX читается @0x45c668) */
     /* @0x45c661..0x45c674: EBX = S-0x38 (@0x45c64e `MOV ESP,EBX`); FLDS [arg1+0xc];
      * FADD rec2[0]; FSTP m32 [EBX] = chain2 в S-0x38; MOV [EBX+4] @0x45c66e —
@@ -733,7 +743,8 @@ int s6_heuristic(void *this_, int *slot)
      * chain1 (@0x45c671 MOV [EBX+8] ← значение @0x45c66a); arg4 = 0 (остаток
      * `PUSH 0x0` @0x45c61d в S-0x2c). Риск: лист зовёт _free (0x4d0e16
      * @0x44bcbd/0x44bcd1) на указателях из аргументов. */
-    return native::grid_query(world, s6_float_bits(chain2), *(int *)slot,
+    g_heur_stage = 70;
+    return native::grid_query(world, s6_float_bits(chain2), arg1_bits,
                                s6_float_bits(chain1), 0);
 }
 
@@ -761,12 +772,14 @@ int s6_heuristic_gate(void *this_, int *slot)
     int r, av0, av1;
 
     InterlockedIncrement(&g_h_calls);
+    g_heur_stage = 1;
     if (*(unsigned char *)(world + 0x110) != 0) {   /* @0x45c699..0x45c6a3 JNE → return 0 */
         InterlockedIncrement(&g_h_z110);
         s6_heur_diag(0, 0);
         return 0;
     }
     pos = (LDPos *)*slot;                           /* @0x45c6a9: EAX = [EDI] */
+    g_heur_stage = 2;
     vt = (int)*(void **)w0;                         /* @0x45c6b1: MOV ECX,[ECX] — vtable ctx (w0), не this_ */
     if (((vt >> 2) & 1) == 0) {                     /* @0x45c6ba JNE → хвост при бите 2 */
         if (((vt >> 3) & 1) == 0) {                 /* @0x45c6c2 JE → return 0 */
@@ -774,6 +787,7 @@ int s6_heuristic_gate(void *this_, int *slot)
             s6_heur_diag(0, 0);
             return 0;
         }
+        g_heur_stage = 3;
         if (!native::pt_in_rect((const int *)&((BattleAI *)this_)->canvas_rect,
                                 pos->y, pos->x)) {  /* pt_x = game-Y (+0x10), pt_y = game-X (+0xc) — раскладка POINT */
             InterlockedIncrement(&g_h_zrect);
@@ -782,6 +796,7 @@ int s6_heuristic_gate(void *this_, int *slot)
         }
     }
     InterlockedIncrement(&g_h_tail);
+    g_heur_stage = 4;
     av0 = (long)native::av_count();
     r = s6_heuristic(this_, slot);                  /* @0x45c6d4..0x45c6d7 tail CALL */
     av1 = (long)native::av_count();
@@ -839,6 +854,37 @@ static void s6_copy_fields(int dst, int src_, unsigned int mask)
  * предыдущей итерации; 0 при первой), слоты +0x0c/+0x10/+0x14 ← 0
  * (@0x45de81..0x45de91), сентинелы +0x28 = 0xcb18967f (−1e7), +0x2c =
  * 0x4b18967f (+1e7) (@0x45de99/0x45dea1). */
+
+/* LDHOOK_LOG=2: provenance координат кандидата (first 12 + every 256-й) и
+ * безусловные первые 32 случая `(-1,-1)` — чтобы увидеть ПЕРВОЕ появление.
+ * emb = *(cur->pos) — нативный центр cb40 (arg1 @0x45df04, чтение
+ * @0x45cb4d/0x45cb4f/0x45cb52), которого нет в порту s6_path_search. */
+static volatile LONG g_cell_dbg = 0;
+static volatile LONG g_bad_dbg = 0;
+static volatile LONG g_ai_win_dbg = 0;
+
+static void s6_cell_diag(long ai_call, int x, int y, void *cur, void *curpos,
+                         int cpx, int cpy, void *emb, int embx, int emby,
+                         const char *branch, void *path_res, const int *sp,
+                         void *node, void *nodepos, int npx, int npy)
+{
+    int bad = (cpx == -1 || cpy == -1 || embx == -1 || emby == -1 ||
+               npx == -1 || npy == -1);
+
+    if (g_log_level < LD_DEBUG) {
+        return;
+    }
+    if ((!bad && !ld_rate(&g_cell_dbg, 12, 256)) ||
+        (bad && !ld_rate(&g_bad_dbg, 32, 256))) {
+        return;
+    }
+    ld_debug("cell: ai=%ld grid=(%d,%d) cur=%p curpos=%p (%d,%d) "
+             "emb=%p (%d,%d) br=%s path=%p sp=[%08x,%08x,%08x,%08x,%08x,%08x] "
+             "node=%p nodepos=%p (%d,%d)%s",
+             ai_call, x, y, cur, curpos, cpx, cpy, emb, embx, emby, branch,
+             path_res, sp[0], sp[1], sp[2], sp[3], sp[4], sp[5],
+             node, nodepos, npx, npy, bad ? " BAD" : "");
+}
 
 /* FUN_0045dd70 — AI/pathfinding update (thiscall RET 8, ~807 байт; хит-патч
  * целой функции 0x45dd73). this = BattleAI (ecx), cur = PathState* (arg1,
@@ -906,6 +952,10 @@ int s6_ai_update(void *this_, void *cand, int arg2)
     int x_start, x_max, y_start, y_max;
     int row_off, seed;
     int x, y;
+    int cpx = -2, cpy = -2, embx = -2, emby = -2;
+    void *emb = NULL;
+    volatile LONG ai_stage = 0;   /* LOG=2: где порвал AV внутри 3x3 */
+    void *ex_path = NULL;         /* LOG=2: последний path_res для ai_ex */
 
     InterlockedIncrement(&g_ai_calls);
     /* H7: тот же счётчик vis, что у нативного 0x45dd70 (в порт-режиме он не
@@ -920,6 +970,18 @@ int s6_ai_update(void *this_, void *cand, int arg2)
         pos = cur->pos;                                       /* @0x45dd7f */
         level = (GridLevel *)(INT_PTR)*(const int *)((const unsigned char *)self->game_ctx + 8);
                                                               /* grid root @0x45dee4/0x45dee7 */
+        cpx = pos->x;
+        cpy = pos->y;
+        /* LOG=2: *(cur->pos) — то, что cb40 читает как центр (@0x45cb4d/4f/52). */
+        __try {
+            emb = *(void **)pos;
+            if (emb != NULL) {
+                embx = *(const int *)((const unsigned char *)emb + 0x0c);
+                emby = *(const int *)((const unsigned char *)emb + 0x10);
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            emb = NULL; embx = -2; emby = -2;
+        }
 
         x_start = s6_imax(pos->x - 1, 0);                     /* @0x45dd85/0x45dda5 */
         x_max   = s6_grid_clamp(level->size_x, pos->x + 1);   /* @0x45dd8c..@0x45ddd9 */
@@ -933,6 +995,14 @@ int s6_ai_update(void *this_, void *cand, int arg2)
         if ((x_max - x_start < 0 || y_max - y_start < 0)) {
             InterlockedIncrement(&g_ai_degen);      /* вырожденный 3x3 (счётчик) */
         }
+        /* LOG=2: геометрия 3×3 — откуда берётся вырождение окна. */
+        if (g_log_level >= LD_DEBUG && ld_rate(&g_ai_win_dbg, 8, 256)) {
+            ld_debug("win: ai=%ld cur=%p pos=(%d,%d) level=%p size=(%d,%d) "
+                     "x=[%d,%d] y=[%d,%d] target=%p",
+                     (long)g_ai_calls, (void *)cur, cpx, cpy, (void *)level,
+                     level->size_x, level->size_y, x_start, x_max,
+                     y_start, y_max, target);
+        }
 
         w[0] = 0;
         seed = 0;                                             /* esi @0x45dd99 xor */
@@ -945,6 +1015,7 @@ int s6_ai_update(void *this_, void *cand, int arg2)
                 int rev = 8 - idx;                            /* @0x45de4c/0x45de75, store @0x45de7d */
                 int dist2, h, cost;
                 int free_done = 0;
+                void *diag_path = NULL;
 
                 InterlockedIncrement(&g_ai_cells);
                 if (x == pos->x && y == pos->y) {            /* self-skip @0x45de36/0x45de3c */
@@ -978,13 +1049,19 @@ int s6_ai_update(void *this_, void *cand, int arg2)
                             InterlockedIncrement(&g_ai_cell_null);
                             seed = 0; continue;               /* @0x45defc JE → хвост цикла (xor esi @0x45e05a) */
                         }
+                        ai_stage = 10;                        /* grid lookup done */
                         sp[0] = (int)(INT_PTR)cell;           /* spec[0x00]=cell @0x45df05 */
                         sp[4] = *(const int *)&cur->out_metric;  /* spec[0x10]=cur->[0x10] @0x45df13 */
+                        ai_stage = 20;                        /* в cb40 */
                         path_res = s6_path_search(self, (PathState *)sp);  /* @0x45df17 RET 8 */
+                        diag_path = path_res;
+                        ex_path = path_res;
+                        ai_stage = 30;                        /* cb40 вернул */
                         if (path_res == NULL) {
                             InterlockedIncrement(&g_ai_path_null);
                             seed = 0; continue;               /* @0x45df24 JE → хвост цикла */
                         }
+                        ai_stage = 40;                        /* pfs ctor */
                         nbr = s6_pfs_ctor();                  /* @0x45df2c CALL 0x45c2e0, куча игры */
                         if (nbr == NULL) {
                             InterlockedIncrement(&g_ai_pfs_null);
@@ -1000,12 +1077,15 @@ int s6_ai_update(void *this_, void *cand, int arg2)
                         sp[3] = 0;                            /* spec[0x0c] @0x45df52 */
                         sp[5] = 0;                            /* spec[0x14] @0x45df5a */
                         sp[6] = cur->g_cost + 1;              /* spec[0x18] @0x45df62 (INC @0x45df46) */
+                        ai_stage = 50;                        /* dist2(path_res, target) */
                         dist2 = s6_distance2((void *)(INT_PTR)path_res, target);  /* CALL 0x45c480 @0x45df66 */
                         sp[7] = dist2;                        /* spec[0x1c] @0x45df6b */
+                        ai_stage = 60;                        /* heuristic(sp) */
                         h = s6_heuristic_gate(self, sp);      /* CALL 0x45c690 @0x45df76, &spec @0x45df6f */
                         sp[8] = h * 10000;                    /* spec[0x20] @0x45df85 */
                         cost = h * 10000 + dist2 + (cur->g_cost + 1);  /* @0x45df7b/0x45df8e/0x45df95 */
                         sp[9] = cost;                         /* spec[0x24] store @0x45df9a */
+                        ai_stage = 70;                        /* copy + register */
                         s6_copy_fields((int)(INT_PTR)nbr, (int)(INT_PTR)sp, 0x1fff);  /* src=&spec @0x45df91, CALL 0x45c4b0 @0x45df9e */
                         InterlockedIncrement(&g_reg_calls);
                         native::register_occupied_slot(self, (LDObject *)nbr);  /* CALL 0x45dd00 @0x45dfa6 — только ветка 1 */
@@ -1014,6 +1094,7 @@ int s6_ai_update(void *this_, void *cand, int arg2)
                 }
 
                 if (!free_done) {                             /* ветка 2 (@0x45dfb0..0x45e037) */
+                    ai_stage = 80;                            /* branch 2 */
                     if (cur->filter == 2 && nbr->filter != 3) {  /* @0x45dfb0/0x45dfba/0x45dfc0 */
                         if (nbr->filter == 1) {               /* @0x45dfc6 */
                             s6_ai_update(this_, nbr, (int)(INT_PTR)self->anchor);  /* @0x45dfd2 CALL 0x45dd70, arg2=[this+0x2c] */
@@ -1033,12 +1114,40 @@ int s6_ai_update(void *this_, void *cand, int arg2)
                     }
                 }
 
+                /* LOG=2: координаты, которые реально несёт созданный/старый узел. */
+                {
+                    void *nodepos = NULL;
+                    int npx = -2, npy = -2;
+
+                    __try {
+                        if (nbr != NULL) {
+                            nodepos = nbr->pos;
+                            if (nodepos != NULL) {
+                                npx = *(const int *)((const unsigned char *)nodepos + 0x0c);
+                                npy = *(const int *)((const unsigned char *)nodepos + 0x10);
+                            }
+                        }
+                    } __except (EXCEPTION_EXECUTE_HANDLER) {
+                        nodepos = NULL; npx = -2; npy = -2;
+                    }
+                    s6_cell_diag((long)g_ai_calls, x, y, cur, pos, cpx, cpy,
+                                 emb, embx, emby, free_done ? "free" : "old",
+                                 diag_path, sp, nbr, nodepos, npx, npy);
+                }
+
                 cur->nbr[idx] = nbr;                          /* @0x45e04c store %ESI */
                 nbr->nbr[rev] = cur;                          /* @0x45e050 store %EBX */
                 seed = (int)(INT_PTR)nbr;                     /* esi после связки */
             }
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
+        if (g_log_level >= LD_DEBUG) {
+            ld_debug("ai_ex: ai=%ld stage=%ld hstage=%ld cur=%p pos=(%d,%d) "
+                     "cells=%ld av=%ld path=%p",
+                     (long)g_ai_calls, (long)ai_stage, (long)g_heur_stage,
+                     (void *)cur, cpx, cpy, (long)g_ai_cells,
+                     native::av_count(), ex_path);
+        }
         return 0;
     }
 
@@ -1134,6 +1243,27 @@ static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
             ld_info("site6: call %ld it=%ld cand=%p f=%d m=%d pos=%p px=%d py=%d",
                     (long)n, (long)iters, (void *)cur, cur->filter, cur->metric,
                     (void *)p, px, py);
+        }
+        /* LOG=2: provenance кандидата для коротких вызовов (code=0). */
+        if (g_log_level >= LD_DEBUG && (n <= 12 || iters <= 2)) {
+            LDPos *cp = NULL, *tq = (LDPos *)cmp_val;
+            int cpx = -2, cpy = -2, qx = -2, qy = -2;
+
+            __try {
+                cp = cur->pos;
+                if (cp != NULL) { cpx = cp->x; cpy = cp->y; }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                cp = NULL; cpx = -2; cpy = -2;
+            }
+            __try {
+                if (tq != NULL) { qx = tq->x; qy = tq->y; }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                qx = -2; qy = -2;
+            }
+            ld_debug("cand: call=%ld it=%ld cand=%p pos=%p (%d,%d) cmp=%p (%d,%d) "
+                     "f=%d m=%d",
+                     (long)n, (long)iters, (void *)cur, (void *)cp, cpx, cpy,
+                     (void *)tq, qx, qy, cur->filter, cur->metric);
         }
         /* AI/pathfinding update — порт FUN_0045dd70: arg2 = arg1 (pos_obj),
          * см. 0x45e117 push ebx. */
