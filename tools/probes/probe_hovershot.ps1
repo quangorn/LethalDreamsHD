@@ -164,6 +164,9 @@ if (-not $NoLoad) {
   Shot $main "$ShotDir\$($Tag)_sel.png"
 
   Send-Key 13
+  # Enter выбирает слот; после этого ShowYesNoDlg(GSV_CONFIRM_LOAD) («Загрузить?»),
+  # второй Enter = Да. Один Enter загрузку не подтверждает.
+  Send-Key 13
   Start-Sleep -Seconds $LoadWait
   [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(4000, 20)
   Start-Sleep -Milliseconds 600

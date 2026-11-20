@@ -105,8 +105,8 @@ text-lines (история измерений: `docs/OBSERVATIONS_FONT.md`, `doc
 
 ## Зонды (tools/probes)
 
-`probe_hovershot.ps1` — запуск игры, загрузка сохранения (глиф окна → слот → Enter),
-наведение курсора ОС на канвасные точки с паузой и съёмка окна:
+`probe_hovershot.ps1` — запуск игры, загрузка сохранения (глиф окна → слот → Enter ×2: выбор слота и
+«Да» в диалоге подтверждения), наведение курсора ОС на канвасные точки с паузой и съёмка окна:
 
 ```
 LD_GAME="<tree>" LD_REPO="<repo>" LD_SCRATCH="<scratch>" \
@@ -335,11 +335,24 @@ python3 tools/tex/hook_ground.py --tree <дерево> --restore   # ориги�
   (снимок оверленда — `tools/archive/probes/probe_loadshot.ps1 … -Mode new`).
 - Съёмка боя: `tools/probes/probe_battleshot.ps1` — новая игра, скип уроков Enter'ом,
   клики по канвасным тайлам, обнаружение боя по строке `SCENE battle` в `hdlog.txt`.
-- Вход в бой из сейва: `tools/probes/battle_test.ps1` — DSL шагов (`wait/click/rclick/hover/hold/key/shot/waitfor`),
-  канвас 1024x768; «Вспомнить» (350,107) → первый сейв (280,161) + Enter → планета (672,542) →
-  «Атака» (413,524) → пробел → 2-е заклинание (473,733) → ПКМ-удержание у героя (500,430), две итерации.
-- Детект боя по `SCENE battle` требует dev-сборки `hd_scale.pyc` (`HD_LOG=1`) — иначе сцен в логе нет;
+- Вход в бой из сейва — `tools/probes/battle_test.ps1` (канвас 1024x768; эталонный сейв — верхняя строка
+  списка): «Вспомнить» (350,107) → слот (280,161) → **Enter×2** (Да в диалоге подтверждения) → планета
+  (672,542) → «Атака» (413,524) → **Enter** («Атака?» = Да) → слот 2-го слева заклинания (473,733) →
+  ПКМ-удержание на земле (500,430), **3 волны**. Space (VK 32) = пауза боя, в сценарии не используется;
+  диалоги подтверждаются Enter'ом. Детект `SCENE battle` требует dev-сборки `hd_scale.pyc` (`HD_LOG=1`);
   сейвы игра читает из `Documents\Boolat Games\Lethal Dreams\Saves` (профиль пользователя, SLOTn).
+- DSL шагов: `wait / click / hover / rclick / hold / key / wave / waves / shot / cpu / waitfor`.
+  Волна — `wave:SX:SY:CX:CY[:MS]` или `waves` (N из `-Waves`); заклинание и точка каста —
+  `-SpellX/-SpellY/-CastX/-CastY/-HoldMs`. Ряд иконок центрируется по канвас 512, шаг 35, `sp_y=714`
+  (`ui/battlemenu.py`): x i-й иконки = `512 − n·17.5 + 35i + 16`, n — число боевых заклинаний сейва.
+- Запуск (env обязательны, без `-GameRoot` скрипт падает `GameRoot не задан`):
+
+```
+LD_GAME="<tree>" LD_SHOTS="<shots>" LDHOOK_LOG=1 \
+  powershell -NoProfile -ExecutionPolicy Bypass -File tools/probes/battle_test.ps1 \
+  -W 3840 -H 2160 -F 1 -Tag battle -MenuSec 6 [-Waves N] [-SpellX .. -SpellY .. -CastX .. -CastY ..]
+```
+
 - Проверка после прогонов: снапшот md5+mtime установки до/после (diff обязан быть
   нулевым; запуски игры дают известный дрейф `Lib/*.pyc`, `hd.cfg`, `hdlog.txt`,
   font-сайкары, `mm_bkg01.btf` — их убирают/не трогают), `--quick`/`--untouched` rc 0.

@@ -1,19 +1,27 @@
 # battle_test.ps1 — вход в бой из сейва и призыв монстров удержанием ПКМ.
 #
 #   battle_test.ps1 [-W 3840 -H 2160 -F 1] [-Tag battle] [-MenuSec 6] [-LogLevel 1]
-#       [-Steps "<dsl>"] [-BattleWait 180] [-HoldMs 5000] [-EndWait 3] [-NoKill]
+#       [-Steps "<dsl>"] [-BattleWait 180] [-HoldMs 5000] [-EndWait 10] [-NoKill]
 #       [-GameRoot <дерево>] [-ShotsDir <каталог>]
+#       [-Waves 3] [-SpellX 473 -SpellY 733 -CastX 500 -CastY 430]
 #
 # DSL шагов (через ';', координаты — канвас 1024x768):
 #   wait:SEC         пауза
 #   click:CX:CY      ЛКМ по канвасной точке
+#   hover:CX:CY      наведение курсора без клика (hit-test тултипа/глифа)
 #   rclick:CX:CY     ПКМ по канвасной точке
 #   hold:CX:CY:MS    ПКМ вниз в точке, держать MS, отпустить (каст заклинания)
-#   key:VK           нажатие клавиши (13=Enter, 32=Space)
+#   key:VK           нажатие клавиши: 13=Enter (подтверждение диалога); 32=Space — пауза боя
+#   wave:SX:SY:CX:CY волна призыва: клик по слоту (SX,SY), ПКМ-удержание на цели (CX,CY)
+#   waves            N волн подряд из -Waves/-SpellX/-SpellY/-CastX/-CastY/-HoldMs
 #   shot:NAME        снимок окна -> <ShotsDir>/<Tag>_NAME.png
 #   cpu:SEC          замер CPU процесса игры за SEC секунд (строка CPU в лог)
 #   waitfor:battle[:SEC]  ждать строку "SCENE battle" в hdlog.txt (курсор шевелится:
 #                    hd_scale пишет SCENE только на событиях мыши)
+#
+# Space (VK 32) в бою = включение/выключение паузы: на паузе бой стоит и касты не идут,
+# повторное нажатие включает паузу снова после выбора заклинания. В сценарии Space НЕ используется.
+# Диалоги («Атака?», «Загрузить?») подтверждаются Enter'ом.
 #
 # Детект боя — строка "SCENE battle" в config[game.root]/hdlog.txt — НЕНАДЁЖЕН
 # (в прогонах 19.11.2026 не срабатывал ни разу: playbook не полагается на
@@ -25,8 +33,10 @@
 # масштабируется системой и канвасные точки не совпадут).
 param([int]$W = 3840, [int]$H = 2160, [int]$F = 1, [string]$Tag = "battle_test",
       [int]$MenuSec = 6, [int]$LogLevel = 1,
-      [string]$Steps = "shot:menu;click:350:107;wait:0.2;click:280:161;wait:0.2;key:13;wait:0.2;key:13;wait:10;shot:overland;hover:672:542;wait:0.2;click:672:542;wait:1;hover:413:524;wait:1;click:413:524;wait:5;key:32;wait:6;click:473:733;wait:0.2;hold:500:430:5000;wait:1;click:473:733;wait:0.2;hold:500:430:5000;wait:1;click:473:733;wait:0.2;hold:500:430:5000;wait:1;shot:summons",
+      [string]$Steps = "shot:menu;click:350:107;wait:0.2;click:280:161;wait:0.2;key:13;wait:0.2;key:13;wait:10;shot:overland;hover:672:542;wait:0.2;click:672:542;wait:1;hover:413:524;wait:1;click:413:524;wait:5;key:13;wait:6;waves;shot:summons",
       [int]$BattleWait = 180, [int]$HoldMs = 5000, [double]$EndWait = 10,
+      [int]$Waves = 3, [double]$SpellX = 473, [double]$SpellY = 733,
+      [double]$CastX = 500, [double]$CastY = 430,
       [switch]$NoKill, [string]$GameRoot = $env:LD_GAME, [string]$ShotsDir = $env:LD_SHOTS)
 if (-not $GameRoot) { throw "GameRoot не задан: -GameRoot <дерево> или LD_GAME" }
 if (-not (Test-Path (Join-Path $GameRoot "LETHALDREAMS.EXE"))) { throw "Нет LETHALDREAMS.EXE в $GameRoot" }
@@ -205,6 +215,15 @@ foreach ($step in $Steps.Split(';')) {
     'rclick'  { $a = To-Abs $main ([double]$v[1]) ([double]$v[2]); Log "STEP $si rclick canvas $($v[1]),$($v[2]) -> abs ($($a[0]),$($a[1]))"; RClick $a[0] $a[1] }
     'hold'    { $a = To-Abs $main ([double]$v[1]) ([double]$v[2]); $ms = $HoldMs; if ($v.Count -gt 3 -and $v[3]) { $ms = [int]$v[3] }; Log "STEP $si hold canvas $($v[1]),$($v[2]) -> abs ($($a[0]),$($a[1])) ${ms}ms"; Hold $a[0] $a[1] $ms }
     'key'     { Log "STEP $si key $($v[1])"; Key ([int]$v[1]) }
+    'wave'    { $ms = $HoldMs; if ($v.Count -gt 5 -and $v[5]) { $ms = [int]$v[5] }
+                $a = To-Abs $main ([double]$v[1]) ([double]$v[2]); $b = To-Abs $main ([double]$v[3]) ([double]$v[4])
+                Log "STEP $si wave canvas slot $($v[1]),$($v[2]) -> abs ($($a[0]),$($a[1])) cast $($v[3]),$($v[4]) -> abs ($($b[0]),$($b[1])) ${ms}ms"
+                Click $a[0] $a[1]; Hold $b[0] $b[1] $ms; Start-Sleep -Milliseconds 1000 }
+    'waves'   { $w = 0
+                while ($w -lt $Waves) { $w++
+                  $a = To-Abs $main $SpellX $SpellY; $b = To-Abs $main $CastX $CastY
+                  Log "STEP $si wave $w canvas slot $SpellX,$SpellY -> abs ($($a[0]),$($a[1])) cast $CastX,$CastY -> abs ($($b[0]),$($b[1])) ${HoldMs}ms"
+                  Click $a[0] $a[1]; Hold $b[0] $b[1] $HoldMs; Start-Sleep -Milliseconds 1000 } }
     'cpu'     { $sec = 3; if ($v.Count -gt 1 -and $v[1]) { $sec = [int]$v[1] }; Log "STEP $si cpu $($sec)s"; Cpu $sec }
     'shot'    { Shot $main $v[1]; Log "STEP $si shot $($v[1])" }
     'waitfor' {
