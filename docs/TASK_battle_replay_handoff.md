@@ -25,7 +25,8 @@ Best hypothesis: patching those **call sites** with `E9` is unsafe (context/SEH)
 3. ~~Harness check~~ — done; see §7 (rc 0).
 4. ~~Report first diverging `seq`~~ — done; divergence was harness-side, fixed in the harness.
 5. ~~Fix port defect~~ — none found; `battle/*.cpp` logic untouched.
-6. Add short 3-command section to `tools/ldhook/README.md`.
+6. ~~Add short 3-command section to `tools/ldhook/README.md`.~~ — done, см. §7.
+7. ~~Chained (self-feeding) replay, plan 3.7'~~ — done, см. §7.
 
 ## 5. Commands and paths
 ```
@@ -54,4 +55,10 @@ Never delete files; installed game `D:/Games/LethalDreams` READ-ONLY (use scratc
 - Validation: `D:/tmp/cygwin/opencode/ld/replay_capture_addr.jsonl` (258 calls) → `replay_port_addr2.jsonl`; `battle_replay_diff.py` **rc 0**, all 257 complete calls equal on node/code/iters/iter_seq/map1_after/occ_after. No port defect; `battle/*.cpp` logic unchanged.
 - tick 16 in this run is unit 4 (seq=14) and matches; the reported "seq=1, iters 116 vs 71" reproduces only with address-less captures — harness artefact, not a port defect.
 - Robustness: bad JSON/missing `ptr`/`res` without `cap`/unreadable file ⇒ `ERROR: …`, rc 2, no crash; truncated trailing line ignored.
-- Open: initial map2 node values are not captured (harness uses NULL → "free path" for those keys; no exposure in this capture); README 3-command section.
+- Open: initial map2 node values are not captured (harness uses NULL → "free path" for those keys; no exposure in this capture); README 3-command section — done (see below).
+
+### 3.7' chained self-feeding replay (20.11.2026)
+- `battle_replay.cpp`: added `--chained` (default unchanged). Replica is built once from the first complete `cap`, then `rep_rebind()` feeds the port's own map1/map2/identity state into the next call; per-call args/scalars/leaf stream still come from the capture. In-process compare of `node/code/iters/iter_seq` + `map1_after`/`occ_after`/`ai_words_after`; distinct `MUTATE` class when result matches but after-state does not, with node `pos`/`pos_addr`/filter/g/d2/h10k/cost delta and port branch (`dd70` branch 1 → `0x45dd00 register_occupied_slot`). `CHAIN:` summary = calls/chain_length/survived/entry_state_mismatch/first_div_seq/class; rc 0 equal, 1 diverge, 2 input error.
+- Full-battle native capture `D:/tmp/cygwin/opencode/ld/fullbattle_capture.jsonl` (210 calls, ticks 3..269, `LDHOOK_BATTLE_CAPTURE_MAX=2000`, `LDHOOK_SEED=1234567890`, one `key:32` at entry via `battle_43.ps1`, game killed). Non-chained: `battle_replay_diff.py` rc 0, 210/210 equal. Chained: rc 1, **chain_length=210, survived=1**, first divergence **seq=2 class=RESULT** (node native `[260,103]` vs port `null`; after-state map1 native 67 / port 6: +1 −62, occ +1 −62), no `MUTATE` case.
+- The divergence is NOT a port mutation defect: `entry_state_mismatch=209/209`, first at seq=2 — native `cap.map1` = 1 node while carried port state = 6 (`+6 −1`, 5 of 6 from seq-1 branch-1 registrations). The game clears the candidate/occupied maps between e0a0 calls, so a literal self-feeding chain cannot be a faithful Phase 3 gate; **no port fix landed** (no proven defect). Per-call replay remains the valid gate.
+- Limitation: harness stubs pathfinding (grid = sizes only) and replays captured leaf values; the chain validates `dd70`/`e0a0`/`c690` bookkeeping and the port's own map insertions, not the grid search itself. Rerun: `build/ldhook/battle_replay.exe [--chained] D:/tmp/cygwin/opencode/ld/fullbattle_capture.jsonl <out.jsonl>` (build via `python3 tools/probes/battle_replay_build.py`).

@@ -188,9 +188,24 @@ python3 tools/ldhook/patch_ui.py --restore   # откат: вернуть ui.pyc
 ```
 python3 tools/ldhook/build.py
 python3 tools/probes/battle_replay_build.py
-build/ldhook/battle_replay.exe <capture.jsonl> <res_port.jsonl>   # затем battle_replay_diff.py
+build/ldhook/battle_replay.exe [--chained] <capture.jsonl> <res_port.jsonl>
 ```
 
-Диагностика `battle_replay_diff.py`: rc 0 равно, 1 расхождение, 2 битый вход,
-3 короткий диапазон. Известное ограничение: реконструкция карты кандидатов
-(вставки dd00) не 1:1 с нативной — см. `docs/TASK_battle_replay_handoff.md`.
+Без флага реплика строится заново из `cap` каждого вызова, сравнение делает
+`battle_replay_diff.py` (rc 0 равно, 1 расхождение, 2 битый вход, 3 короткий
+диапазон). С `--chained`: реплика инициализируется один раз из первой полной
+`cap`, дальше в каждый вызов подаётся СОБСТВЕННОЕ after-state порта; после
+каждого схода сравниваются `node/code/iters/iter_seq` и after-state
+(`map1_after`/`occ_after`/`ai_words_after`). Класс `MUTATE` = результат совпал,
+а состояние нет; в выводе — конкретная дельта (pos/pos_addr/filter/g/cost) и
+ветка порта (`dd70` branch 1 → `0x45dd00`). Итоговая строка `CHAIN:` даёт
+chain_length, survived, entry_state_mismatch, first_div_seq/class; rc 0 равно,
+1 расхождение, 2 битый вход. `LD_REPLAY_TRACE=1/2` — лог порта в stderr.
+
+Известное ограничение: сетка pathfinding'а заглушена (только размеры), листья
+cb40/c690/c5a0 проигрываются из захвата; цепь проверяет bookkeeping
+`dd70`/`e0a0`/`c690` и собственные вставки порта в map1, но не сам поиск пути.
+Кроме того, игра очищает карты кандидатов **между** вызовами e0a0 (в захвате
+`cap.map1` следующего вызова = 1 узел против сотен в `map1_after` предыдущего),
+поэтому `entry_state_mismatch` в цепи ожидаем и не является дефектом порта.
+Подробности — `docs/TASK_battle_replay_handoff.md` §7.

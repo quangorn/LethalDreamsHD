@@ -431,6 +431,266 @@ static void read_leaves(Call &c, const JVal &res) {
     }
 }
 
+/* --------------- chained mode: сравнение результата и after-state -------- */
+/* Обычный режим: реплика строится заново из cap каждого вызова, сравнение
+ * делает battle_replay_diff.py. Chained mode: реплика живёт между вызовами,
+ * поэтому сравнение (result + after-state) делается здесь, сразу после
+ * каждого схода порта. Класс MUTATE = результат совпал, а состояние нет. */
+
+struct RegEvent {
+    int seq, x, y, pos_addr, filter, g, cost;
+};
+static std::vector<RegEvent> g_reg_events;   /* единственный источник новых узлов map1 */
+
+struct AStateNode {
+    int x, y, pos_addr;
+    int filter, g, d2, h10k, cost, px, py;
+};
+struct AState {
+    std::vector<AStateNode> map1;
+    std::vector<int> occ;
+    bool has_ai;
+    unsigned int ai[RP_AI_WORDS];
+    AState() : has_ai(false) { memset(ai, 0, sizeof(ai)); }
+};
+
+static void after_from_res(const JVal &res, AState &out) {
+    if (jhas(res, "map1_after")) {
+        const JVal &m = jarr(res, "map1_after", "res.map1_after");
+        for (size_t i = 0; i < m.a.size(); i++) {
+            const JVal &e = m.a[i];
+            AStateNode n;
+            memset(&n, 0, sizeof(n));
+            read_pos(jget(e, "pos", "res.map1_after"), &n.x, "res.map1_after.pos");
+            n.filter = (int)jint(e, "filter", "res.map1_after");
+            n.g = (int)jint(e, "g", "res.map1_after");
+            n.d2 = (int)jint(e, "d2", "res.map1_after");
+            n.h10k = (int)jint(e, "h10k", "res.map1_after");
+            n.cost = (int)jint(e, "cost", "res.map1_after");
+            read_pos(jget(e, "parent", "res.map1_after"), &n.px,
+                     "res.map1_after.parent");
+            n.pos_addr = (int)jint_opt(e, "pos_addr", 0);
+            out.map1.push_back(n);
+        }
+    }
+    if (jhas(res, "occ_after")) {
+        const JVal &o = jarr(res, "occ_after", "res.occ_after");
+        for (size_t i = 0; i < o.a.size(); i++) {
+            out.occ.push_back((int)jnum(o.a[i], "res.occ_after"));
+        }
+    }
+    /* После-состояние скалярного блока BattleAI захватывается не всегда;
+     * если оно есть — сравниваем, игнорируя слоты-указатели (см. diff_after). */
+    const char *awkeys[2] = {"ai_words_after", "ai_words"};
+    for (int k = 0; k < 2; k++) {
+        if (!jhas(res, awkeys[k])) continue;
+        const JVal &aw = jarr(res, awkeys[k], "res.ai_words");
+        if (aw.a.size() != RP_AI_WORDS) {
+            throw std::runtime_error("res.ai_words: expected 32 dwords");
+        }
+        for (size_t i = 0; i < aw.a.size(); i++) {
+            out.ai[i] = (unsigned int)(int)jnum(aw.a[i], "res.ai_words");
+        }
+        out.has_ai = true;
+        break;
+    }
+}
+
+struct NResult {
+    int nx, ny, code, iters;
+    std::vector<int> seq;
+};
+static void nres_read(const JVal &res, NResult &out) {
+    read_pos(jget(res, "node", "res"), &out.nx, "res.node");
+    out.code = (int)jint(res, "code", "res");
+    out.iters = (int)jint(res, "iters", "res");
+    const JVal &sq = jarr(res, "iter_seq", "res");
+    for (size_t i = 0; i < sq.a.size(); i++) {
+        int xy[2];
+        read_pos(sq.a[i], xy, "res.iter_seq");
+        out.seq.push_back(xy[0]);
+        out.seq.push_back(xy[1]);
+    }
+}
+
+static bool result_equal(const NResult &a, int px, int py, int code, int iters,
+                         const std::vector<int> &pseq, std::string &why) {
+    if (a.nx != px || a.ny != py) {
+        char b[128];
+        _snprintf_s(b, sizeof(b), _TRUNCATE, "node native=[%d,%d] port=[%d,%d]",
+                    a.nx, a.ny, px, py);
+        why = b;
+        return false;
+    }
+    if (a.code != code) {
+        char b[128];
+        _snprintf_s(b, sizeof(b), _TRUNCATE, "code native=%d port=%d", a.code, code);
+        why = b;
+        return false;
+    }
+    if (a.iters != iters) {
+        char b[128];
+        _snprintf_s(b, sizeof(b), _TRUNCATE, "iters native=%d port=%d",
+                    a.iters, iters);
+        why = b;
+        return false;
+    }
+    if (a.seq != pseq) {
+        size_t i = 0;
+        while (i < a.seq.size() && i < pseq.size() && a.seq[i] == pseq[i]) i++;
+        char b[160];
+        _snprintf_s(b, sizeof(b), _TRUNCATE,
+                    "iter_seq native=%u port=%u pairs; first diff at pair %u "
+                    "(%d,%d) vs (%d,%d)",
+                    (unsigned)(a.seq.size() / 2), (unsigned)(pseq.size() / 2),
+                    (unsigned)(i / 2),
+                    i + 1 < a.seq.size() ? a.seq[i] : -2,
+                    i + 1 < a.seq.size() ? a.seq[i + 1] : -2,
+                    i + 1 < pseq.size() ? pseq[i] : -2,
+                    i + 1 < pseq.size() ? pseq[i + 1] : -2);
+        why = b;
+        return false;
+    }
+    return true;
+}
+
+static std::string anode_key(const AStateNode &n) {
+    char b[64];
+    if (n.pos_addr) {
+        _snprintf_s(b, sizeof(b), _TRUNCATE, "a:%08x", (unsigned)n.pos_addr);
+    } else {
+        _snprintf_s(b, sizeof(b), _TRUNCATE, "p:%d,%d", n.x, n.y);
+    }
+    return std::string(b);
+}
+static std::string anode_str(const AStateNode &n) {
+    char b[192];
+    _snprintf_s(b, sizeof(b), _TRUNCATE,
+                "pos=[%d,%d] pos_addr=0x%x filter=%d g=%d d2=%d h10k=%d cost=%d "
+                "parent=[%d,%d]",
+                n.x, n.y, (unsigned)n.pos_addr, n.filter, n.g, n.d2, n.h10k,
+                n.cost, n.px, n.py);
+    return std::string(b);
+}
+static std::string reg_branch_for(const AStateNode &n, int seq) {
+    (void)seq;    /* carried nodes were registered in an earlier seq */
+    for (size_t i = 0; i < g_reg_events.size(); i++) {
+        const RegEvent &e = g_reg_events[i];
+        if ((n.pos_addr && e.pos_addr == n.pos_addr) ||
+            (!n.pos_addr && e.x == n.x && e.y == n.y)) {
+            char b[192];
+            _snprintf_s(b, sizeof(b), _TRUNCATE,
+                        "dd70 branch 1 (free path) -> 0x45dd00 "
+                        "register_occupied_slot @seq=%d filter=%d g=%d cost=%d",
+                        e.seq, e.filter, e.g, e.cost);
+            return std::string(b);
+        }
+    }
+    return "no register event this seq (not a branch-1 insertion)";
+}
+
+static std::string diff_after(const AState &nat, const AState &port, int seq) {
+    std::map<std::string, const AStateNode *> an, bn;
+    for (size_t i = 0; i < nat.map1.size(); i++) an[anode_key(nat.map1[i])] = &nat.map1[i];
+    for (size_t i = 0; i < port.map1.size(); i++) bn[anode_key(port.map1[i])] = &port.map1[i];
+
+    int added = 0, removed = 0, changed = 0, occ_add = 0, occ_rm = 0, ai_diff = 0;
+    std::string s;
+    char b[320];
+    for (std::map<std::string, const AStateNode *>::const_iterator it = bn.begin();
+         it != bn.end(); ++it) {
+        if (an.count(it->first)) continue;
+        added++;
+        if (added <= 12) {
+            s += "\n  + map1 " + anode_str(*it->second) + " branch=" +
+                 reg_branch_for(*it->second, seq);
+        }
+    }
+    for (std::map<std::string, const AStateNode *>::const_iterator it = an.begin();
+         it != an.end(); ++it) {
+        if (bn.count(it->first)) continue;
+        removed++;
+        if (removed <= 12) s += "\n  - map1 " + anode_str(*it->second);
+    }
+    for (std::map<std::string, const AStateNode *>::const_iterator it = an.begin();
+         it != an.end(); ++it) {
+        std::map<std::string, const AStateNode *>::const_iterator jt = bn.find(it->first);
+        if (jt == bn.end()) continue;
+        const AStateNode &a = *it->second, &p = *jt->second;
+        std::string f;
+        if (a.filter != p.filter) f += " filter";
+        if (a.g != p.g) f += " g";
+        if (a.d2 != p.d2) f += " d2";
+        if (a.h10k != p.h10k) f += " h10k";
+        if (a.cost != p.cost) f += " cost";
+        if (a.px != p.px || a.py != p.py) f += " parent";
+        if (f.empty()) continue;
+        changed++;
+        if (changed <= 12) {
+            _snprintf_s(b, sizeof(b), _TRUNCATE,
+                        "\n  ~ map1 %s fields:%s native(filter=%d,g=%d,d2=%d,"
+                        "h10k=%d,cost=%d,parent=[%d,%d]) "
+                        "port(filter=%d,g=%d,d2=%d,h10k=%d,cost=%d,parent=[%d,%d])",
+                        anode_key(a).c_str(), f.c_str(), a.filter, a.g, a.d2,
+                        a.h10k, a.cost, a.px, a.py, p.filter, p.g, p.d2, p.h10k,
+                        p.cost, p.px, p.py);
+            s += b;
+        }
+    }
+    std::map<int, int> ao, bo;
+    for (size_t i = 0; i < nat.occ.size(); i++) ao[nat.occ[i]]++;
+    for (size_t i = 0; i < port.occ.size(); i++) bo[port.occ[i]]++;
+    for (std::map<int, int>::const_iterator it = bo.begin(); it != bo.end(); ++it) {
+        std::map<int, int>::const_iterator jt = ao.find(it->first);
+        int d = it->second - (jt == ao.end() ? 0 : jt->second);
+        if (d <= 0) continue;
+        occ_add += d;
+        if (occ_add <= 16) {
+            _snprintf_s(b, sizeof(b), _TRUNCATE, "\n  + occ key=%d count=%d", it->first, d);
+            s += b;
+        }
+    }
+    for (std::map<int, int>::const_iterator it = ao.begin(); it != ao.end(); ++it) {
+        std::map<int, int>::const_iterator jt = bo.find(it->first);
+        int d = it->second - (jt == bo.end() ? 0 : jt->second);
+        if (d <= 0) continue;
+        occ_rm += d;
+        if (occ_rm <= 16) {
+            _snprintf_s(b, sizeof(b), _TRUNCATE, "\n  - occ key=%d count=%d", it->first, d);
+            s += b;
+        }
+    }
+    if (nat.has_ai && port.has_ai) {
+        /* Слоты-указатели BattleAI (+0x00 game_ctx, +0x2c anchor, +0x6c/0x70/
+         * 0x74/0x78 map-поля, +0x7c) в реплике адреса харнеса — их сравнение
+         * бессмысленно. */
+        static const int ptr_words[7] = {0, 11, 27, 28, 29, 30, 31};
+        for (int i = 0; i < RP_AI_WORDS; i++) {
+            bool skip = false;
+            for (int k = 0; k < 7; k++) if (ptr_words[k] == i) skip = true;
+            if (skip || nat.ai[i] == port.ai[i]) continue;
+            ai_diff++;
+            if (ai_diff <= 16) {
+                _snprintf_s(b, sizeof(b), _TRUNCATE,
+                            "\n  ~ ai_words[%d] (+0x%02x) native=0x%08x port=0x%08x",
+                            i, i * 4, nat.ai[i], port.ai[i]);
+                s += b;
+            }
+        }
+    }
+    if (!added && !removed && !changed && !occ_add && !occ_rm && !ai_diff) {
+        return std::string();
+    }
+    char head[320];
+    _snprintf_s(head, sizeof(head), _TRUNCATE,
+                " map1 native=%u port=%u (+%d -%d ~%d); occ native=%u port=%u "
+                "(+%d -%d); ai_words_diff=%d",
+                (unsigned)nat.map1.size(), (unsigned)port.map1.size(),
+                added, removed, changed, (unsigned)nat.occ.size(),
+                (unsigned)port.occ.size(), occ_add, occ_rm, ai_diff);
+    return std::string(head) + s;
+}
+
 /* ------------------------------- реплика -------------------------------- */
 
 extern "C" {
@@ -781,6 +1041,132 @@ static void rep_build(Rep *r, const Call &c) {
     g_replay_leaf_underflow = 0;      /* флаг — на вызов, не на прогон */
 }
 
+/* Chained mode: реплика НЕ пересобирается из cap. Сохраняем map1/map2, все
+ * identity-карты и новые узлы, которые порт вставил сам, а из cap берём только
+ * аргументы вызова и скалярные входы (таймер/пороги/SETKA/leaf-поток). Это и
+ * позволяет увидеть расхождение накопления состояния, которое обычный replay
+ * маскирует полной пересборкой на каждом вызове. */
+static void rep_rebind(Rep *r, const Call &c)
+{
+    BattleAI *ai = (BattleAI *)(void *)r->aiBuf;
+    unsigned long long key;
+    std::map<unsigned long long, int *>::const_iterator it;
+
+    /* Скалярный блок BattleAI (указательные слоты ниже перезаписываются). */
+    if (c.has_ai_words) {
+        memcpy(r->aiBuf, c.ai_words, sizeof(c.ai_words));
+    }
+    memcpy(&ai->timer_start_sec, &c.timer_bits, 4);
+    memcpy(&ai->final_threshold, &c.final_bits, 4);
+    memcpy(&ai->dist_threshold, &c.dist_bits, 4);
+    ai->y_radius = c.yrad;
+    ai->x_radius = c.xrad;
+    ai->canvas_rect.left = c.rect[0];
+    ai->canvas_rect.top = c.rect[1];
+    ai->canvas_rect.right = c.rect[2];
+    ai->canvas_rect.bottom = c.rect[3];
+    ai->tracking = (unsigned char)c.trk;
+    ai->distance_threshold = c.bd2;
+    r->anchorPos.x = c.anchor[0];
+    r->anchorPos.y = c.anchor[1];
+    r->cmpPos.x = c.cmp[0];
+    r->cmpPos.y = c.cmp[1];
+    *(int *)((unsigned char *)ai + 0x38) = c.ai_code;
+
+    /* game_ctx / grid — размеры, pathfinding в харнесе заглушён. */
+    *(unsigned int *)(r->ctxBuf + 0) = c.ctx_flags;
+    *(unsigned int *)(r->ctxBuf + 0x120) = c.world_scale_bits;
+    *(void **)(r->ctxBuf + 8) = (void *)r->lvlBuf;
+    ai->game_ctx = (void *)r->ctxBuf;
+    *(int *)(r->lvlBuf + 0x2c) = c.grid_x;
+    *(int *)(r->lvlBuf + 0x30) = c.grid_y;
+
+    /* cmp: identity по адресу из захвата, носитель — из накопленной карты. */
+    key = (c.cmp_addr != 0) ? pos_key_addr(c.cmp_addr)
+                            : pos_key_coord(c.cmp[0], c.cmp[1]);
+    it = g_pos_obj.find(key);
+    if (it == g_pos_obj.end()) {
+        g_pos_obj[key] = (int *)(void *)&r->cmpPos;
+        g_obj_key[(int *)(void *)&r->cmpPos] = key;
+        r->cmpPtr = &r->cmpPos;
+    } else {
+        r->cmpPtr = (LDPos *)(void *)it->second;
+    }
+    /* anchor: те же правила, что в rep_build. */
+    key = pos_key_coord(c.anchor[0], c.anchor[1]);
+    it = g_pos_obj.find(key);
+    ai->anchor = (it == g_pos_obj.end())
+                 ? &r->anchorPos : (LDPos *)(void *)it->second;
+
+    /* Карты — СОБСТВЕННОЕ состояние порта, не из cap. */
+    ai->cand_head = &r->m1head;
+    ai->reserved_70 = (int)r->m1nodes.size();
+    ai->map2 = (void *)&r->m2;
+    ai->occ_head = &r->m2.head;
+
+    /* Поток листьев и нотисы — на вызов. identity-карты НЕ трогаем. */
+    g_cur = const_cast<Call *>(&c);
+    g_pi = g_hi = g_ti = 0;
+    g_fake_path.clear();
+    g_iter_seq.clear();
+    g_have_exit = false;
+    g_replay_leaf_underflow = 0;
+}
+
+static void after_from_cap(const Call &c, AState &out) {
+    for (size_t i = 0; i < c.map1.size(); i++) {
+        const CapNode &s = c.map1[i];
+        AStateNode n;
+        memset(&n, 0, sizeof(n));
+        n.x = s.x; n.y = s.y;
+        n.pos_addr = s.pos_addr;
+        n.filter = s.filter; n.g = s.g; n.d2 = s.d2;
+        n.h10k = s.h10k; n.cost = s.cost;
+        n.px = s.px; n.py = s.py;
+        out.map1.push_back(n);
+    }
+    for (size_t i = 0; i < c.occ.size(); i++) out.occ.push_back(c.occ[i]);
+    if (c.has_ai_words) {
+        memcpy(out.ai, c.ai_words, sizeof(out.ai));
+        out.has_ai = true;
+    }
+}
+
+static void after_from_rep(Rep *r, AState &out) {
+    BattleAI *ai = (BattleAI *)(void *)r->aiBuf;
+    TreeNode *head = ai->cand_head;
+    TreeNode *cur = head ? head->left : NULL;
+    for (size_t guard = 0; cur != NULL && cur != head && guard < 200000; guard++) {
+        PathState *ps = (PathState *)cur->value;
+        if (ps != NULL) {
+            AStateNode n;
+            memset(&n, 0, sizeof(n));
+            LDPos *p = ps->pos;
+            LDPos *pp = ps->parent ? ps->parent->pos : NULL;
+            n.x = p ? p->x : -1;
+            n.y = p ? p->y : -1;
+            n.filter = ps->filter;
+            n.g = ps->g_cost;
+            n.d2 = ps->dist2;
+            n.h10k = ps->h10000;
+            n.cost = ps->metric;
+            n.px = pp ? pp->x : -1;
+            n.py = pp ? pp->y : -1;
+            n.pos_addr = (int)cur->key;
+            out.map1.push_back(n);
+        }
+        cur = s6_tree_next(cur);
+    }
+    head = ai->occ_head;
+    cur = head ? head->left : NULL;
+    for (size_t guard = 0; cur != NULL && cur != head && guard < 200000; guard++) {
+        out.occ.push_back((int)cur->key);
+        cur = s6_tree_next(cur);
+    }
+    memcpy(out.ai, r->aiBuf, sizeof(out.ai));
+    out.has_ai = true;
+}
+
 static const Call *rep_cur(void) { return g_cur; }
 
 /* ---------------------- точки подмены (BATTLE_REPLAY) ------------------- */
@@ -926,10 +1312,23 @@ void register_occupied_slot(void *ai, LDObject *obj) {
     m2tn->value = obj;
     m2tn->is_nil = 0;
     r->m2.nodes.push_back(m2tn);
+    {
+        RegEvent ev;
+        ev.seq = g_cur ? g_cur->seq : -1;
+        ev.x = p ? p->x : -1;
+        ev.y = p ? p->y : -1;
+        ev.pos_addr = (int)tn->key;
+        ev.filter = ps->filter;
+        ev.g = ps->g_cost;
+        ev.cost = ps->metric;
+        g_reg_events.push_back(ev);
+    }
     if (replay_trace_level() >= 2) {
-        fprintf(stderr, "register: obj=%p pos=(%d,%d) key=%d m2size=%u\n",
-                (void *)obj, p ? p->x : -1, p ? p->y : -1, m2tn->key,
-                (unsigned)r->m2.nodes.size());
+        fprintf(stderr, "register: seq=%d obj=%p pos=(%d,%d) pos_addr=0x%x "
+                        "filter=%d g=%d cost=%d key=%d m2size=%u\n",
+                g_cur ? g_cur->seq : -1, (void *)obj, p ? p->x : -1,
+                p ? p->y : -1, (unsigned)tn->key, ps->filter, ps->g_cost,
+                ps->metric, m2tn->key, (unsigned)r->m2.nodes.size());
     }
     rep_rebuild_m1(r);
     rep_rebuild_m2(r);
@@ -1073,6 +1472,18 @@ static void write_res_port(FILE *f, const Call &c, Rep *r) {
     write_out_map1(f, r);
     fputs(",\"occ_after\":", f);
     write_out_occ(f, r);
+    /* after-state скалярного блока BattleAI (симметрично нативному полю,
+     * если захват его пишет). */
+    {
+        unsigned int aw[RP_AI_WORDS];
+        int k;
+        memcpy(aw, r->aiBuf, sizeof(aw));
+        fputs(",\"ai_words_after\":[", f);
+        for (k = 0; k < RP_AI_WORDS; k++) {
+            fprintf(f, "%s%u", k ? "," : "", aw[k]);
+        }
+        fputc(']', f);
+    }
     fprintf(f, ",\"leaf_used\":[%u,%u,%u],\"leaf_cap\":[%u,%u,%u]"
             ",\"leaf_underflow\":%d}\n",
             (unsigned)g_pi, (unsigned)g_hi, (unsigned)g_ti,
@@ -1095,19 +1506,34 @@ static bool read_line(FILE *f, std::string &out) {
 }
 
 int main(int argc, char **argv) {
-    const char *inpath, *outpath;
+    const char *inpath = NULL, *outpath = NULL;
     FILE *fin, *fout;
     std::string line;
-    int rc = 0;
+    int rc = 0, npos = 0;
+    bool chained = false;
     std::map<int, Call *> caps;
     std::vector<Call *> calls;
     char err[512];
 
-    if (argc != 3) {
-        fprintf(stderr, "usage: battle_replay <capture.jsonl> <res_port.jsonl>\n");
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--chained") == 0) {
+            chained = true;
+        } else if (strncmp(argv[i], "--", 2) == 0) {
+            fprintf(stderr, "ERROR: unknown flag '%s'\n", argv[i]);
+            return 2;
+        } else if (npos < 2) {
+            if (npos == 0) inpath = argv[i]; else outpath = argv[i];
+            npos++;
+        } else {
+            fprintf(stderr, "ERROR: too many arguments\n");
+            return 2;
+        }
+    }
+    if (npos != 2) {
+        fprintf(stderr, "usage: battle_replay [--chained] <capture.jsonl> "
+                        "<res_port.jsonl>\n");
         return 2;
     }
-    inpath = argv[1]; outpath = argv[2];
     if (replay_trace_level() >= 2) {
         g_log_level = 2;                /* LD_DEBUG (ldhook_internal.h) */
     }
@@ -1157,39 +1583,132 @@ int main(int argc, char **argv) {
     }
     fclose(fin);
 
-    for (size_t i = 0; i < calls.size(); i++) {
-        Call *c = calls[i];
-        if (!c->has_res) {
-            if (i + 1 == calls.size()) {
-                /* Захват обрезан при гашении игры — последний вызов без res. */
-                fprintf(stderr, "WARN: trailing cap seq=%d without res ignored\n",
-                        c->seq);
+    {
+        Rep *r = chained ? new Rep : NULL;
+        int complete = 0, compared = 0, chain_len = 0, first_div_seq = -1;
+        int entry_mismatch = 0, first_entry_seq = -1;
+        std::string first_class, first_detail, first_entry_detail;
+        for (size_t i = 0; i < calls.size(); i++) {
+            Call *c = calls[i];
+            if (c->has_res) complete++;
+        }
+        for (size_t i = 0; i < calls.size(); i++) {
+            Call *c = calls[i];
+            if (!c->has_res) {
+                if (i + 1 == calls.size()) {
+                    /* Захват обрезан при гашении игры — последний вызов без res. */
+                    fprintf(stderr, "WARN: trailing cap seq=%d without res ignored\n",
+                            c->seq);
+                    break;
+                }
+                fprintf(stderr, "ERROR: cap seq=%d has no res record\n", c->seq);
+                rc = 2;
                 break;
             }
-            fprintf(stderr, "ERROR: cap seq=%d has no res record\n", c->seq);
-            rc = 2;
-            break;
+            if (!chained) r = new Rep;
+            try {
+                if (chained && i > 0) {
+                    rep_rebind(r, *c);       /* feed the PORT's own state forward */
+                } else {
+                    rep_build(r, *c);        /* initial state / non-chained mode */
+                }
+                /* Chained:.compare carried entry state with the native cap.
+                 * A mismatch here means the game reset its candidate maps
+                 * between calls — then a chain divergence is NOT a port
+                 * mutation defect. g_reg_events still holds the previous
+                 * call's insertions, so branch provenance is available. */
+                if (chained && i > 0) {
+                    AState capst, repst;
+                    after_from_cap(*c, capst);
+                    after_from_rep(r, repst);
+                    std::string ed = diff_after(capst, repst, c->seq);
+                    if (!ed.empty()) {
+                        entry_mismatch++;
+                        if (first_entry_seq < 0) {
+                            first_entry_seq = c->seq;
+                            first_entry_detail = ed;
+                        }
+                    }
+                }
+                g_rep = r;
+                g_reg_events.clear();
+                BattleAI *ai = (BattleAI *)(void *)r->aiBuf;
+                void *cmpPos = (void *)r->cmpPtr;
+                int out_code = 0;
+                s6_target_search(ai, (void *)(size_t)c->filter, cmpPos,
+                                 (void *)(size_t)c->timeout_bits, &out_code);
+                write_res_port(fout, *c, r);
+                if (chained) {
+                    NResult nat;
+                    nres_read(c->res, nat);
+                    std::string why;
+                    bool res_eq = result_equal(nat, g_exit_node[0], g_exit_node[1],
+                                               g_exit_code, g_exit_iters,
+                                               g_iter_seq, why);
+                    AState anat, apost;
+                    after_from_res(c->res, anat);
+                    after_from_rep(r, apost);
+                    std::string ad = diff_after(anat, apost, c->seq);
+                    bool after_eq = ad.empty();
+                    compared++;
+                    chain_len++;
+                    if (!res_eq || !after_eq) {
+                        const char *cls = res_eq ? "MUTATE" : "RESULT";
+                        fprintf(stderr, "DIVERGE seq=%d class=%s result=%s "
+                                        "after=%s leaf_underflow=%d\n",
+                                c->seq, cls, res_eq ? "equal" : "DIFF",
+                                after_eq ? "equal" : "DIFF",
+                                g_replay_leaf_underflow);
+                        if (!res_eq) fprintf(stderr, "  result: %s\n", why.c_str());
+                        if (!after_eq) fprintf(stderr, "  after:%s\n", ad.c_str());
+                        if (first_div_seq < 0) {
+                            first_div_seq = c->seq;
+                            first_class = cls;
+                            first_detail = res_eq ? ad : why;
+                        }
+                    }
+                }
+            } catch (const std::exception &e) {
+                fprintf(stderr, "ERROR: replay seq=%d failed: %s\n", c->seq, e.what());
+                rc = 2;
+            }
+            g_rep = NULL;
+            if (!chained) {
+                delete r;
+                r = NULL;
+            }
         }
-        Rep *r = new Rep;
-        try {
-            rep_build(r, *c);
-            g_rep = r;
-            BattleAI *ai = (BattleAI *)(void *)r->aiBuf;
-            void *cmpPos = (void *)r->cmpPtr;
-            int out_code = 0;
-            s6_target_search(ai, (void *)(size_t)c->filter, cmpPos,
-                             (void *)(size_t)c->timeout_bits, &out_code);
-            write_res_port(fout, *c, r);
-        } catch (const std::exception &e) {
-            fprintf(stderr, "ERROR: replay seq=%d failed: %s\n", c->seq, e.what());
-            rc = 2;
+        if (chained && r != NULL) {
+            delete r;
+            r = NULL;
         }
-        g_rep = NULL;
-        delete r;
-    }
-    fclose(fout);
-    if (rc == 0) {
-        printf("replay: %u calls -> %s\n", (unsigned)calls.size(), outpath);
+        fclose(fout);
+        if (rc == 0) {
+            printf("replay: %u calls -> %s\n", (unsigned)calls.size(), outpath);
+        }
+        if (chained) {
+            printf("CHAIN: calls=%d complete=%d chain_length=%d compared=%d "
+                   "survived=%d entry_state_mismatch=%d first_entry_seq=%d "
+                   "first_div_seq=%d first_class=%s\n",
+                   (int)calls.size(), complete, chain_len, compared,
+                   chain_len == complete ? 1 : 0, entry_mismatch,
+                   first_entry_seq, first_div_seq,
+                   first_div_seq < 0 ? "NONE" : first_class.c_str());
+            if (first_entry_seq >= 0) {
+                printf("CHAIN: native cap entry state differs from carried port "
+                       "state at seq=%d (game resets candidate maps between "
+                       "e0a0 calls):%s\n",
+                       first_entry_seq, first_entry_detail.c_str());
+            }
+            if (first_div_seq < 0) {
+                printf("CHAIN: EQUAL - result and after-state matched on every "
+                       "chained call\n");
+            } else {
+                printf("CHAIN: first divergence seq=%d class=%s detail:%s\n",
+                       first_div_seq, first_class.c_str(), first_detail.c_str());
+                rc = 1;
+            }
+        }
     }
     return rc;
 }
