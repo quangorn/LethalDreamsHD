@@ -31,6 +31,7 @@
 #include "../ldhook_internal.h"
 #include "structs.h"
 #include "trace.h"
+#include "capture.h"
 
 /* Оффсеты, которых нет в struct BattleAI (размер зафиксирован только до
  * +0x7c): размер map1 и размер map2 читаются эпилогом 44bdd0. */
@@ -181,12 +182,21 @@ static void trace_slot_reset(trace_e0a0_slot *s)
 
 void __cdecl battle_trace_tick_begin(void *unit)
 {
-    if (!g_enabled) {
+    int cap_on = battle_capture_enabled();
+
+    /* Capture работает и при trace=0: H1 даёт ему tick и ordinal юнита. */
+    if (!g_enabled && !cap_on) {
         return;
     }
     g_tick_unit = unit;
     g_tick_unit_id = trace_unit_id(unit);
     InterlockedIncrement(&g_tick_no);
+    if (cap_on) {
+        battle_capture_tick_begin(unit, g_tick_no, g_tick_unit_id);
+    }
+    if (!g_enabled) {
+        return;
+    }
     g_tick_t0 = ld_now_us();
     g_vis = 0;
     g_e0a0_calls = 0;

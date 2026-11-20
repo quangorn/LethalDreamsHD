@@ -18,6 +18,11 @@
 #include "battle.h"
 #include "native.h"
 
+#ifdef BATTLE_REPLAY
+extern "C" int g_replay_override;
+extern "C" void *replay_path_next(void);
+#endif
+
 /* In-order successor по std::_Tree (порт FUN_0047f800, без вызова). */
 TreeNode *s6_tree_next(TreeNode *node)
 {
@@ -421,6 +426,12 @@ void *s6_path_search(BattleAI *self, PathState *spec)
     LDPos *pos = spec->pos;           /* spec[0] — grid-клетка; координаты +0xc/+0x10
                                        * читаются LDPos-раскладкой (@0x45cb4f/0x45cb52) */
     int l[22];                        /* слоты Y+0x00..Y+0x54 */
+
+#ifdef BATTLE_REPLAY
+    if (g_replay_override) {
+        return replay_path_next();    /* результат нативного cb40 из захвата */
+    }
+#endif
 
 #define LS(k) (l[(k) >> 2])
 

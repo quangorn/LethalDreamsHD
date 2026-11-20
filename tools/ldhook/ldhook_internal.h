@@ -127,4 +127,17 @@ extern void *g_h7_cont;         /* 0x45dd78 */
 #define R2_SIG      "\xff\x15\xb0\xc0\x4e\x00\x50"   /* call [0x4ec2b0]; push eax (2 шт.) */
 #define R_SIG_LEN   7
 
+/* ---------------- capture-наблюдатели листьев (LDHOOK_BATTLE_CAPTURE) ----- */
+/* 5-байтовые E8 call внутри нативного e0a0/dd70; уникальны в .text baseline. */
+#define CAP_CB40_SIG    "\xe8\x24\xec\xff\xff"   /* 0x45df17: call FUN_0045cb40 */
+#define CAP_HEUR1_SIG   "\xe8\x15\xe7\xff\xff"   /* 0x45df76: call FUN_0045c690 */
+#define CAP_HEUR2_SIG   "\xe8\xa0\xe6\xff\xff"   /* 0x45dfeb: call FUN_0045c690 */
+#define CAP_TIMEOUT_SIG "\xe8\x4d\xe4\xff\xff"   /* 0x45e14e: call FUN_0045c5a0 */
+#define CAP_CALL_LEN    5
+
+void cap_cb40_hook(void);        /* __declspec(naked) — battle/capture.cpp */
+void cap_heur1_hook(void);
+void cap_heur2_hook(void);
+void cap_timeout_hook(void);
+
 #endif /* LDHOOK_INTERNAL_H */

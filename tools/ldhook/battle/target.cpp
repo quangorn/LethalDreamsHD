@@ -11,8 +11,18 @@
 
 #include "../ldhook_internal.h"
 #include "battle.h"
+#include "capture.h"
 #include "native.h"
 #include "trace.h"
+
+#ifdef BATTLE_REPLAY
+/* Харнесс подменяет нативные листья захваченными результатами: см.
+ * tools/probes/battle_replay.cpp. В .pyd-сборке макроса нет — ветка мертва. */
+extern "C" int g_replay_override;
+extern "C" int replay_leaf_next(int kind);
+extern "C" void replay_note_rescan(void *cand);
+extern "C" void replay_note_exit(void *node, int code, int iters);
+#endif
 
 /* ------------------------------------------------------------------ */
 /* site5 — диагностика поиска цели (FUN_0045e0a0): логирование.       */
@@ -68,8 +78,10 @@ static void __cdecl s5_entry_impl(void *this_, void *arg0, void *arg1,
     LONG prev = g_site5_iter;
     int trace;
 
-    /* H4: вход FUN_0045e0a0 — сброс счётчиков вызова для trace (слот 1/2). */
+    /* H4: вход FUN_0045e0a0 — сброс счётчиков вызова для trace (слот 1/2).
+     * Capture: полный вход вызова (аргументы + состояние BattleAI). */
     battle_trace_e0a0_enter(this_, (int)(INT_PTR)arg0);
+    battle_capture_e0a0_enter(this_, (int)(INT_PTR)arg0, arg1, arg2, arg3);
 
     if (prev > g_site5_max) {
         g_site5_max = prev;
@@ -162,6 +174,7 @@ static void __cdecl s5_tail_impl(void *this_, void *candidate)
      * NULL при исчерпании скана). До троттлинга лога: счётчик trace от уровня
      * лога не зависит. */
     battle_trace_e0a0_latch(candidate);
+    battle_capture_latch(candidate);
 
     iter = InterlockedIncrement(&g_site5_iter);
 
@@ -232,6 +245,7 @@ static void __cdecl s5_exit_impl(void *candidate)
     /* H5: выход e0a0 (все эпилоги add esp,0x34; ret 10h) — EAX = узел-возврат
      * (NULL при пустом скане); поля узла и [this+0x38] → trace-слот вызова. */
     battle_trace_e0a0_exit(candidate);
+    battle_capture_e0a0_exit(candidate);
 
     if (d >= 0 && d < 16) {
         us = ld_now_us() - g_s5_t0[d];
@@ -568,6 +582,11 @@ static const double s6_milli = 0.001;          /* 0x4ecd08 */
 int s6_check_timeout(void *this_, void *arg)
 {
     BattleAI *self = (BattleAI *)this_;
+#ifdef BATTLE_REPLAY
+    if (g_replay_override) {
+        return replay_leaf_next(2);
+    }
+#endif
     __try {
         int ms = (int)s6_time_ms();             /* mov eax,[0x4ec27c] */
         float threshold;
@@ -765,6 +784,11 @@ int s6_heuristic(void *this_, int *slot)
  *   0x45c6d4..0x45c6d7: PUSH EDI; ECX = this_; tail CALL 0x45c5e0. */
 int s6_heuristic_gate(void *this_, int *slot)
 {
+#ifdef BATTLE_REPLAY
+    if (g_replay_override) {
+        return replay_leaf_next(1);
+    }
+#endif
     char *w0 = *(char **)(char *)this_;
     char *world = *(char **)(w0 + 4);
     int vt;
@@ -1170,7 +1194,7 @@ int s6_ai_update(void *this_, void *cand, int arg2)
  *   return NULL;   // пустой скан: code остаётся 0 (entry-запись), записи в *param_4 нет
  * Гейты — в родном порядке; ai_update/scan/предикаты — порты (выше). Разметка
  * постоянная (native c4b0 mask 4), restore не вызывается. */
-static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
+void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
                                       void *arg2, void *arg3)
 {
     int filter = (int)(INT_PTR)arg0;
@@ -1292,6 +1316,11 @@ static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
         }
         cur = s6_scan_map(this_, filter);                  /* @0x45e15e: rescan */
         battle_trace_e0a0_latch(cur);                      /* H6: EAX @0x45e163 */
+#ifdef BATTLE_REPLAY
+        if (g_replay_override) {
+            replay_note_rescan(cur);                       /* iter_seq порта */
+        }
+#endif
         InterlockedIncrement(&g_site6_rot);                /* ротация (п. 3.4) */
     }
 
@@ -1304,6 +1333,11 @@ static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
     /* H5: выход e0a0 порта (эквивалент эпилога add esp,0x34; ret 10h) —
      * узел-возврат (NULL при пустом скане) и [this+0x38] → trace-слот. */
     battle_trace_e0a0_exit(result);
+#ifdef BATTLE_REPLAY
+    if (g_replay_override) {
+        replay_note_exit(result, code, (int)iters);
+    }
+#endif
 
     /* Статистика (счётчики п. 3.4): итерации, распределение кодов 1/3/4
      * (code==0 — пустой скан), ротации считаются на rescan. */

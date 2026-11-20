@@ -44,6 +44,7 @@ SOURCES = [paths.win_path(s) for s in (
     os.path.join(_HERE, "battle", "move.cpp"),
     os.path.join(_HERE, "battle", "tick.cpp"),
     os.path.join(_HERE, "battle", "trace.cpp"),
+    os.path.join(_HERE, "battle", "capture.cpp"),
 )]
 
 

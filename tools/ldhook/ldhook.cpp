@@ -51,6 +51,7 @@
 #include "battle/battle.h"
 #include "battle/trace.h"
 #include "battle/native.h"
+#include "battle/capture.h"
 #include "ldhook_internal.h"
 
 /* ------------------------------------------------------------------ */
@@ -560,10 +561,48 @@ static void install_site6(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* Trace-наблюдатели тика (H1/H2/H3/H7) — только при LDHOOK_BATTLE_TRACE=1. */
-/* H4 (0x45e0a0) отдельного детура не получает: сброс счётчиков встроен */
-/* во вход site5/site6 (battle/target.cpp); H5/H6 — точки тех же сайтов */
-/* (эпилоги e0a0 и хвост 0x45e163), наблюдатели вызываются оттуда.      */
+/* Capture-наблюдатели нативных листьев — только при LDHOOK_BATTLE_CAPTURE.
+ * Ставятся ТОЛЬКО в native-режиме (site6 выключен): в порт-режиме те же
+ * листья реализованы C++ и харнесс подменяет их сам. Четыре 5-байтовых
+ * E8 call заменяются на E9 к трамплинам, вызывающим оригинал.          */
+/* ------------------------------------------------------------------ */
+
+static void install_capture_sites(void)
+{
+    unsigned char *s1, *s2, *s3, *s4;
+
+    if (!battle_capture_enabled()) {
+        return;
+    }
+    const char *leafenv = getenv("LDHOOK_BATTLE_CAPTURE_LEAF");
+    int leafmask = (leafenv != NULL && *leafenv != '\0') ? atoi(leafenv) : 15;
+    battle_capture_set_leaf_fns(native::fn(0x45cb40), native::fn(0x45c690),
+                                native::fn(0x45c5a0));
+    s1 = find_in_text((const unsigned char *)CAP_CB40_SIG, CAP_CALL_LEN);
+    s2 = find_in_text((const unsigned char *)CAP_HEUR1_SIG, CAP_CALL_LEN);
+    s3 = find_in_text((const unsigned char *)CAP_HEUR2_SIG, CAP_CALL_LEN);
+    s4 = find_in_text((const unsigned char *)CAP_TIMEOUT_SIG, CAP_CALL_LEN);
+    if (s1 == NULL || s2 == NULL || s3 == NULL || s4 == NULL) {
+        ld_info("install_capture_sites: signature NOT found "
+                "(cb40=%p h1=%p h2=%p to=%p) — leaf streams empty",
+                (void *)s1, (void *)s2, (void *)s3, (void *)s4);
+        return;
+    }
+    if ((leafmask & 1) && !write_jmp(s1, (void *)cap_cb40_hook, CAP_CALL_LEN)) return;
+    if ((leafmask & 2) && !write_jmp(s2, (void *)cap_heur1_hook, CAP_CALL_LEN)) return;
+    if ((leafmask & 4) && !write_jmp(s3, (void *)cap_heur2_hook, CAP_CALL_LEN)) return;
+    if ((leafmask & 8) && !write_jmp(s4, (void *)cap_timeout_hook, CAP_CALL_LEN)) return;
+    ld_info("install_capture_sites: leaf hooks installed mask=%d "
+            "(cb40=0x%08x heur=0x%08x/0x%08x timeout=0x%08x)",
+            leafmask, (unsigned)s1, (unsigned)s2, (unsigned)s3, (unsigned)s4);
+}
+
+/* ------------------------------------------------------------------ */
+/* Trace-наблюдатели тика (H1/H2/H3/H7) — при LDHOOK_BATTLE_TRACE=1 ИЛИ
+ * LDHOOK_BATTLE_CAPTURE=1 (capture берёт tick/unit от H1, но trace-строку
+ * не пишет). H4 (0x45e0a0) отдельного детура не получает: сброс счётчиков
+ * встроен во вход site5/site6 (battle/target.cpp); H5/H6 — точки тех же
+ * сайтов (эпилоги e0a0 и хвост 0x45e163), наблюдатели вызываются оттуда. */
 /* ------------------------------------------------------------------ */
 
 static void install_trace_sites(void)
@@ -574,9 +613,9 @@ static void install_trace_sites(void)
     unsigned char *h7;
     unsigned char *h6free;
 
-    if (!battle_trace_enabled()) {
-        ld_info("install_trace_sites: %s off -> hooks NOT installed",
-                BATTLE_TRACE_ENV);
+    if (!battle_trace_enabled() && !battle_capture_enabled()) {
+        ld_info("install_trace_sites: %s/%s off -> hooks NOT installed",
+                BATTLE_TRACE_ENV, BATTLE_CAPTURE_ENV);
         return;
     }
     h1 = find_in_text((const unsigned char *)H1_SIG, H1_SIG_LEN);
@@ -813,10 +852,12 @@ static PyMethodDef ldhook_methods[] = {
 extern "C" __declspec(dllexport) void initldhook(void)
 {
     unsigned char *base;
+    int s6_on = 0;
 
     ld_log_init();
     native::init();
     battle_trace_init();
+    battle_capture_init();
     base = native::base();
     if (base != NULL && ld_find_text(base, &g_text, &g_text_len)) {
         ld_info("=== ldhook.pyd phase 6 (hooks + logger + target-search diag) pid=%u base=0x%08x .text=0x%08x+0x%x level=%d ===",
@@ -843,15 +884,19 @@ extern "C" __declspec(dllexport) void initldhook(void)
          * пропускаем, иначе E9 от site5 затрёт сигнатуру и site6 не встанет. */
         {
             const char *s6env = getenv(S6_ENV);
-            int s6_on = (s6env && *s6env && atoi(s6env) != 0);
-            if (!s6_on) {
+            int s6_on_site = (s6env && *s6env && atoi(s6env) != 0);
+            if (!s6_on_site) {
                 install_site5();
             } else {
                 ld_info("initldhook: %s=1 -> site5 (diag) пропущен, ставится site6", S6_ENV);
             }
             install_site6();
+            s6_on = s6_on_site;
         }
         install_trace_sites();
+        if (!s6_on) {
+            install_capture_sites();   /* только native e0a0 зовёт листья */
+        }
         install_seed_sites();
     }
     ld_seed_whrandom();

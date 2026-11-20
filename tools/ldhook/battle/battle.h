@@ -59,6 +59,10 @@ int s6_ai_update(void *this_, void *cand, int arg2);    /* FUN_0045dd70 */
 int s6_heuristic_gate(void *this_, int *slot);           /* FUN_0045c690 */
 int s6_heuristic(void *this_, int *slot);                /* FUN_0045c5e0 */
 
+/* FUN_0045e0a0 — точка входа офлайн-харнесса (tools/probes/battle_replay.cpp). */
+void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
+                               void *arg2, void *arg3);
+
 /* ---- tick.cpp: trace-каркас боевого тика (LDHOOK_BATTLE_TRACE) ---- */
 void battle_trace_init(void);
 void battle_trace_tick(long tick_no, void *target, int search_code,

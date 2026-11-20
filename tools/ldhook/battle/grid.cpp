@@ -19,6 +19,11 @@
 #include "../ldhook_internal.h"
 #include "battle.h"
 
+#ifdef BATTLE_REPLAY
+extern "C" int g_replay_override;
+extern "C" void *replay_grid_cell(int x, int y);
+#endif
+
 /* FUN_00456ed0 (0x456ed0..0x456ef2, 35 байт) — ячейка сетки по индексу.
  * ABI: int __thiscall(GridLevel *level, int idx), RET 4; ECX = level.
  *   0x456ed4/0x456ed6: idx < 0 (знаковой JL) → 0 (0x456ee3: XOR EAX,EAX);
@@ -54,6 +59,11 @@ GridCell *s6_grid_lookup(GridLevel *grid, int x, int y)
     int *row;
     int index;
 
+#ifdef BATTLE_REPLAY
+    if (g_replay_override) {
+        return (GridCell *)replay_grid_cell(x, y);
+    }
+#endif
     if (x >= grid->size_x) {   /* 0x4570d8 JGE */
         return NULL;
     }
