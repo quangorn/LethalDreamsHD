@@ -22,6 +22,11 @@ extern "C" int g_replay_override;
 extern "C" int replay_leaf_next(int kind);
 extern "C" void replay_note_rescan(void *cand);
 extern "C" void replay_note_exit(void *node, int code, int iters);
+/* v5: реальный прогон листьев — только observers, без подмены результата. */
+extern "C" void replay_note_heur(int value);
+extern "C" void replay_note_timeout(int value);
+extern "C" unsigned long replay_timeout_ms(void);
+extern "C" unsigned int replay_world_vt(void);
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -400,6 +405,13 @@ static PFN_timeGetTime s6_time_get(void)
 
 static unsigned long s6_time_ms(void)
 {
+#ifdef BATTLE_REPLAY
+    /* Харнесс: часы — внешний вход (захваченный timeGetTime), порт сам
+     * вычисляет решение таймаута. Подмена листа остаётся под g_replay_override. */
+    if (!g_replay_override) {
+        return replay_timeout_ms();
+    }
+#endif
     PFN_timeGetTime fn = s6_time_get();
 
     /* Кэш пуст и winmm не найден — невозможно: без timeGetTime EXE не
@@ -579,14 +591,9 @@ int s6_check_distance(void *this_, void *cand)
 static const double s6_two32 = 4294967296.0;   /* 0x4ecd10 */
 static const double s6_milli = 0.001;          /* 0x4ecd08 */
 
-int s6_check_timeout(void *this_, void *arg)
+static int s6_check_timeout_body(void *this_, void *arg)
 {
     BattleAI *self = (BattleAI *)this_;
-#ifdef BATTLE_REPLAY
-    if (g_replay_override) {
-        return replay_leaf_next(2);
-    }
-#endif
     __try {
         int ms = (int)s6_time_ms();             /* mov eax,[0x4ec27c] */
         float threshold;
@@ -619,6 +626,22 @@ int s6_check_timeout(void *this_, void *arg)
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return 0;
     }
+}
+
+int s6_check_timeout(void *this_, void *arg)
+{
+#ifdef BATTLE_REPLAY
+    if (g_replay_override) {
+        return replay_leaf_next(2);
+    }
+    {
+        int r = s6_check_timeout_body(this_, arg);
+        replay_note_timeout(r);
+        return r;
+    }
+#else
+    return s6_check_timeout_body(this_, arg);
+#endif
 }
 
 /* FUN_0045c4b0(&local, cur, 4) — mask bit 2 (local[2]=3 → cur[2]) inline в
@@ -782,13 +805,8 @@ int s6_heuristic(void *this_, int *slot)
  *   CALL *IAT 0x4ec26c (PtInRect). POINT.x = game-Y (+0x10), POINT.y = game-X
  *   (+0xc) — по PUSH-порядку (y,x). Вне rect → 0; внутри → хвост.
  *   0x45c6d4..0x45c6d7: PUSH EDI; ECX = this_; tail CALL 0x45c5e0. */
-int s6_heuristic_gate(void *this_, int *slot)
+static int s6_heuristic_gate_body(void *this_, int *slot)
 {
-#ifdef BATTLE_REPLAY
-    if (g_replay_override) {
-        return replay_leaf_next(1);
-    }
-#endif
     char *w0 = *(char **)(char *)this_;
     char *world = *(char **)(w0 + 4);
     int vt;
@@ -804,7 +822,11 @@ int s6_heuristic_gate(void *this_, int *slot)
     }
     pos = (LDPos *)*slot;                           /* @0x45c6a9: EAX = [EDI] */
     g_heur_stage = 2;
+#ifdef BATTLE_REPLAY
+    vt = (int)(g_replay_override ? (unsigned)*(void **)w0 : replay_world_vt());
+#else
     vt = (int)*(void **)w0;                         /* @0x45c6b1: MOV ECX,[ECX] — vtable ctx (w0), не this_ */
+#endif
     if (((vt >> 2) & 1) == 0) {                     /* @0x45c6ba JNE → хвост при бите 2 */
         if (((vt >> 3) & 1) == 0) {                 /* @0x45c6c2 JE → return 0 */
             InterlockedIncrement(&g_h_zbits);
@@ -826,6 +848,22 @@ int s6_heuristic_gate(void *this_, int *slot)
     av1 = (long)native::av_count();
     s6_heur_diag(r, av1 - av0);
     return r;
+}
+
+int s6_heuristic_gate(void *this_, int *slot)
+{
+#ifdef BATTLE_REPLAY
+    if (g_replay_override) {
+        return replay_leaf_next(1);
+    }
+    {
+        int r = s6_heuristic_gate_body(this_, slot);
+        replay_note_heur(r);
+        return r;
+    }
+#else
+    return s6_heuristic_gate_body(this_, slot);
+#endif
 }
 
 /* Clamp dd70 (@0x45dd78..0x45de08): FILD level->[0x2c] (size); FILD(v);
@@ -1317,9 +1355,7 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
         cur = s6_scan_map(this_, filter);                  /* @0x45e15e: rescan */
         battle_trace_e0a0_latch(cur);                      /* H6: EAX @0x45e163 */
 #ifdef BATTLE_REPLAY
-        if (g_replay_override) {
-            replay_note_rescan(cur);                       /* iter_seq порта */
-        }
+        replay_note_rescan(cur);                           /* iter_seq порта (v5) */
 #endif
         InterlockedIncrement(&g_site6_rot);                /* ротация (п. 3.4) */
     }
@@ -1334,9 +1370,7 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
      * узел-возврат (NULL при пустом скане) и [this+0x38] → trace-слот. */
     battle_trace_e0a0_exit(result);
 #ifdef BATTLE_REPLAY
-    if (g_replay_override) {
-        replay_note_exit(result, code, (int)iters);
-    }
+    replay_note_exit(result, code, (int)iters);            /* результат порта (v5) */
 #endif
 
     /* Статистика (счётчики п. 3.4): итерации, распределение кодов 1/3/4

@@ -31,6 +31,10 @@
 #define CAP_WORDS       5          /* dword'ы возвращённого cb40-объекта */
 #define CAP_AI_WORDS    32         /* сырой скалярный блок BattleAI +0x00..+0x7f */
 #define CAP_PS_WORDS    22         /* PathState 0x58 / 4 (значение узла map2) */
+#define CAP_MAX_GRID_CELLS 200000  /* потолок статической сетки (v5) */
+#define CAP_MAX_TREE_DELTA 50000   /* потолок дельт world+0x104 за вызов */
+#define CAP_MAX_CELL_DELTA 20000   /* потолок дельт ячеек за вызов */
+#define CAP_VERSION     5          /* версия cap/res; v1..v4 — старые захваты */
 
 /* v3: значение узла map2 (PathState*) — раньше реплика ставила NULL и всегда
  * шла «свободным путём». w[] — сырые dword'ы PathState; ptr[] — 11 указателей
@@ -77,6 +81,22 @@ static int      *g_path = NULL;
 static int      *g_pptr = NULL;      /* указатель, возвращённый cb40 (identity) */
 static int      *g_heur = NULL;
 static int      *g_tout = NULL;
+static int      *g_tms = NULL;          /* v5: timeGetTime на каждом c5a0 */
+
+/* v5: статическая сетка — один снимок на бой. Массивы выделяются в init. */
+static int *g_gkey = NULL, *g_gstatus = NULL, *g_gmin = NULL;
+static int *g_gmax = NULL, *g_gnext = NULL, *g_gchain = NULL;
+static int *g_grows = NULL;
+static int *g_gw0 = NULL, *g_gw1 = NULL, *g_gw2 = NULL;
+static int *g_gw3 = NULL, *g_gw4 = NULL;   /* ячейка +0x00..+0x10 (LDPos-вид) */
+static int *g_tree_prev = NULL;            /* v5: предыдущий снимок world-дерева */
+static int *g_td_idx = NULL, *g_td_val = NULL;
+static int  g_grid_n = 0, g_tree_overflow = 0, g_cell_overflow = 0;
+static int *g_prev_fields = NULL;          /* n*11: w0..w4,min,max,key,next,chain */
+static int *g_cd_idx = NULL, *g_cd_val = NULL;  /* дельты ячеек */
+static int *g_prev_rows = NULL;                /* снимок rows[x][y] */
+static int  g_grid_written = 0;
+static volatile unsigned long g_timer_ms = 0;   /* из трамплина c5a0 */
 
 static void     *g_this = NULL;
 static void     *g_out_code = NULL;
@@ -126,10 +146,40 @@ void battle_capture_init(void)
     g_pptr = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
     g_heur = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
     g_tout = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
+    g_tms = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
+    g_gkey = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
+    g_gstatus = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
+    g_gmin = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
+    g_gmax = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
+    g_gnext = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
+    g_gchain = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
+    g_grows = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
+    g_gw0 = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
+    g_gw1 = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
+    g_gw2 = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
+    g_gw3 = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
+    g_gw4 = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
+    g_tree_prev = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
+    g_td_idx = (int *)malloc((size_t)CAP_MAX_TREE_DELTA * sizeof(int));
+    g_td_val = (int *)malloc((size_t)CAP_MAX_TREE_DELTA * sizeof(int));
+    g_prev_fields = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * 11 * sizeof(int));
+    g_cd_idx = (int *)malloc((size_t)CAP_MAX_CELL_DELTA * sizeof(int));
+    g_cd_val = (int *)malloc((size_t)CAP_MAX_CELL_DELTA * 11 * sizeof(int));
+    g_prev_rows = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
     if (!g_nodes || !g_occ || !g_occ_nodes || !g_iter || !g_path || !g_pptr ||
-        !g_heur || !g_tout) {
+        !g_heur || !g_tout || !g_tms || !g_gkey || !g_gstatus || !g_gmin ||
+        !g_gmax || !g_gnext || !g_gchain || !g_grows ||
+        !g_gw0 || !g_gw1 || !g_gw2 || !g_gw3 || !g_gw4 ||
+        !g_tree_prev || !g_td_idx || !g_td_val ||
+        !g_prev_fields || !g_cd_idx || !g_cd_val || !g_prev_rows) {
         free(g_nodes); free(g_occ); free(g_occ_nodes); free(g_iter);
-        free(g_path); free(g_pptr); free(g_heur); free(g_tout);
+        free(g_path); free(g_pptr); free(g_heur); free(g_tout); free(g_tms);
+        free(g_gkey); free(g_gstatus); free(g_gmin); free(g_gmax);
+        free(g_gnext); free(g_gchain); free(g_grows);
+        free(g_gw0); free(g_gw1); free(g_gw2); free(g_gw3); free(g_gw4);
+        free(g_tree_prev); free(g_td_idx); free(g_td_val);
+        free(g_prev_fields); free(g_cd_idx); free(g_cd_val);
+        free(g_prev_rows);
         fclose(g_file); g_file = NULL;
         ld_info("battle_capture: out of memory — capture OFF");
         return;
@@ -453,6 +503,321 @@ static void cap_write_grid(FILE *f, BattleAI *self)
     fputc(']', f);
 }
 
+/* v5: внешние (не-картовые) входы, которые читает порт path/эвристики.
+ * Значения снимаются один раз — мир и vtable-объекты статичны в бою. */
+typedef struct {
+    unsigned int w110;        /* world[0x110] — гейт c690 */
+    unsigned int vt;          /* *(int*)*(void**)self — биты 2/3 гейта c690 */
+    unsigned int a1;          /* [obj1+0x244] — множитель c5e0 */
+    unsigned int obj4;        /* *(float*)(obj4+0x34) — float-множитель c5e0 */
+    unsigned int wscale;      /* world[0x120] — константа c3a0/cb40 */
+} cap_grid_deps;
+
+static void cap_read_grid_deps(BattleAI *self, cap_grid_deps *d)
+{
+    memset(d, 0, sizeof(*d));
+    __try {
+        unsigned char *w0 = *(unsigned char **)self;
+        unsigned char *world = *(unsigned char **)(w0 + 4);
+        unsigned char *o1, *o2, *o3, *o4;
+
+        d->w110 = *(unsigned char *)(world + 0x110);
+        d->vt = *(unsigned int *)w0;
+        d->wscale = *(unsigned int *)(world + 0x120);
+        o1 = (unsigned char *)(size_t)native::vcall0(world, 0x40);
+        d->a1 = *(unsigned int *)(o1 + 0x244);
+        o2 = (unsigned char *)(size_t)native::vcall0(world, 0x40);
+        o3 = (unsigned char *)(size_t)(*(int *)(o2 + 0x228));
+        o4 = (unsigned char *)(size_t)native::vcall0(o3, 0x48);
+        d->obj4 = *(unsigned int *)(o4 + 0x34);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+}
+
+/* v5: один снимок сетки. Порт читает (grid.cpp/path.cpp):
+ *   +0x1c next_level (спуск в FUN_00456ed0), +0x2c/+0x30 size_x/size_y,
+ *   +0x34 cells (шаг 0x34), +0x38 rows[x][y] = индекс,
+ *   +0x14/+0x18 min/max метрики ячейки (float-биты),
+ *   +0x20 key_rec->key, +0x24 next, +0x28 chain_next, +0x1c level;
+ *   scale +0x20/+0x24/+0x28 и rec_x/rec_y +0x0c/+0x10 (FUN_00456b20).
+ * Статус tree_lookup(world, key) снимается для каждого ключа ячейки — это
+ * содержимое world+0x104, которое порт читает через FUN_00449160. */
+/* 11 полей ячейки, которые читает порт (grid.cpp/path.cpp/target.cpp). */
+static void cap_read_cell_fields(unsigned char *cells, int n, int *out)
+{
+    int i, k;
+    __try {
+        for (i = 0; i < n; i++) {
+            unsigned char *c = cells + i * S6_GRID_CELL_SIZE;
+            void *kr = *(void **)(c + 0x20);
+            void *nx = *(void **)(c + 0x24);
+            void *ch = *(void **)(c + 0x28);
+            int *o = &out[i * 11];
+            for (k = 0; k < 5; k++) o[k] = *(int *)(c + k * 4);
+            o[5] = *(int *)(c + 0x14);
+            o[6] = *(int *)(c + 0x18);
+            o[7] = (kr != NULL) ? *(int *)kr : 0;
+            o[8] = (nx >= cells && nx < cells + (size_t)n * S6_GRID_CELL_SIZE)
+                   ? (int)(((unsigned char *)nx - cells) / S6_GRID_CELL_SIZE) : -1;
+            o[9] = (ch >= cells && ch < cells + (size_t)n * S6_GRID_CELL_SIZE)
+                   ? (int)(((unsigned char *)ch - cells) / S6_GRID_CELL_SIZE) : -1;
+            o[10] = *(int *)(c + 0x1c);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+}
+
+static void cap_write_grid_record(BattleAI *self)
+{
+    GridLevel *levels[16];
+    int nlev = 0, leaf = 0;
+    int sx = 0, sy = 0, n = 0, ok = 1;
+    unsigned char *cells = NULL;
+    int **rows = NULL;
+    cap_grid_deps dep;
+    void *world = NULL;
+    int i;
+
+    cap_read_grid_deps(self, &dep);
+    __try {
+        if (self != NULL && self->game_ctx != NULL) {
+            world = *(void **)((unsigned char *)self->game_ctx + 4);
+            levels[0] = *(GridLevel **)((unsigned char *)self->game_ctx + 8);
+            while (nlev < 16 && levels[nlev] != NULL) {
+                if (levels[nlev]->next_level == NULL) break;
+                levels[nlev + 1] = levels[nlev]->next_level;
+                nlev++;
+            }
+            nlev++;
+            leaf = nlev - 1;
+            sx = levels[leaf]->size_x;
+            sy = levels[leaf]->size_y;
+            cells = (unsigned char *)levels[leaf]->cells;
+            rows = levels[leaf]->rows;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ok = 0;
+    }
+    if (!ok || sx <= 0 || sy <= 0 || cells == NULL || rows == NULL ||
+        (long long)sx * sy > CAP_MAX_GRID_CELLS) {
+        fprintf(g_file, "{\"v\":5,\"kind\":\"grid\",\"error\":1,"
+                        "\"sx\":%d,\"sy\":%d}\n", sx, sy);
+        return;
+    }
+    n = sx * sy;
+    __try {
+        for (i = 0; i < n; i++) {
+            unsigned char *c = cells + i * S6_GRID_CELL_SIZE;
+            void *kr = *(void **)(c + 0x20);
+            void *nx = *(void **)(c + 0x24);
+            void *ch = *(void **)(c + 0x28);
+            int key = (kr != NULL) ? *(int *)kr : 0;
+
+            /* Координаты ячейки лежат в +0x0c/+0x10 и НЕ совпадают с её
+             * индексом в массиве (rows[x][y] даёт индекс). */
+            g_gw0[i] = *(int *)(c + 0x00);
+            g_gw1[i] = *(int *)(c + 0x04);
+            g_gw2[i] = *(int *)(c + 0x08);
+            g_gw3[i] = *(int *)(c + 0x0c);
+            g_gw4[i] = *(int *)(c + 0x10);
+            g_gkey[i] = key;
+            g_gstatus[i] = native::tree_lookup(world, (unsigned int)key);
+            g_gmin[i] = *(int *)(c + 0x14);
+            g_gmax[i] = *(int *)(c + 0x18);
+            /* +0x1c — уровень ячейки (FUN_00456b20 через spec->pos) */
+            g_gnext[i] = (nx >= cells && nx < cells + (size_t)n * S6_GRID_CELL_SIZE)
+                         ? (int)(((unsigned char *)nx - cells) / S6_GRID_CELL_SIZE) : -1;
+            g_gchain[i] = (ch >= cells && ch < cells + (size_t)n * S6_GRID_CELL_SIZE)
+                          ? (int)(((unsigned char *)ch - cells) / S6_GRID_CELL_SIZE) : -1;
+        }
+        g_grid_n = n;
+        memcpy(g_tree_prev, g_gstatus, (size_t)n * sizeof(int));
+        cap_read_cell_fields(cells, n, g_prev_fields);
+        for (i = 0; i < n; i++) {
+            g_prev_rows[i] = rows[i / sy][i % sy];
+        }
+        for (i = 0; i < n; i++) {
+            int x = i / sy, y = i % sy;
+            g_grows[i] = rows[x][y];
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        fprintf(g_file, "{\"v\":5,\"kind\":\"grid\",\"error\":1,"
+                        "\"sx\":%d,\"sy\":%d,\"trap\":1}\n", sx, sy);
+        return;
+    }
+
+    fprintf(g_file, "{\"v\":%d,\"kind\":\"grid\",\"sx\":%d,\"sy\":%d,"
+                    "\"leaf\":%d,\"levels\":[", CAP_VERSION, sx, sy, leaf);
+    for (i = 0; i < nlev; i++) {
+        fprintf(g_file, "%s{\"i\":%d,\"sx\":%d,\"sy\":%d,\"rx\":%d,\"ry\":%d,"
+                        "\"sa\":%u,\"sl\":%u,\"sm\":%u,\"next\":%d}",
+                i ? "," : "", i, levels[i]->size_x, levels[i]->size_y,
+                levels[i]->rec_x, levels[i]->rec_y,
+                *(unsigned int *)((unsigned char *)levels[i] + 0x20),
+                *(unsigned int *)((unsigned char *)levels[i] + 0x24),
+                *(unsigned int *)((unsigned char *)levels[i] + 0x28),
+                (i + 1 < nlev) ? i + 1 : -1);
+    }
+    fputs("],\"world\":{\"w110\":", g_file);
+    fprintf(g_file, "%u,\"vt\":%u,\"a1\":%u,\"obj4\":%u,\"wscale\":%u},",
+            dep.w110, dep.vt, dep.a1, dep.obj4, dep.wscale);
+    fputs("\"rows\":", g_file);
+    cap_write_ints(g_file, g_grows, n);
+    fputs(",\"cells\":{\"key\":", g_file);
+    cap_write_ints(g_file, g_gkey, n);
+    fputs(",\"status\":", g_file);
+    cap_write_ints(g_file, g_gstatus, n);
+    fputs(",\"min\":", g_file);
+    cap_write_ints(g_file, g_gmin, n);
+    fputs(",\"max\":", g_file);
+    cap_write_ints(g_file, g_gmax, n);
+    fputs(",\"next\":", g_file);
+    cap_write_ints(g_file, g_gnext, n);
+    fputs(",\"chain\":", g_file);
+    cap_write_ints(g_file, g_gchain, n);
+    fputs(",\"w0\":", g_file);
+    cap_write_ints(g_file, g_gw0, n);
+    fputs(",\"w1\":", g_file);
+    cap_write_ints(g_file, g_gw1, n);
+    fputs(",\"w2\":", g_file);
+    cap_write_ints(g_file, g_gw2, n);
+    fputs(",\"w3\":", g_file);
+    cap_write_ints(g_file, g_gw3, n);
+    fputs(",\"w4\":", g_file);
+    cap_write_ints(g_file, g_gw4, n);
+    fputs("}}\n", g_file);
+}
+
+/* v5: world+0x104 (tree_lookup) меняется в ходе боя — снимаем ТОЛЬКО дельты
+ * статусов относительно предыдущего вызова. Ключи — индексы ячеек grid.cells. */
+static int cap_world110(BattleAI *self)
+{
+    int v = 0;
+    __try {
+        unsigned char *w0 = (self != NULL) ? *(unsigned char **)self : NULL;
+        unsigned char *world = (w0 != NULL) ? *(unsigned char **)(w0 + 4) : NULL;
+        if (world != NULL) v = *(unsigned char *)(world + 0x110);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return v;
+}
+
+static void cap_write_tree_delta(BattleAI *self)
+{
+    int nd = 0, i;
+    void *world = NULL;
+
+    g_tree_overflow = 0;
+    if (g_grid_n <= 0) { fputs("[]", g_file); return; }
+    __try {
+        unsigned char *w0 = (self != NULL) ? *(unsigned char **)self : NULL;
+        world = (w0 != NULL) ? *(unsigned char **)(w0 + 4) : NULL;
+        for (i = 0; i < g_grid_n; i++) {
+            int st = native::tree_lookup(world, (unsigned int)g_gkey[i]);
+            if (st == g_tree_prev[i]) continue;
+            if (nd < CAP_MAX_TREE_DELTA) {
+                g_td_idx[nd] = i;
+                g_td_val[nd] = st;
+                nd++;
+            } else {
+                g_tree_overflow = 1;
+            }
+            g_tree_prev[i] = st;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    fputc('[', g_file);
+    for (i = 0; i < nd; i++) {
+        fprintf(g_file, "%s[%d,%d]", i ? "," : "", g_td_idx[i], g_td_val[i]);
+    }
+    fputc(']', g_file);
+}
+
+/* v5: дельты STATIC-сетки (если движок меняет метрики/связи ячеек в бою). */
+static void cap_write_cell_delta(BattleAI *self)
+{
+    unsigned char *cells = NULL;
+    int nd = 0, i, k;
+
+    g_cell_overflow = 0;
+    if (g_grid_n <= 0) { fputs("[]", g_file); return; }
+    __try {
+        unsigned char *ctx = (unsigned char *)self->game_ctx;
+        GridLevel *lvl = (ctx != NULL)
+                         ? *(GridLevel **)(ctx + 8) : NULL;
+        while (lvl != NULL && lvl->next_level != NULL) lvl = lvl->next_level;
+        cells = (lvl != NULL) ? (unsigned char *)lvl->cells : NULL;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    if (cells == NULL) { fputs("[]", g_file); return; }
+    {
+        static int *cur = NULL;
+        if (cur == NULL) cur = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * 11 * sizeof(int));
+        if (cur == NULL) { fputs("[]", g_file); return; }
+        cap_read_cell_fields(cells, g_grid_n, cur);
+        for (i = 0; i < g_grid_n; i++) {
+            int *a = &cur[i * 11], *b = &g_prev_fields[i * 11];
+            int diff = 0;
+            for (k = 0; k < 11; k++) if (a[k] != b[k]) { diff = 1; break; }
+            if (!diff) continue;
+            if (nd < CAP_MAX_CELL_DELTA) {
+                g_cd_idx[nd] = i;
+                memcpy(&g_cd_val[nd * 11], a, 11 * sizeof(int));
+                nd++;
+                memcpy(b, a, 11 * sizeof(int));
+            } else {
+                g_cell_overflow = 1;
+            }
+        }
+    }
+    fputc('[', g_file);
+    for (i = 0; i < nd; i++) {
+        fprintf(g_file, "%s[%d", i ? "," : "", g_cd_idx[i]);
+        for (k = 0; k < 11; k++) {
+            fprintf(g_file, ",%d", g_cd_val[i * 11 + k]);
+        }
+        fputc(']', g_file);
+    }
+    fputc(']', g_file);
+}
+
+/* v5: дельты rows[x][y] — индекс ячейки, который читает FUN_004570d0. */
+static void cap_write_row_delta(BattleAI *self)
+{
+    int **rows = NULL, nd = 0, i;
+    int sx = 0, sy = 0;
+
+    if (g_grid_n <= 0) { fputs("[]", g_file); return; }
+    __try {
+        unsigned char *ctx = (unsigned char *)self->game_ctx;
+        GridLevel *lvl = (ctx != NULL) ? *(GridLevel **)(ctx + 8) : NULL;
+        while (lvl != NULL && lvl->next_level != NULL) lvl = lvl->next_level;
+        if (lvl != NULL) {
+            sx = lvl->size_x; sy = lvl->size_y; rows = lvl->rows;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    if (rows == NULL || sx * sy != g_grid_n) { fputs("[]", g_file); return; }
+    __try {
+        for (i = 0; i < g_grid_n; i++) {
+            int v = rows[i / sy][i % sy];
+            if (v == g_prev_rows[i]) continue;
+            if (nd < CAP_MAX_CELL_DELTA) {
+                g_cd_idx[nd] = i;
+                g_cd_val[nd * 11] = v;
+                nd++;
+            }
+            g_prev_rows[i] = v;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    fputc('[', g_file);
+    for (i = 0; i < nd; i++) {
+        fprintf(g_file, "%s[%d,%d]", i ? "," : "", g_cd_idx[i], g_cd_val[i * 11]);
+    }
+    fputc(']', g_file);
+}
+
 /* --------------------------- точки захвата ------------------------------ */
 
 void battle_capture_tick_begin(void *unit, int tick, int unit_id)
@@ -517,14 +882,20 @@ void battle_capture_e0a0_enter(void *this_, int filter, void *cmp,
     cap_read_occ(self);
 
     g_seq++;
-    fprintf(g_file, "{\"v\":4,\"kind\":\"cap\",\"seq\":%d,\"tick\":%d,"
+    if (!g_grid_written) {
+        g_grid_written = 1;
+        cap_write_grid_record(self);   /* v5: статическая сетка + входы эвристики */
+    }
+    fprintf(g_file, "{\"v\":%d,\"kind\":\"cap\",\"seq\":%d,\"tick\":%d,"
             "\"unit\":%d,\"fn\":\"e0a0\",\"args\":{\"filter\":%d,"
             "\"cmp\":[%d,%d],\"cmp_addr\":%d,\"timeout_bits\":%u,\"out_ptr\":%d},"
             "\"ai\":{\"timer_bits\":%u,\"final_bits\":%u,"
             "\"dist_bits\":%u,\"yrad\":%d,\"xrad\":%d,\"rect\":[%d,%d,%d,%d],"
             "\"anchor\":[%d,%d],\"trk\":%d,\"bd2\":%u,\"code\":%d,"
-            "\"ctx_flags\":%u,\"world_scale_bits\":%u},",
-            g_seq, g_tick, g_unit, g_filter, g_cmp.x, g_cmp.y, g_cmp_addr,
+            "\"ctx_flags\":%u,\"world_scale_bits\":%u},"
+            "\"w110\":%u,\"tree_delta\":",
+            CAP_VERSION, g_seq, g_tick, g_unit, g_filter,
+            g_cmp.x, g_cmp.y, g_cmp_addr,
             g_timeout_bits,
             out_code ? 1 : 0, timer, finalb, distb,
             self ? self->y_radius : -1, self ? self->x_radius : -1,
@@ -533,8 +904,13 @@ void battle_capture_e0a0_enter(void *this_, int filter, void *cmp,
             anchor.x, anchor.y, self ? (int)self->tracking : -1,
             self ? self->distance_threshold : 0xFFFFFFFFu,
             self ? *(const int *)((const unsigned char *)self + 0x38) : -1,
-            ctxflags, worldscale);
-    fputs("\"map1\":", g_file);
+            ctxflags, worldscale, cap_world110(self));
+    cap_write_tree_delta(self);
+    fputs(",\"cell_delta\":", g_file);
+    cap_write_cell_delta(self);
+    fputs(",\"row_delta\":", g_file);
+    cap_write_row_delta(self);
+    fputs(",\"map1\":", g_file);
     cap_write_map1(g_file);
     fputs(",\"occ\":", g_file);
     cap_write_ints(g_file, g_occ, g_occ_n);
@@ -544,7 +920,8 @@ void battle_capture_e0a0_enter(void *this_, int filter, void *cmp,
     cap_write_ai_words(g_file);
     fputs(",\"grid\":", g_file);
     cap_write_grid(g_file, self);
-    fprintf(g_file, ",\"trap\":%d}\n", g_map_trap);
+    fprintf(g_file, ",\"trap\":%d,\"tree_overflow\":%d,\"cell_overflow\":%d}\n",
+            g_map_trap, g_tree_overflow, g_cell_overflow);
     {
         static volatile LONG dbg = 0;
         if (ld_rate(&dbg, 3, 50)) {
@@ -629,7 +1006,8 @@ void battle_capture_e0a0_exit(void *node)
     /* iters = число кандидатов. H6-латч = rescan; сработавший gate (node !=
      * NULL) означает, что последний кандидат в iter_seq не попал. */
     iters = g_iter_n + ((node != NULL) ? 1 : 0);
-    fprintf(g_file, "{\"v\":4,\"kind\":\"res\",\"seq\":%d,\"node\":", g_seq);
+    fprintf(g_file, "{\"v\":%d,\"kind\":\"res\",\"seq\":%d,\"node\":",
+            CAP_VERSION, g_seq);
     if (node != NULL) {
         fprintf(g_file, "[%d,%d]", node_x, node_y);
     } else {
@@ -661,6 +1039,8 @@ void battle_capture_e0a0_exit(void *node)
     cap_write_ints(g_file, g_heur, g_heur_n);
     fputs(",\"timeout\":", g_file);
     cap_write_ints(g_file, g_tout, g_tout_n);
+    fputs(",\"timer\":", g_file);
+    cap_write_ints(g_file, g_tms, g_tout_n);
     fprintf(g_file, ",\"overflow\":%d},\"trap\":%d}\n",
             g_leaf_overflow, g_map_trap);
 }
@@ -735,6 +1115,7 @@ void __declspec(naked) cap_fn_timeout_hook(void)
         mov esi, ecx
         mov eax, dword ptr [g_iat_timer]
         call dword ptr [eax]           /* call *0x4ec27c (timeGetTime) */
+        mov dword ptr [g_timer_ms], eax /* точный ms, который увидит c5a0 */
         jmp dword ptr [g_cont_timeout]
     }
 }
@@ -818,4 +1199,7 @@ void __cdecl cap_impl_timeout(int value)
      * верхние байты EAX — мусор (ms из timeGetTime); потребитель @0x45e153
      * тестирует только AL. Пишем семантический 0/1. */
     battle_capture_leaf(CAP_LEAF_TIMEOUT, value & 0xff, NULL);
+    if (g_tout_n > 0 && g_tout_n <= CAP_MAX_LEAF) {
+        g_tms[g_tout_n - 1] = (int)g_timer_ms;   /* v5: внешний вход предиката */
+    }
 }

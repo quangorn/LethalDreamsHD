@@ -254,11 +254,52 @@ struct Call {
     unsigned int ai_words[RP_AI_WORDS];
     std::map<int, OccVal> occ_vals; /* key -> value (v3) */
     int grid_x, grid_y;
+    int w110;                       /* v5: world[0x110] на этом вызове */
+    bool tree_overflow, cell_overflow;
+    std::vector<std::pair<int, int> > tree_delta;  /* индекс ячейки → статус */
+    std::vector<std::vector<int> > cell_delta;     /* idx + 11 полей ячейки */
+    std::vector<std::pair<int, int> > row_delta;   /* индекс rows → ячейка */
     std::vector<PathLeaf> leaves_path;
-    std::vector<int> leaves_heur, leaves_timeout;
+    std::vector<int> leaves_heur, leaves_timeout, leaves_timer;
+    /* v5: пор-produced leaf-поток (реальный прогон, без подмены). */
+    std::vector<PathLeaf> port_path;
+    std::vector<int> port_heur, port_timeout;
     JVal res;
     bool has_res;
 };
+
+/* --------------------- v5: реконструкция статической сетки -------------- */
+/* Порт читает (grid.cpp + path.cpp + target.cpp):
+ *   GridLevel +0x1c next_level, +0x2c/+0x30 размеры, +0x34 cells (шаг 0x34),
+ *   +0x38 rows[x][y] = индекс ячейки, +0x20/24/28 scale, +0x0c/+0x10 rec;
+ *   GridCell +0x0c/+0x10 координаты (LDPos-раскладка), +0x14/+0x18 метрики,
+ *   +0x20 key_rec->key, +0x24 next, +0x28 chain_next, +0x1c level;
+ *   world+0x104 tree_lookup(key) → статус, world+0x110/0x120 — гейты/масштаб.
+ * Всё это статично на бой, поэтому снимается одной записью `grid`. */
+struct RebuiltGrid {
+    int sx, sy, n, nlev, leaf;
+    GridLevel levels[16];
+    GridCell *cells;
+    KeyRecord *krecs;
+    int **rowptr;
+    int *rowdata;
+    std::map<unsigned int, int> tree;
+    std::vector<int> cell_keys;
+    unsigned int w110, vt, a1, obj4, wscale;
+    RebuiltGrid() : sx(0), sy(0), n(0), nlev(0), leaf(0), cells(NULL),
+                    krecs(NULL), rowptr(NULL), rowdata(NULL),
+                    w110(0), vt(0), a1(0), obj4(0), wscale(0) {}
+};
+
+static RebuiltGrid *g_grid = NULL;
+static int g_grid_error = 0;
+/* Синтетические объекты для внешних чтений эвристики. */
+static unsigned char g_worldbuf[0x130]; /* world[0x110], world[0x120] */
+static unsigned char g_obj3buf[0x100];
+static unsigned char g_obj4buf[0x100];
+static unsigned char g_obj2buf[0x100];  /* +0x228 = &g_obj3buf */
+static int g_last_grid_x = -1, g_last_grid_y = -1;
+static int g_reg_overflow = 0;      /* resource guard в harness stub */
 
 static void read_pos(const JVal &v, int *xy, const char *where) {
     if (jisnull(v)) { xy[0] = -1; xy[1] = -1; return; }
@@ -276,6 +317,43 @@ static void read_call(Call &c, const JVal &cap, const JVal *res) {
     const JVal &ai = jget(cap, "ai", "cap");
 
     c.version = (int)jint_opt(cap, "v", 1);
+    c.w110 = (int)jint_opt(cap, "w110", 0);
+    c.tree_overflow = (jint_opt(cap, "tree_overflow", 0) != 0);
+    c.cell_overflow = (jint_opt(cap, "cell_overflow", 0) != 0);
+    if (jhas(cap, "cell_delta")) {
+        const JVal &cd = jarr(cap, "cell_delta", "cap.cell_delta");
+        for (size_t i = 0; i < cd.a.size(); i++) {
+            const JVal &e = cd.a[i];
+            if (e.t != JVal::ARR || e.a.size() != 12) {
+                throw std::runtime_error("cap.cell_delta: expected 12 ints");
+            }
+            std::vector<int> row(12);
+            for (size_t k = 0; k < 12; k++) row[k] = (int)jnum(e.a[k], "cell_delta");
+            c.cell_delta.push_back(row);
+        }
+    }
+    if (jhas(cap, "row_delta")) {
+        const JVal &rd = jarr(cap, "row_delta", "cap.row_delta");
+        for (size_t i = 0; i < rd.a.size(); i++) {
+            const JVal &e = rd.a[i];
+            if (e.t != JVal::ARR || e.a.size() != 2) {
+                throw std::runtime_error("cap.row_delta: expected [idx,cell]");
+            }
+            c.row_delta.push_back(std::make_pair((int)jnum(e.a[0], "row_delta"),
+                                                  (int)jnum(e.a[1], "row_delta")));
+        }
+    }
+    if (jhas(cap, "tree_delta")) {
+        const JVal &td = jarr(cap, "tree_delta", "cap.tree_delta");
+        for (size_t i = 0; i < td.a.size(); i++) {
+            const JVal &e = td.a[i];
+            if (e.t != JVal::ARR || e.a.size() != 2) {
+                throw std::runtime_error("cap.tree_delta: expected [idx,status]");
+            }
+            c.tree_delta.push_back(std::make_pair((int)jnum(e.a[0], "tree_delta"),
+                                                  (int)jnum(e.a[1], "tree_delta")));
+        }
+    }
     c.has_ai_words = false;
     memset(c.ai_words, 0, sizeof(c.ai_words));
     c.seq = (int)jint(cap, "seq", "cap");
@@ -428,7 +506,171 @@ static void read_leaves(Call &c, const JVal &res) {
         for (size_t i = 0; i < lt.a.size(); i++) {
             c.leaves_timeout.push_back((int)jnum(lt.a[i], "res.leaf.timeout"));
         }
+        if (jhas(leaf, "timer")) {
+            const JVal &lm = jarr(leaf, "timer", "res.leaf");
+            for (size_t i = 0; i < lm.a.size(); i++) {
+                c.leaves_timer.push_back((int)jnum(lm.a[i], "res.leaf.timer"));
+            }
+        }
     }
+}
+
+/* v5: построение сетки из записи `grid`. Адреса ячеек и рядов фиксируются
+ * один раз на прогон — указатели из GridCell/GridLevel живут до его конца. */
+static void replay_grid_build(const JVal &v)
+{
+    RebuiltGrid *g = new RebuiltGrid;
+    g_grid = g;
+    g_grid_error = 0;
+    if (jint_opt(v, "error", 0) != 0) { g_grid_error = 1; return; }
+    g->sx = (int)jint(v, "sx", "grid");
+    g->sy = (int)jint(v, "sy", "grid");
+    g->leaf = (int)jint_opt(v, "leaf", 0);
+    if (g->sx <= 0 || g->sy <= 0 ||
+        (long long)g->sx * g->sy > 2000000LL) {
+        g_grid_error = 1; return;
+    }
+    g->n = g->sx * g->sy;
+
+    const JVal &lv = jarr(v, "levels", "grid");
+    if (lv.a.empty() || lv.a.size() > 16) { g_grid_error = 1; return; }
+    g->nlev = (int)lv.a.size();
+    for (size_t i = 0; i < lv.a.size(); i++) {
+        const JVal &e = lv.a[i];
+        GridLevel *l = &g->levels[i];
+        memset(l, 0, sizeof(*l));
+        l->rec_x = (int)jint(e, "rx", "grid.levels");
+        l->rec_y = (int)jint(e, "ry", "grid.levels");
+        unsigned int sa = (unsigned)jint(e, "sa", "grid.levels");
+        unsigned int sl = (unsigned)jint(e, "sl", "grid.levels");
+        unsigned int sm = (unsigned)jint(e, "sm", "grid.levels");
+        memcpy(&l->scale_add, &sa, 4);
+        memcpy(&l->scale_load, &sl, 4);
+        memcpy(&l->scale_mul, &sm, 4);
+        l->size_x = (int)jint(e, "sx", "grid.levels");
+        l->size_y = (int)jint(e, "sy", "grid.levels");
+        int nx = (int)jint(e, "next", "grid.levels");
+        l->next_level = (nx >= 0 && nx < (int)lv.a.size())
+                        ? &g->levels[nx] : NULL;
+    }
+    const JVal &w = jget(v, "world", "grid");
+    g->w110 = (unsigned)jint(w, "w110", "grid.world");
+    g->vt = (unsigned)jint(w, "vt", "grid.world");
+    g->a1 = (unsigned)jint(w, "a1", "grid.world");
+    g->obj4 = (unsigned)jint(w, "obj4", "grid.world");
+    g->wscale = (unsigned)jint(w, "wscale", "grid.world");
+
+    g->cells = new GridCell[g->n];
+    g->krecs = new KeyRecord[g->n];
+    g->cell_keys.resize(g->n);
+    g->rowptr = new int *[g->sx];
+    g->rowdata = new int[g->n];
+    memset(g->cells, 0, sizeof(GridCell) * g->n);
+    memset(g->krecs, 0, sizeof(KeyRecord) * g->n);
+    memset(g->rowptr, 0, sizeof(int *) * g->sx);
+    for (int x = 0; x < g->sx; x++) g->rowptr[x] = &g->rowdata[x * g->sy];
+
+    const JVal &cs = jget(v, "cells", "grid");
+    const JVal &ck = jarr(cs, "key", "grid.cells");
+    const JVal &ct = jarr(cs, "status", "grid.cells");
+    const JVal &cn = jarr(cs, "min", "grid.cells");
+    const JVal &cx = jarr(cs, "max", "grid.cells");
+    const JVal &cne = jarr(cs, "next", "grid.cells");
+    const JVal &cch = jarr(cs, "chain", "grid.cells");
+    const JVal *cw0 = jhas(cs, "w0") ? &jarr(cs, "w0", "grid.cells") : NULL;
+    const JVal *cw1 = jhas(cs, "w1") ? &jarr(cs, "w1", "grid.cells") : NULL;
+    const JVal *cw2 = jhas(cs, "w2") ? &jarr(cs, "w2", "grid.cells") : NULL;
+    const JVal *cw3 = jhas(cs, "w3") ? &jarr(cs, "w3", "grid.cells") : NULL;
+    const JVal *cw4 = jhas(cs, "w4") ? &jarr(cs, "w4", "grid.cells") : NULL;
+    if (cw0 == NULL || cw1 == NULL || cw2 == NULL || cw3 == NULL || cw4 == NULL) {
+        g_grid_error = 1; return;               /* нужен полный LDPos-вид ячейки */
+    }
+    if (ck.a.size() != (size_t)g->n || ct.a.size() != (size_t)g->n ||
+        cn.a.size() != (size_t)g->n || cx.a.size() != (size_t)g->n ||
+        cne.a.size() != (size_t)g->n || cch.a.size() != (size_t)g->n ||
+        (cw0 != NULL && cw0->a.size() != (size_t)g->n) ||
+        (cw1 != NULL && cw1->a.size() != (size_t)g->n) ||
+        (cw2 != NULL && cw2->a.size() != (size_t)g->n) ||
+        (cw3 != NULL && cw3->a.size() != (size_t)g->n) ||
+        (cw4 != NULL && cw4->a.size() != (size_t)g->n)) {
+        g_grid_error = 1; return;
+    }
+    for (int i = 0; i < g->n; i++) {
+        GridCell *c = &g->cells[i];
+        /* Первые 5 dword ячейки (в т.ч. LDPos.x/+0x0c, y/+0x10) снимаются
+         * с натива: индекс в cells НЕ совпадает с координатами ячейки. */
+        for (int k = 0; k < 5; k++) {
+            const JVal *wv = (k == 0) ? cw0 : (k == 1) ? cw1 :
+                             (k == 2) ? cw2 : (k == 3) ? cw3 : cw4;
+            int w = (wv != NULL) ? (int)jnum(wv->a[i], "grid.cells.w")
+                                 : (k >= 3 ? (k == 3 ? i / g->sy : i % g->sy) : 0);
+            *(int *)((unsigned char *)c + k * 4) = w;
+        }
+        *(void **)((unsigned char *)c + 0x1c) = (void *)&g->levels[g->leaf];
+        int mn = (int)jnum(cn.a[i], "grid.cells.min");
+        int mx = (int)jnum(cx.a[i], "grid.cells.max");
+        memcpy(&c->min_metric, &mn, 4);
+        memcpy(&c->max_metric, &mx, 4);
+        g->krecs[i].key = (int)jnum(ck.a[i], "grid.cells.key");
+        g->cell_keys[i] = g->krecs[i].key;
+        c->key_rec = &g->krecs[i];
+        int ni = (int)jnum(cne.a[i], "grid.cells.next");
+        int ci = (int)jnum(cch.a[i], "grid.cells.chain");
+        c->next = (ni >= 0 && ni < g->n) ? &g->cells[ni] : NULL;
+        c->chain_next = (ci >= 0 && ci < g->n) ? &g->cells[ci] : NULL;
+        g->tree[(unsigned int)g->krecs[i].key] =
+            (int)jnum(ct.a[i], "grid.cells.status");
+    }
+    const JVal &rw = jarr(v, "rows", "grid");
+    if (rw.a.size() != (size_t)g->n) { g_grid_error = 1; return; }
+    for (int i = 0; i < g->n; i++) g->rowdata[i] = (int)jnum(rw.a[i], "grid.rows");
+
+    GridLevel *leaf = &g->levels[g->leaf];
+    leaf->cells = g->cells;
+    leaf->rows = g->rowptr;
+    /* Порт читает размеры из root (ctx+8) — в захвате root == leaf. */
+    for (int i = 0; i < g->nlev; i++) {
+        if (g->levels[i].cells == NULL) {
+            g->levels[i].cells = leaf->cells;
+            g->levels[i].rows = leaf->rows;
+        }
+    }
+    memset(g_worldbuf, 0, sizeof(g_worldbuf));
+    g_worldbuf[0x110] = (unsigned char)g->w110;
+    memcpy(g_worldbuf + 0x120, &g->wscale, 4);
+    memset(g_obj3buf, 0, sizeof(g_obj3buf));
+    memset(g_obj2buf, 0, sizeof(g_obj2buf));
+    memset(g_obj4buf, 0, sizeof(g_obj4buf));
+    *(int *)(g_obj2buf + 0x228) = (int)(size_t)g_obj3buf;
+    memcpy(g_obj4buf + 0x34, &g->obj4, 4);
+}
+
+/* Применение дельты ячейки: w0..w4, min, max, key, next, chain, level. */
+static void replay_apply_cell_delta(RebuiltGrid *g, const std::vector<int> &row)
+{
+    int i = row[0];
+    if (g == NULL || g_grid_error || i < 0 || i >= g->n) return;
+    GridCell *c = &g->cells[i];
+    for (int k = 0; k < 5; k++) {
+        *(int *)((unsigned char *)c + k * 4) = row[1 + k];
+    }
+    memcpy(&c->min_metric, &row[6], 4);
+    memcpy(&c->max_metric, &row[7], 4);
+    unsigned int oldkey = (unsigned int)g->krecs[i].key;
+    unsigned int newkey = (unsigned int)row[8];
+    g->krecs[i].key = row[8];
+    g->cell_keys[i] = row[8];
+    if (oldkey != newkey) {
+        std::map<unsigned int, int>::const_iterator it = g->tree.find(oldkey);
+        int st = (it == g->tree.end()) ? 0 : it->second;
+        g->tree.erase(oldkey);
+        g->tree[newkey] = st;
+    }
+    int ni = row[9], ci = row[10];
+    c->next = (ni >= 0 && ni < g->n) ? &g->cells[ni] : NULL;
+    c->chain_next = (ci >= 0 && ci < g->n) ? &g->cells[ci] : NULL;
+    /* +0x1c: уровень ячейки — всегда синтетический лист реконструкции. */
+    *(void **)((unsigned char *)c + 0x1c) = (void *)&g->levels[g->leaf];
 }
 
 /* --------------- chained mode: сравнение результата и after-state -------- */
@@ -703,7 +945,7 @@ extern "C" {
     int g_replay_override = 1;
     int g_replay_leaf_underflow = 0;
     static Call *g_cur = NULL;
-    static size_t g_pi = 0, g_hi = 0, g_ti = 0;
+    static size_t g_pi = 0, g_hi = 0, g_ti = 0, g_ms_i = 0;
     static std::vector<int *> g_fake_path;
     /* Identity: нативный LDPos* — ключ map1 и операнд гейта cur->pos==cmp
      * (@0x45e137). Ключ карты — реальный адрес из захвата; объект(ы) харнеса,
@@ -845,6 +1087,8 @@ static int *rp_pos_obj(int addr, int x, int y)
     if (it != g_pos_obj.end()) return it->second;
     int *obj = (int *)calloc(8, sizeof(int));
     obj[3] = x; obj[4] = y;
+    obj[7] = (g_grid && !g_grid_error)
+             ? (int)(size_t)&g_grid->levels[g_grid->leaf] : 0;  /* LDPos.level */
     g_pos_obj[key] = obj;
     g_obj_key[obj] = key;
     return obj;
@@ -890,6 +1134,9 @@ static void rep_build(Rep *r, const Call &c) {
     std::map<int, RNode *> bypos;
 
     memset(r, 0, sizeof(*r));
+    if (g_grid && !g_grid_error) {
+        g_worldbuf[0x110] = (unsigned char)c.w110;
+    }
     g_pos_ps.clear();
     for (size_t si = 0; si < g_occ_stubs.size(); si++) delete g_occ_stubs[si];
     g_occ_stubs.clear();
@@ -920,10 +1167,14 @@ static void rep_build(Rep *r, const Call &c) {
     r->cmpPtr = &r->cmpPos;
     *(int *)((unsigned char *)ai + 0x38) = c.ai_code;
 
-    /* game_ctx */
+    /* game_ctx: v5 — настоящая сетка и синтетический world вместо заглушки */
     *(unsigned int *)(r->ctxBuf + 0) = c.ctx_flags;
     *(unsigned int *)(r->ctxBuf + 0x120) = c.world_scale_bits;
-    *(void **)(r->ctxBuf + 8) = (void *)r->lvlBuf;
+    *(void **)(r->ctxBuf + 4) = (g_grid && !g_grid_error)
+                                ? (void *)g_worldbuf : NULL;
+    *(void **)(r->ctxBuf + 8) = (g_grid && !g_grid_error)
+                                ? (void *)&g_grid->levels[0]
+                                : (void *)r->lvlBuf;
     ai->game_ctx = (void *)r->ctxBuf;
     *(int *)(r->lvlBuf + 0x2c) = c.grid_x;
     *(int *)(r->lvlBuf + 0x30) = c.grid_y;
@@ -933,6 +1184,8 @@ static void rep_build(Rep *r, const Call &c) {
         const CapNode &src = c.map1[i];
         RNode *n = new RNode;
         n->pos.x = src.x; n->pos.y = src.y;
+        n->pos.level = (g_grid && !g_grid_error)
+                       ? &g_grid->levels[g_grid->leaf] : NULL;
         n->ps.pos = &n->pos;
         n->ps.filter = src.filter;
         n->ps.g_cost = src.g;
@@ -1041,10 +1294,12 @@ static void rep_build(Rep *r, const Call &c) {
     /* leaf-поток текущего вызова */
     g_cur = const_cast<Call *>(&c);
     g_pi = g_hi = g_ti = 0;
+    g_ms_i = 0;
     g_fake_path.clear();
     g_iter_seq.clear();
     g_have_exit = false;
     g_replay_leaf_underflow = 0;      /* флаг — на вызов, не на прогон */
+    g_reg_overflow = 0;
 }
 
 /* Chained mode: реплика НЕ пересобирается из cap. Сохраняем map1/map2, все
@@ -1061,6 +1316,9 @@ static void rep_rebind(Rep *r, const Call &c)
     /* Скалярный блок BattleAI (указательные слоты ниже перезаписываются). */
     if (c.has_ai_words) {
         memcpy(r->aiBuf, c.ai_words, sizeof(c.ai_words));
+    }
+    if (g_grid && !g_grid_error) {
+        g_worldbuf[0x110] = (unsigned char)c.w110;
     }
     memcpy(&ai->timer_start_sec, &c.timer_bits, 4);
     memcpy(&ai->final_threshold, &c.final_bits, 4);
@@ -1079,10 +1337,14 @@ static void rep_rebind(Rep *r, const Call &c)
     r->cmpPos.y = c.cmp[1];
     *(int *)((unsigned char *)ai + 0x38) = c.ai_code;
 
-    /* game_ctx / grid — размеры, pathfinding в харнесе заглушён. */
+    /* game_ctx / grid — v5: реконструированная статическая сетка. */
     *(unsigned int *)(r->ctxBuf + 0) = c.ctx_flags;
     *(unsigned int *)(r->ctxBuf + 0x120) = c.world_scale_bits;
-    *(void **)(r->ctxBuf + 8) = (void *)r->lvlBuf;
+    *(void **)(r->ctxBuf + 4) = (g_grid && !g_grid_error)
+                                ? (void *)g_worldbuf : NULL;
+    *(void **)(r->ctxBuf + 8) = (g_grid && !g_grid_error)
+                                ? (void *)&g_grid->levels[0]
+                                : (void *)r->lvlBuf;
     ai->game_ctx = (void *)r->ctxBuf;
     *(int *)(r->lvlBuf + 0x2c) = c.grid_x;
     *(int *)(r->lvlBuf + 0x30) = c.grid_y;
@@ -1113,10 +1375,12 @@ static void rep_rebind(Rep *r, const Call &c)
     /* Поток листьев и нотисы — на вызов. identity-карты НЕ трогаем. */
     g_cur = const_cast<Call *>(&c);
     g_pi = g_hi = g_ti = 0;
+    g_ms_i = 0;
     g_fake_path.clear();
     g_iter_seq.clear();
     g_have_exit = false;
     g_replay_leaf_underflow = 0;
+    g_reg_overflow = 0;
 }
 
 static void after_from_cap(const Call &c, AState &out) {
@@ -1213,8 +1477,11 @@ extern "C" void *replay_path_next(void) {
 }
 
 extern "C" void *replay_grid_cell(int x, int y) {
-    /* cb40 подменён; ячейка нужна только как не-NULL маркер. */
+    /* Старый режим: заглушка. v5 (g_replay_override==0) сюда не попадает —
+     * s6_grid_lookup работает с реконструированной сеткой. Координаты нужны
+     * для указания ветки при расхождении листа. */
     static int cell[16];
+    g_last_grid_x = x; g_last_grid_y = y;
     cell[3] = x; cell[4] = y;    /* +0x0c/+0x10 */
     return cell;
 }
@@ -1229,6 +1496,152 @@ extern "C" void replay_note_rescan(void *cand) {
     }
     g_iter_seq.push_back(xy[0]);
     g_iter_seq.push_back(xy[1]);
+}
+
+/* ---------------- v5: наблюдатели реальных листьев порта ---------------- */
+extern "C" void replay_note_path_res(void *result)
+{
+    const Call *c = rep_cur();
+    PathLeaf pl;
+    memset(&pl, 0, sizeof(pl));
+    if (result == NULL) {
+        pl.null = true;
+    } else {
+        for (int k = 0; k < 5; k++) pl.w[k] = ((int *)result)[k];
+        /* Identity: нативный адрес LDPos из захвата по совпавшим координатам —
+         * только для порядка map1, не как подмена результата поиска. */
+        unsigned long long key = pos_key_coord(pl.w[3], pl.w[4]);
+        if (c != NULL && g_pi < c->leaves_path.size()) {
+            const PathLeaf &nat = c->leaves_path[g_pi];
+            if (!nat.null && nat.w[3] == pl.w[3] && nat.w[4] == pl.w[4] &&
+                nat.addr != 0) {
+                key = pos_key_addr(nat.addr);
+            }
+        }
+        g_pi++;
+        g_pos_obj[key] = (int *)result;
+        g_obj_key[(int *)result] = key;
+    }
+    if (c != NULL) const_cast<Call *>(c)->port_path.push_back(pl);
+}
+
+extern "C" void replay_note_heur(int value)
+{
+    const Call *c = rep_cur();
+    if (c != NULL) const_cast<Call *>(c)->port_heur.push_back(value);
+}
+
+extern "C" void replay_note_timeout(int value)
+{
+    const Call *c = rep_cur();
+    if (c != NULL) const_cast<Call *>(c)->port_timeout.push_back(value);
+}
+
+extern "C" unsigned long replay_timeout_ms(void)
+{
+    const Call *c = rep_cur();
+    if (c == NULL || g_ms_i >= c->leaves_timer.size()) {
+        g_replay_leaf_underflow = 1;
+        return 0UL;                     /* v1..v4: нет внешнего времени */
+    }
+    return (unsigned long)(unsigned int)c->leaves_timer[g_ms_i++];
+}
+
+extern "C" unsigned int replay_world_vt(void)
+{
+    /* c690 читает *(int*)(game_ctx) — это ctx_flags текущего вызова (225/233…),
+     * а не статический снимок сетки. */
+    return (g_grid != NULL && !g_grid_error && g_rep != NULL)
+           ? *(unsigned int *)g_rep->ctxBuf : 0;
+}
+
+/* -------------------------- v5: сравнение листьев ------------------------ */
+static std::string path_leaf_str(const PathLeaf &p)
+{
+    char b[128];
+    if (p.null) return std::string("null");
+    _snprintf_s(b, sizeof(b), _TRUNCATE, "[%d,%d,%d,%d,%d]",
+                p.w[0], p.w[1], p.w[2], p.w[3], p.w[4]);
+    return std::string(b);
+}
+static bool path_leaf_eq(const PathLeaf &a, const PathLeaf &b)
+{
+    if (a.null || b.null) return a.null == b.null;
+    for (int k = 0; k < 5; k++) if (a.w[k] != b.w[k]) return false;
+    return true;
+}
+struct LeafCounts {
+    int path_n, path_eq, heur_n, heur_eq, tout_n, tout_eq;
+    LeafCounts() : path_n(0), path_eq(0), heur_n(0), heur_eq(0),
+                   tout_n(0), tout_eq(0) {}
+};
+
+static bool compare_leaf_stream(const Call &c, LeafCounts *cnt, std::string &why)
+{
+    size_t i;
+    size_t pn = c.leaves_path.size() > c.port_path.size()
+                ? c.leaves_path.size() : c.port_path.size();
+    for (i = 0; i < pn; i++) {
+        bool have_n = i < c.leaves_path.size(), have_p = i < c.port_path.size();
+        cnt->path_n++;
+        if (have_n && have_p &&
+            path_leaf_eq(c.leaves_path[i], c.port_path[i])) {
+            cnt->path_eq++;
+            continue;
+        }
+        char b[256];
+        PathLeaf nn, pp;
+        memset(&nn, 0, sizeof(nn)); memset(&pp, 0, sizeof(pp));
+        nn.null = true; pp.null = true;
+        if (have_n) nn = c.leaves_path[i];
+        if (have_p) pp = c.port_path[i];
+        int gx = have_p ? pp.w[3] : (have_n ? nn.w[3] : -1);
+        int gy = have_p ? pp.w[4] : (have_n ? nn.w[4] : -1);
+        _snprintf_s(b, sizeof(b), _TRUNCATE,
+                    "path[%u] native=%s port=%s "
+                    "port branch=free-path cb40 grid=(%d,%d)",
+                    (unsigned)i, path_leaf_str(nn).c_str(),
+                    path_leaf_str(pp).c_str(), gx, gy);
+        why = b;
+        return false;
+    }
+    size_t hn = c.leaves_heur.size() > c.port_heur.size()
+                ? c.leaves_heur.size() : c.port_heur.size();
+    for (i = 0; i < hn; i++) {
+        cnt->heur_n++;
+        if (i < c.leaves_heur.size() && i < c.port_heur.size() &&
+            c.leaves_heur[i] == c.port_heur[i]) {
+            cnt->heur_eq++;
+            continue;
+        }
+        char b[192];
+        _snprintf_s(b, sizeof(b), _TRUNCATE, "heur[%u] native=%d port=%d",
+                    (unsigned)i,
+                    i < c.leaves_heur.size() ? c.leaves_heur[i] : -999999,
+                    i < c.port_heur.size() ? c.port_heur[i] : -999999);
+        why = b;
+        return false;
+    }
+    /* g_hi считает вызовы внешнего grid_query, а не входы в c690: гейт
+     * вернуть 0 не вызывает c5e0. Сравнивается сам поток port_heur. */
+    size_t tn = c.leaves_timeout.size() > c.port_timeout.size()
+                ? c.leaves_timeout.size() : c.port_timeout.size();
+    for (i = 0; i < tn; i++) {
+        cnt->tout_n++;
+        if (i < c.leaves_timeout.size() && i < c.port_timeout.size() &&
+            c.leaves_timeout[i] == c.port_timeout[i]) {
+            cnt->tout_eq++;
+            continue;
+        }
+        char b[192];
+        _snprintf_s(b, sizeof(b), _TRUNCATE, "timeout[%u] native=%d port=%d",
+                    (unsigned)i,
+                    i < c.leaves_timeout.size() ? c.leaves_timeout[i] : -1,
+                    i < c.port_timeout.size() ? c.port_timeout[i] : -1);
+        why = b;
+        return false;
+    }
+    return true;
 }
 
 extern "C" void replay_note_exit(void *node, int code, int iters) {
@@ -1285,7 +1698,13 @@ TreeNode *lower_bound_slots(void *map, int *out, int *key) {
     return found;
 }
 TreeNode *tree_next(TreeNode *node) { return s6_tree_next(node); }
-int tree_lookup(void *world, unsigned int key) { (void)world; (void)key; return 0; }
+int tree_lookup(void *world, unsigned int key)
+{
+    (void)world;   /* synthetic world; name-keyed table from capture */
+    if (g_grid == NULL || g_grid_error) return 0;
+    std::map<unsigned int, int>::const_iterator it = g_grid->tree.find(key);
+    return (it == g_grid->tree.end()) ? 0 : it->second;
+}
 void register_occupied_slot(void *ai, LDObject *obj) {
     Rep *r = (Rep *)ai;
     PathState *ps = (PathState *)obj;
@@ -1294,6 +1713,17 @@ void register_occupied_slot(void *ai, LDObject *obj) {
     TreeNode *m2tn;
 
     if (ps == NULL) return;
+    /* Ресурсный предохранитель харнесса: при расхождении поиска порт может
+     * начать лавинообразно регистрировать узлы. Ограничиваем рост map1 по
+     * нативному размеру вызова, чтобы прогон завершился и показал divergence. */
+    {
+        size_t cap = (g_cur != NULL) ? g_cur->map1.size() * 4 + 100 : 5000;
+        if (cap < 500) cap = 500;
+        if (r->m1nodes.size() >= cap) {
+            g_reg_overflow = 1;
+            return;
+        }
+    }
     p = ps->pos;
     /* FUN_0045dd00: объект в map1 (ключ = LDPos*, ключ узла = pos_addr) и в
      * map2 (ключ = координаты). map1 хранит сам объект — identity
@@ -1343,14 +1773,37 @@ void register_occupied_slot(void *ai, LDObject *obj) {
     rep_rebuild_m2(r);
     ((BattleAI *)(void *)r->aiBuf)->reserved_70 = (int)r->m1nodes.size();
 }
-int vcall0(void *receiver, unsigned int off) { (void)receiver; (void)off; return 0; }
+int vcall0(void *receiver, unsigned int off)
+{
+    /* c5e0: vcall0(world,0x40) → obj1/obj2 (+0x244,+0x228),
+     *        vcall0(obj3,0x48) → obj4 (+0x34). Значения сняты в `grid.world`. */
+    if (g_grid == NULL || g_grid_error) return 0;
+    if (receiver == (void *)g_worldbuf && off == 0x40) {
+        *(int *)(g_obj2buf + 0x244) = (int)g_grid->a1;
+        return (int)(size_t)g_obj2buf;
+    }
+    if (receiver == (void *)g_obj3buf && off == 0x48) {
+        return (int)(size_t)g_obj4buf;
+    }
+    return 0;
+}
 int vcall1(void *receiver, unsigned int off, int arg) {
     (void)receiver; (void)off; (void)arg; return 0;
 }
 long av_count(void) { return 0; }
 int av_filter(void) { return EXCEPTION_EXECUTE_HANDLER; }
-int grid_query(void *world, int a1, int a2, int a3, int a4) {
-    (void)world; (void)a1; (void)a2; (void)a3; (void)a4; return 0;
+int grid_query(void *world, int a1, int a2, int a3, int a4)
+{
+    (void)world; (void)a1; (void)a2; (void)a3; (void)a4;
+    /* FUN_0044bbf0 — внешний мирный запрос (vtable/массивы мира). Его_RETURN
+     * проходит через c5e0 без изменений; харнесс подаёт его как внешний вход,
+     * чтобы арифметика и гейты FUN_0045c5e0/c690 выполнялись по-настоящему. */
+    const Call *c = rep_cur();
+    if (c != NULL && g_hi < c->leaves_heur.size()) {
+        return c->leaves_heur[g_hi++];
+    }
+    g_replay_leaf_underflow = 1;
+    return 0;
 }
 int pt_in_rect(const int *rect, int x, int y) {
     return (rect[0] <= x && x < rect[2] && rect[1] <= y && y < rect[3]) ? 1 : 0;
@@ -1493,11 +1946,36 @@ static void write_res_port(FILE *f, const Call &c, Rep *r) {
         }
         fputc(']', f);
     }
+    fputs(",\"leaf\":{\"path\":", f);
+    fputc('[', f);
+    for (size_t i = 0; i < c.port_path.size(); i++) {
+        fprintf(f, "%s", i ? "," : "");
+        if (c.port_path[i].null) {
+            fputs("null", f);
+        } else {
+            fputc('[', f);
+            for (int k = 0; k < 5; k++) {
+                fprintf(f, "%s%d", k ? "," : "", c.port_path[i].w[k]);
+            }
+            fputc(']', f);
+        }
+    }
+    fputs("],\"heur\":[", f);
+    for (size_t i = 0; i < c.port_heur.size(); i++) {
+        fprintf(f, "%s%d", i ? "," : "", c.port_heur[i]);
+    }
+    fputs("],\"timeout\":[", f);
+    for (size_t i = 0; i < c.port_timeout.size(); i++) {
+        fprintf(f, "%s%d", i ? "," : "", c.port_timeout[i]);
+    }
+    fputs("]},\"leaf_mode\":", f);
+    fputs(g_replay_override ? "\"replay\"" : "\"real\"", f);
     fprintf(f, ",\"leaf_used\":[%u,%u,%u],\"leaf_cap\":[%u,%u,%u]"
-            ",\"leaf_underflow\":%d}\n",
+            ",\"leaf_underflow\":%d,\"reg_overflow\":%d}\n",
             (unsigned)g_pi, (unsigned)g_hi, (unsigned)g_ti,
             (unsigned)c.leaves_path.size(), (unsigned)c.leaves_heur.size(),
-            (unsigned)c.leaves_timeout.size(), g_replay_leaf_underflow);
+            (unsigned)c.leaves_timeout.size(), g_replay_leaf_underflow,
+            g_reg_overflow);
 }
 
 /* --------------------------------- main --------------------------------- */
@@ -1519,7 +1997,7 @@ int main(int argc, char **argv) {
     FILE *fin, *fout;
     std::string line;
     int rc = 0, npos = 0;
-    bool chained = false;
+    bool chained = false, leaf_replay = false;
     std::map<int, Call *> caps;
     std::vector<Call *> calls;
     char err[512];
@@ -1527,6 +2005,10 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--chained") == 0) {
             chained = true;
+        } else if (strcmp(argv[i], "--leaf-replay") == 0) {
+            leaf_replay = true;            /* A/B старого харнесса (v1..v4) */
+        } else if (strcmp(argv[i], "--real-path") == 0) {
+            leaf_replay = false;           /* по умолчанию: v5 */
         } else if (strncmp(argv[i], "--", 2) == 0) {
             fprintf(stderr, "ERROR: unknown flag '%s'\n", argv[i]);
             return 2;
@@ -1539,10 +2021,11 @@ int main(int argc, char **argv) {
         }
     }
     if (npos != 2) {
-        fprintf(stderr, "usage: battle_replay [--chained] <capture.jsonl> "
-                        "<res_port.jsonl>\n");
+        fprintf(stderr, "usage: battle_replay [--chained] [--leaf-replay|--real-path] "
+                        "<capture.jsonl> <res_port.jsonl>\n");
         return 2;
     }
+    g_replay_override = leaf_replay ? 1 : 0;
     if (replay_trace_level() >= 2) {
         g_log_level = 2;                /* LD_DEBUG (ldhook_internal.h) */
     }
@@ -1565,6 +2048,10 @@ int main(int argc, char **argv) {
                 throw std::runtime_error("record.kind: expected string");
             }
             std::string kind = kv.s;
+            if (kind == "grid") {
+                replay_grid_build(v);
+                continue;
+            }
             int seq = (int)jint(v, "seq", "record");
             if (kind == "cap") {
                 if (caps.count(seq)) throw std::runtime_error("duplicate cap seq");
@@ -1591,13 +2078,24 @@ int main(int argc, char **argv) {
         return 2;
     }
     fclose(fin);
+    if (!leaf_replay && (g_grid == NULL || g_grid_error)) {
+        fprintf(stderr, "ERROR: capture has no usable 'grid' record "
+                        "(old v1..v4 or truncated) — real pathfinding needs "
+                        "a v5 capture or --leaf-replay\n");
+        fclose(fout);
+        return 2;
+    }
 
     {
         Rep *r = chained ? new Rep : NULL;
         int complete = 0, compared = 0, chain_len = 0, first_div_seq = -1;
         int entry_mismatch = 0, first_entry_seq = -1;
         int chain_matched = 0, ai_compared = 0, ai_skipped = 0, ai_mismatch = 0;
+        int leaf_calls = 0, leaf_equal = 0, res_calls = 0, res_equal = 0;
+        int first_leaf_seq = -1, first_res_seq = -1;
+        LeafCounts totals;
         std::string first_class, first_detail, first_entry_detail;
+        std::string first_leaf_detail, first_res_detail;
         for (size_t i = 0; i < calls.size(); i++) {
             Call *c = calls[i];
             if (c->has_res) complete++;
@@ -1617,6 +2115,30 @@ int main(int argc, char **argv) {
             }
             if (!chained) r = new Rep;
             try {
+                if (!leaf_replay && c->tree_overflow) {
+                    throw std::runtime_error("tree_delta overflow in cap");
+                }
+                if (!leaf_replay && c->cell_overflow) {
+                    throw std::runtime_error("cell_delta overflow in cap");
+                }
+                if (!leaf_replay && g_grid != NULL && !g_grid_error) {
+                    for (size_t d = 0; d < c->cell_delta.size(); d++) {
+                        replay_apply_cell_delta(g_grid, c->cell_delta[d]);
+                    }
+                    for (size_t d = 0; d < c->row_delta.size(); d++) {
+                        int idx = c->row_delta[d].first;
+                        if (idx >= 0 && idx < (int)g_grid->n) {
+                            g_grid->rowdata[idx] = c->row_delta[d].second;
+                        }
+                    }
+                    for (size_t d = 0; d < c->tree_delta.size(); d++) {
+                        int idx = c->tree_delta[d].first;
+                        if (idx >= 0 && idx < (int)g_grid->cell_keys.size()) {
+                            g_grid->tree[(unsigned int)g_grid->cell_keys[idx]] =
+                                c->tree_delta[d].second;
+                        }
+                    }
+                }
                 if (chained && i > 0) {
                     rep_rebind(r, *c);       /* feed the PORT's own state forward */
                 } else {
@@ -1651,6 +2173,37 @@ int main(int argc, char **argv) {
                 s6_target_search(ai, (void *)(size_t)c->filter, cmpPos,
                                  (void *)(size_t)c->timeout_bits, &out_code);
                 write_res_port(fout, *c, r);
+                if (!leaf_replay) {
+                    /* v5 gate: результат + пор-produced leaf-поток. */
+                    NResult nat;
+                    nres_read(c->res, nat);
+                    std::string rw;
+                    bool req = result_equal(nat, g_exit_node[0], g_exit_node[1],
+                                            g_exit_code, g_exit_iters,
+                                            g_iter_seq, rw);
+                    res_calls++;
+                    if (req) res_equal++;
+                    else if (first_res_seq < 0) {
+                        first_res_seq = c->seq;
+                        first_res_detail = rw;
+                    }
+                    std::string lw;
+                    bool leq = compare_leaf_stream(*c, &totals, lw);
+                    leaf_calls++;
+                    if (leq) leaf_equal++;
+                    else if (first_leaf_seq < 0) {
+                        first_leaf_seq = c->seq;
+                        first_leaf_detail = lw;
+                    }
+                    if (!req || !leq) {
+                        fprintf(stderr, "DIVERGE seq=%d result=%s leaf=%s%s%s\n",
+                                c->seq, req ? "equal" : "DIFF",
+                                leq ? "equal" : "DIFF",
+                                req ? "" : " result:", req ? "" : rw.c_str());
+                        if (!leq) fprintf(stderr, "  leaf: %s\n", lw.c_str());
+                        if (rc == 0) rc = 1;
+                    }
+                }
                 if (chained) {
                     NResult nat;
                     nres_read(c->res, nat);
@@ -1706,6 +2259,17 @@ int main(int argc, char **argv) {
         fclose(fout);
         if (rc == 0) {
             printf("replay: %u calls -> %s\n", (unsigned)calls.size(), outpath);
+        }
+        if (!leaf_replay) {
+            printf("LEAF: calls=%d equal=%d path=%d/%d heur=%d/%d timeout=%d/%d "
+                   "first_div_seq=%d %s\n",
+                   leaf_calls, leaf_equal, totals.path_eq, totals.path_n,
+                   totals.heur_eq, totals.heur_n, totals.tout_eq, totals.tout_n,
+                   first_leaf_seq,
+                   first_leaf_seq < 0 ? "" : first_leaf_detail.c_str());
+            printf("RESULT: calls=%d equal=%d first_div_seq=%d %s\n",
+                   res_calls, res_equal, first_res_seq,
+                   first_res_seq < 0 ? "" : first_res_detail.c_str());
         }
         if (chained) {
             /* survived = число цепных вызовов, совпавших подряд до первого

@@ -188,7 +188,9 @@ python3 tools/ldhook/patch_ui.py --restore   # откат: вернуть ui.pyc
 ```
 python3 tools/ldhook/build.py
 python3 tools/probes/battle_replay_build.py
-build/ldhook/battle_replay.exe [--chained] <capture.jsonl> <res_port.jsonl>
+build/ldhook/battle_replay.exe [--chained] [--leaf-replay|--real-path] <capture.jsonl> <res_port.jsonl>
+`battle_replay_diff.py <capture> <res_port> --fields=leaf` — сравнение потока
+листьев; `LEAF:`/`RESULT:` в stdout — совпадения и первое расхождение.
 ```
 
 Без флага реплика строится заново из `cap` каждого вызова, сравнение делает
@@ -206,9 +208,12 @@ first_div_seq/class, ai_after_compared/ai_after_skipped/ai_words_mismatch; rc 0
 `ai_words_after` сравнивается только если захват содержит ключ (v4; v1..v3 его
 не пишут — сравнение пропускается и это сказано в строке `CHAIN`).
 
-Ограничение: сетка pathfinding'а заглушена (только размеры), листья
-cb40/c690/c5a0 проигрываются из захвата; цепь проверяет bookkeeping
-`dd70`/`e0a0`/`c690` и собственные вставки порта в map1, но не сам поиск пути.
+v5 (по умолчанию): захват добавляет одну запись `grid` — уровни/размеры,
+`cells` (LDPos-вид, метрики, ключи, связи), `rows`, статусы world-дерева и
+внешние входы эвристики; дельты world/rows/cells пишутся по вызовам.
+Порт исполняет `s6_path_search`/`s6_pfs_ctor`/`s6_tree_next`/`s6_heuristic`
+сам; `res_port.leaf` — его поток листьев. `--leaf-replay` возвращает старую
+подмену листьев (A/B харнесса); старые захваты без `grid` ⇒ `ERROR`, rc 2.
 
 `--chained` — **диагностика, не гейт**: игра очищает карты кандидатов/занятых
 **между** вызовами e0a0 — `FUN_0045ca70` на `0x45efd7` перед регистрацией seed,

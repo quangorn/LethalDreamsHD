@@ -21,6 +21,7 @@
 #ifdef BATTLE_REPLAY
 extern "C" int g_replay_override;
 extern "C" void *replay_path_next(void);
+extern "C" void replay_note_path_res(void *result);
 #endif
 
 /* In-order successor по std::_Tree (порт FUN_0047f800, без вызова). */
@@ -421,17 +422,11 @@ GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
  * успех ⟺ JP(маска 0x5, FCOMPS(out,L[0x10]) @0x45cd57) ИЛИ JNE(маска 0x41,
  * FCOMPS(final_threshold+out, L[0x10]) @0x45cd6a); min = bits(L[0x10]),
  * out = spec->out_metric. Возврат: L[0x40] при успехе, иначе 0. */
-void *s6_path_search(BattleAI *self, PathState *spec)
+static void *s6_path_search_body(BattleAI *self, PathState *spec)
 {
     LDPos *pos = spec->pos;           /* spec[0] — grid-клетка; координаты +0xc/+0x10
                                        * читаются LDPos-раскладкой (@0x45cb4f/0x45cb52) */
     int l[22];                        /* слоты Y+0x00..Y+0x54 */
-
-#ifdef BATTLE_REPLAY
-    if (g_replay_override) {
-        return replay_path_next();    /* результат нативного cb40 из захвата */
-    }
-#endif
 
 #define LS(k) (l[(k) >> 2])
 
@@ -543,4 +538,20 @@ void *s6_path_search(BattleAI *self, PathState *spec)
     return NULL;                          /* @0x45cd75: XOR EAX,EAX */
 
 #undef LS
+}
+
+void *s6_path_search(BattleAI *self, PathState *spec)
+{
+#ifdef BATTLE_REPLAY
+    if (g_replay_override) {
+        return replay_path_next();        /* A/B харнесса: результат из захвата */
+    }
+    {
+        void *r = s6_path_search_body(self, spec);
+        replay_note_path_res(r);          /* v5: наблюдатель реального cb40 */
+        return r;
+    }
+#else
+    return s6_path_search_body(self, spec);
+#endif
 }

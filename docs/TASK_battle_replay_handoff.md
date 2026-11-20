@@ -48,24 +48,26 @@ Runner log: `D:/tmp/cygwin/opencode/ld/ldhook/tree/hdlog.txt`; scratch EXE basel
 ## 6. Warnings
 Never delete files; installed game `D:/Games/LethalDreams` READ-ONLY (use scratch tree only). Always `taskkill /F /IM LETHALDREAMS.EXE` after runs. Do not guess slot layouts without `game_dis.txt` / `docs/PLAN_BATTLE_AI_CPP.md` evidence. Keep writes opt-in; verify `check_state.py --quick` after installed-game changes.
 
-## 7. State (faithful map1/map2 replay, offline harness)
+## 7. State (offline replay gate, v5 real pathfinding)
 
-- Capture v4 adds `ai_words_after` to `res` (BattleAI scalar block after the
-  call, symmetric to `cap.ai_words`). v1..v3 lack the key — comparison skipped
-  and stated in `CHAIN`. Harness compares `node/code/iters/iter_seq`,
-  `map1_after`/`occ_after`, `ai_words_after`; ptr-slots of the scalar block are
-  excluded.
-- Harness (`battle_replay.cpp`): map1 order + identity from captured addresses,
-  map2 resolved to Rep at `aiBuf+0x74`, exact-key occupancy. reg-events are
-  keyed by `seq` and kept across calls, so the map1 delta names the port branch
-  (`dd70` branch 1 → `0x45dd00 register_occupied_slot`). Non-chained clears
-  events per seq; chained keeps them under a cap.
-- Gate = per-call replay via `battle_replay_diff.py`. No port defect;
-  `battle/*.cpp` logic unchanged. Bad/missing input ⇒ `ERROR`, rc 2, no crash.
-- `--chained` is a **diagnostic, not a gate**: the game clears map1/map2
-  between `e0a0` calls via `FUN_0045ca70` (called at `0x45efd7` before the seed
-  registration, conditional on bit 7 of `[obj]` flags), so a literal
-  self-feeding chain is not faithful; `entry_state_mismatch` is expected, not a
-  port defect. Chain checks `dd70`/`e0a0`/`c690` bookkeeping and the port's own
-  map insertions, not grid search (stubbed, sizes only). Rerun:
-  `build/ldhook/battle_replay.exe [--chained] <capture.jsonl> <out.jsonl>`.
+- Capture v5 adds one `grid` record (levels/sizes, `cells` LDPos-words/metrics/
+  keys/links, `rows`, world-tree statuses, heuristic inputs) plus per-call
+  `tree_delta`/`row_delta`/`cell_delta`/`w110`/`res.leaf.timer`.
+  Grid is static in this battle; runtime world-tree deltas are captured.
+- Harness reconstructs GridLevel/GridCell/KeyRecord/rows and runs the port's
+  own `s6_path_search`/`s6_pfs_ctor`/`s6_tree_next`/`s6_heuristic`; port leaf
+  stream is written to `res_port.leaf`. External world calls (tree status,
+  vtable getters, `FUN_0044bbf0` return, `timeGetTime`) are supplied from
+  capture; the c690/c5a0 branch logic and arithmetic execute in the port.
+- `--leaf-replay` restores v1..v4 leaf substitution for A/B of the harness;
+  captures without a usable `grid` record are skipped with `ERROR`, rc 2.
+  Diff: `battle_replay_diff.py <capture> <res_port> --fields=leaf` (rc 0/1/2/3).
+- Gate result on full v5 capture: results 28/112 equal, path leaves 30993/31077,
+  heuristic 188/188, timeout 28/28; first divergence seq=2, path leaf 329:
+  native null vs port cell (244,107) at grid cell (244,107) (free-path cb40).
+  `RESULT` first divergence seq=2 (node native [246,109], port none).
+  No port defect proven; `battle/*.cpp` algorithm unchanged (only observers
+  and capture/input seams). Remaining limitation: external world-query return
+  supplied from capture; real search not yet equal beyond seq=1.
+- `--chained` remains diagnostic only: the game clears map1/map2 between e0a0
+  calls (`FUN_0045ca70` at `0x45efd7`), so `entry_state_mismatch` is expected.

@@ -18,7 +18,7 @@ rc: 0 - equal and >= --prefix compared records;
 import json
 import sys
 
-COMPARE = ["node", "code", "iters", "iter_seq", "map1_after", "occ_after"]
+COMPARE = ["node", "code", "iters", "iter_seq", "map1_after", "occ_after", "leaf"]
 USAGE = ("usage: battle_replay_diff.py <capture.jsonl> <res_port.jsonl> "
          "[--prefix=N] [--fields=a,b,c] [--limit=N]")
 
@@ -123,7 +123,18 @@ def fields(rec):
         "iter_seq": seq_of_positions(rec.get("iter_seq", [])),
         "map1_after": map_by_pos(rec.get("map1_after", [])),
         "occ_after": occ_set(rec.get("occ_after", [])),
+        "leaf": leaf_stream(rec.get("leaf", {})),
     }
+
+
+def leaf_stream(v):
+    """Нативный и портовый потоки листьев; ignored `ptr`/`timer` (identity)."""
+    if not isinstance(v, dict):
+        raise ValueError("bad leaf: %r" % (v,))
+    return (tuple(tuple(x) if isinstance(x, list) else x
+                  for x in v.get("path", [])),
+            tuple(v.get("heur", [])),
+            tuple(v.get("timeout", [])))
 
 
 def fmt(v):
