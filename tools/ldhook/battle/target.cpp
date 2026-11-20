@@ -414,30 +414,20 @@ __declspec(naked) void s5_tail_hook(void)
 /* ------------------------------------------------------------------ */
 /* site6 — Фаза 3 (docs/PLAN_BATTLE_AI_CPP.md): полная замена (detour)  */
 /* поиска цели FUN_0045e0a0 + скана FUN_0045ce80 на C++ в .pyd.        */
-/* Статус: микро-цикл ≤2 — временный; faithful-цикл, снятие fallback'а  */
-/* и нативная регистрация слотов — Фазы 2–3 плана.                     */
 /*                                                                    */
-/* Горячий путь: O(итерации × n) native (до ~4400 полных сканов дерева */
-/* на поиск) → один проход s6_scan_map на скан. Логика 1:1 с оригиналом*/
-/* (дизасм Ghidra, подтверждён на установленном EXE):                  */
-/* Принято (site6_correctness_audit.md): native-цикл НЕ вырожден — FUN_0045c4b0 */
-/* (mask 4) помечает cur->filter=3 и помеченные исключаются следующим скане    */
-/* (ротация кандидатов). Нормальный выход — code=4 на 2-й итерации;           */
-/* патологический — code=3 по таймауту. s6_target_search — микро-цикл 2        */
-/* итераций: scan + ai_update + marking + гейты на каждой; таймаут заменён      */
-/* ограниченным циклом (cost O(2n)).                                             */
-/*   FUN_0045e0a0(this, param_1, param_2, param_3, param_4):           */
+/* Faithful-цикл (п. 3.1), тело 0x45e0a0..0x45e1c0 портировано 1:1:     */
+/*   FUN_0045e0a0(this, filter, target_pos, timeout, param_4):         */
 /*     if (param_4) *param_4 = 0;                                     */
-/*     cur = scan(this, param_1);                                     */
-/*     while (cur) {        // порт — микро-цикл, максимум 2 итерации */
-/*       FUN_0045dd70(this, cur, param_2);   // AI update (порт)      */
-/*       FUN_0045c4b0(&local, cur, 4);       // cur->filter = 3       */
-/*       if (*(int*)cur == param_2) { *param_4=1; return cur; }       */
+/*     cur = scan(this, filter);                                      */
+/*     while (cur) {                                                  */
+/*       FUN_0045dd70(this, cur, target_pos);   // AI/pathfinding      */
+/*       FUN_0045c4b0(&local{+8=3}, cur, 4);    // cur->filter = 3      */
+/*       if (cur->pos == target_pos) { *param_4=1; return cur; }      */
 /*       if (FUN_0045c880(this, cur)) { *param_4=4; return cur; }     */
-/*       if (FUN_0045c5a0(this, param_3)) { *param_4=3; return cur; } */
-/*       cur = scan(this, param_1);   // помеченные filter=3 вне скана*/
+/*       if (FUN_0045c5a0(this, timeout)) { *param_4=3; return cur; } */
+/*       cur = scan(this, filter);   // помеченные filter=3 вне скана   */
 /*     }                                                              */
-/*     return NULL;      // скан пуст: code=0, записи в *param_4 нет   */
+/*     return NULL;   // пустой скан: code=0, записи в *param_4 нет     */
 /*   FUN_0045ce80(this, filter): один in-order проход std::map this+0x6c*/
 /*     ((TreeNode*)this->[0x6c] = sentinel; obhod ot head->left);     */
 /*     фильтр [obj+8]==filter, минимум [obj+0x24], возврат value1.     */
@@ -455,9 +445,7 @@ __declspec(naked) void s5_tail_hook(void)
 volatile LONG g_site6_calls = 0;
 volatile LONG g_site6_heavy = 0;
 volatile LONG g_site6_max = 0;
-static volatile LONG g_site6_iter = 0;    /* сканов (итераций) в прошлом вызове */
 static volatile LONG g_site6_dbg = 0;
-static volatile LONG g_site6_depth = 0;   /* защита от рекурсии: dd70 → e0a0 → site6 */
 static volatile LONGLONG g_s6_us_sum = 0; /* Фаза 4 A/B: сумма/максимум микросекунд */
 static volatile LONGLONG g_s6_us_max = 0;
 /* Фаза 4 A/B: сводка по окнам времени (5 с): вызовы и µs за период,
@@ -480,17 +468,12 @@ LDObject *s6_scan_map(void *this_, int filter)
     TreeNode *best = head;
     unsigned int best_metric = 999999999u;
     LDObject *obj;
-    int steps = 0;
 
     if (head == NULL) {
         return NULL;
     }
     cur = head->left;                    /* первый (левый) узел дерева */
     while (cur != head && cur != NULL) {
-        /* Защита от повреждённого дерева: не больше 10000 шагов. */
-        if (++steps > 10000) {
-            return NULL;
-        }
         obj = (LDObject *)cur->value;
         if (obj != NULL && obj->filter == filter) {
             unsigned int m = (unsigned int)obj->metric;
@@ -584,36 +567,11 @@ int s6_check_timeout(void *this_, void *arg)
     }
 }
 
-/* FUN_0045c4b0(&local, cur, 4) — port (mask bit 2: local[2]=3 → cur[2]).
- * Помеченный кандидат cur->filter (obj+0x08) = 3 выпадает из скана ce80
- * ([obj+8]==filter, filter=1) → ротация кандидатов цикла. Разметка transient:
- * s6_target_search восстанавливает сохранённый filter на выходе из вызова
- * (net state = как до вызова; native-слой Python сбрасывает filter между
- * AI-раундами, порт без восстановления исчерпывал скан → calls падали).
+/* FUN_0045c4b0(&local, cur, 4) — mask bit 2 (local[2]=3 → cur[2]) inline в
+ * s6_target_search @0x45e132: cur->filter (obj+0x08) = 3 — permanent-разметка,
+ * помеченный кандидат выпадает из следующего скана ce80 ([obj+8]==filter,
+ * filter=1) → ротация кандидатов. Восстановления нет (native так же).
  * site6_correctness_audit.md,Claim 2: «мёртвый код» опровергнут байткодом. */
-void s6_mark_filter(LDObject *obj)
-{
-    if (obj == NULL) {
-        return;
-    }
-    __try {
-        obj->filter = 3;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-    }
-}
-
-/* Парная к mark: вернуть obj->filter = saved (значение до разметки).
- * Разыменование под SEH. */
-void s6_restore_filter(LDObject *obj, int saved)
-{
-    if (obj == NULL) {
-        return;
-    }
-    __try {
-        obj->filter = saved;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-    }
-}
 
 /* FUN_0045dd00 — slot lookup caller (запись объекта в 2 map'а) — native-обёртка
  * native::register_occupied_slot вызывается напрямую у s6_ai_update @0x45dfa6
@@ -1004,8 +962,7 @@ int s6_ai_update(void *this_, void *cand, int arg2)
  *   }
  *   return NULL;   // пустой скан: code остаётся 0 (entry-запись), записи в *param_4 нет
  * Гейты — в родном порядке; ai_update/scan/предикаты — порты (выше). Разметка
- * постоянная (native c4b0 mask 4), restore не вызывается. Depth guard и счётчики
- * — временные (п. 3.2/3.4 плана), на faithful-семантику не влияют. */
+ * постоянная (native c4b0 mask 4), restore не вызывается. */
 static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
                                       void *arg2, void *arg3)
 {
@@ -1026,19 +983,6 @@ static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
         *out_code = 0;
     }
 
-    /* Защита от рекурсии: FUN_0045dd70 (AI/pathfinding) внутри вызывает
-     * FUN_0045e0a0, который перехвачен site6. Без защиты — stack overflow.
-     * При рекурсивном вызове возвращаем NULL (цель не найдена на этом уровне),
-     * внешний цикл продолжит работу. */
-    if (InterlockedIncrement(&g_site6_depth) > 1) {
-        if (ld_rate(&g_site6_dbg, 4, 64)) {
-            ld_debug("site6: recursive call (depth=%ld) -> return NULL",
-                     (long)g_site6_depth);
-        }
-        InterlockedDecrement(&g_site6_depth);
-        return NULL;
-    }
-
     if (n == 1) {
         ld_info("site6: first call (hook FIRED) this=%p filter=%d cmp=%p "
                 "layout_ld=%d layout_node=%d",
@@ -1054,8 +998,8 @@ static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
      * скан → выход без кода, return NULL. */
     cur = s6_scan_map(this_, filter);      /* @0x45e103 */
     if (ld_rate(&g_site6_dbg, 4, 64)) {
-        ld_debug("site6: call %ld scan -> %p (filter=%d cmp=%p depth=%ld)",
-                 (long)n, (void *)cur, filter, cmp_val, (long)g_site6_depth);
+        ld_debug("site6: call %ld scan -> %p (filter=%d cmp=%p)",
+                 (long)n, (void *)cur, filter, cmp_val);
     }
     while (cur != NULL) {                  /* @0x45e10a / @0x45e165 */
         iters++;
@@ -1065,7 +1009,10 @@ static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
         /* FUN_0045c4b0(&local, cur, 4): cur->filter = 3 — permanent-разметка,
          * помеченный кандидат выпадает из следующего скана ce80 (native-ротация,
          * без восстановления). */
-        s6_mark_filter(cur);                               /* @0x45e132 */
+        __try {
+            cur->filter = 3;                               /* @0x45e132 */
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
         if (cur->pos == (LDPos *)cmp_val) {                /* @0x45e137 */
             code = 1;                                      /* @0x45e17d: *param_4 = 1 */
             result = cur;
@@ -1090,10 +1037,7 @@ static void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
         *out_code = code;
     }
 
-    InterlockedDecrement(&g_site6_depth);
-
-    /* Статистика. */
-    g_site6_iter = iters;
+    /* Статистика (счётчики п. 3.4). */
     if (iters > g_site6_max) {
         g_site6_max = iters;
     }

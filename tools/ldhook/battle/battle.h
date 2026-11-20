@@ -43,8 +43,6 @@ int s6_distance2(void *a, void *b);                     /* FUN_0045c480 */
 LDObject *s6_scan_map(void *this_, int filter);         /* FUN_0045ce80 */
 int s6_check_distance(void *this_, void *cand);         /* FUN_0045c880 */
 int s6_check_timeout(void *this_, void *arg);           /* FUN_0045c5a0 */
-void s6_mark_filter(LDObject *obj);                     /* FUN_0045c4b0 (mask 4) */
-void s6_restore_filter(LDObject *obj, int saved);
 int s6_ai_update(void *this_, void *cand, int arg2);    /* FUN_0045dd70 */
 
 /* П. 2.5: гейт эвристики (FUN_0045c690) и эвристика (FUN_0045c5e0). Slot —
