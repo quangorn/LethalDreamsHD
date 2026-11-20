@@ -54,6 +54,7 @@
 | ui/btutorial | 1794778203 |
 | ui/olcamera | 1794778203 |
 | battlecamera | 1794778203 |
+| bdomain | 1794778203 |
 
 - Новые модули лежат в `config[game.root]/data/scripts/`: `types.pyc` (3225 B,
   md5 `414bd2aa0857…`; allowlist `named_legals` + `snapshot_only`) и `hd_res.pyc`
@@ -69,6 +70,9 @@
 - `[P]` Текущая сборка `battlecamera` (18.11.2026): MMB-обзор + зум колесом шагом
   `zoom_step = 1.0` (`h_MouseWheel`, `patches/battlecamera.py`); установленный md5 = base-печать
   `c7d3150409af…`, state `MATCH`; разбор — `docs/PATCHES.md` («Боевая камера: MMB-обзор и зум колесом», «Ослабление зума колесом»).
+- `[P]` Спавн отряда при входе в бой фиксирован (20.11.2026): индекс входа `FIXED_ENTRANCE_INDEX = 5`
+  (`InitializeData`, `patches/bdomain.py`), случайного выбора нет; установленный md5 = base-печать
+  `957bc9d86ccc…`, state `MATCH`; патч — `docs/PATCHES.md` («Точка входа отряда в бой»).
 - Дрейфов кодового яруса нет: `ui/cursor.pyc` приведён к base `60754a25…` (19.11.2026);
   `ui/olmenu.pyc` (md5 `af176d4859a1…`, state `MATCH`) — каноническая сборка с фиксом Esc×2:
   шестой элемент `ShowMainmenu` = `2` (ResumeGame) в `patches/ui/olmenu.py`.

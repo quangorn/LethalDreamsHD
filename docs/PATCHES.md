@@ -759,3 +759,13 @@ Base-требования к декомпиляту — `docs/PIPELINE.md`; за
 - `[P]` Эталон установленной сборки: `data/scripts/battlecamera.pyc` md5 `c7d3150409af…` (гейт
   `apply_patch.py battlecamera` даёт `.py` md5 `8e64086fcdde…`), state `MATCH`;
   каноническая сборка — `docs/PIPELINE.md` (`update_entry.py` → `apply_patch.py` → `install_patch.py --install`).
+
+## Точка входа отряда в бой (20.11.2026) — итог `FIXED_ENTRANCE_INDEX = 5`
+
+- `[P]` Отряд при входе в бой спавнится на фиксированном стандартном входе карты:
+  `FIXED_ENTRANCE_INDEX = 5` (`InitializeData`, `patches/bdomain.py`); `whrandom.randint` оставлен
+  только как фолбэк при индексе вне `EntrancePoints`; стартовая камера — в той же точке.
+- `[P]` Эталон установленной сборки: `data/scripts/bdomain.pyc` md5 `957bc9d86ccc…` (28840 B,
+  crc32 `2ced231d`, mtime `1794778203`), `.py` md5 `d217277549c2…`; патч
+  `release/patches/bdomain.patch` (2 ханка); каноническая сборка — `docs/PIPELINE.md`.
+- Спавн на точке врагов (`KeepersEntrancePoints['Owner']`) отменён — юниты под землёй: `docs/PITFALLS.md`.

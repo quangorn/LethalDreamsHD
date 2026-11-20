@@ -1,0 +1,25 @@
+--- a/bdomain.py
++++ b/bdomain.py
+@@ -1,5 +1,9 @@
+ import gamemodule, globalscript, whrandom, battlecamera, ui, dom_center, cshield, createspawnspots, overlandcharacters, s_ambient, std_misc, g_defs
+ Dict = globalscript.GetDictionary()
++
++# Фиксированный индекс точки входа отряда (EntrancePoints) на всех боевых картах.
++# Решение пользователя 20.11.2026: спавн отряда и стартовая камера детерминированы.
++FIXED_ENTRANCE_INDEX = 5
+ 
+ class BDomain:
+ 
+@@ -423,7 +427,11 @@
+             else:
+                 globalscript.EnableShadowCheck(0)
+                 gamemodule.r_shadows(0)
+-            index = whrandom.randint(0, len(self.EntrancePoints) - 1)
++            # Точка входа отряда фиксирована: FIXED_ENTRANCE_INDEX, случайного выбора нет.
++            # Камера стартует в той же точке, взгляд — по StartLookPoints того же входа.
++            index = FIXED_ENTRANCE_INDEX
++            if index >= len(self.EntrancePoints):
++                index = whrandom.randint(0, len(self.EntrancePoints) - 1)
+             createspawnspots.DoIt(self.EntrancePoints)
+             self.CreateCharactersBattleUnits(index)
+             if self.MiniDomain.Owner != overlandcharacters.Player:
