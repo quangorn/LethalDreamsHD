@@ -191,6 +191,8 @@ python3 tools/probes/battle_replay_build.py
 build/ldhook/battle_replay.exe [--chained] [--leaf-replay|--real-path] <capture.jsonl> <res_port.jsonl>
 `battle_replay_diff.py <capture> <res_port> --fields=leaf` — сравнение потока
 листьев; `LEAF:`/`RESULT:` в stdout — совпадения и первое расхождение.
+`leaf_stream_diff.py <capture> <res_port>` — поэлементное сравнение `res.leaf.path` с
+`res_port.leaf.path` по seq (общий префикс + маркер `EXTRA` хвоста); rc 0/1/2.
 ```
 
 Без флага реплика строится заново из `cap` каждого вызова, сравнение делает
