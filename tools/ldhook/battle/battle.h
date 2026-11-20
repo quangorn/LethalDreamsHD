@@ -27,6 +27,8 @@ GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
  * чтения @0x45cd1f; stale-read'ов нет — оба моделируются internally по
  * ESP-леджеру. */
 void *s6_path_search(BattleAI *self, PathState *spec);
+/* A/B-диагностика cb40: 7 счётчиков исходов (first,sign,bound,grid,recur,gate,res). */
+void s6_pfs_snapshot(long *out7);
 
 /* ---- grid.cpp: доступ к сетке (FUN_00456ed0 / FUN_004570d0 / FUN_00456a70) ---- */
 GridCell *s6_grid_cell(GridLevel *level, int index);       /* FUN_00456ed0 */

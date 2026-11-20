@@ -34,6 +34,11 @@ void register_occupied_slot(void *ai, LDObject *obj);            /* FUN_0045dd00
 int vcall0(void *receiver, unsigned int voffset);
 int vcall1(void *receiver, unsigned int voffset, int arg);
 
+/* Счётник исключений во всех native-обёртках (intercepted AV). Читающий сравнивает
+ * дельты до/после вызова; increment поведенчески нейтрален. */
+long av_count(void);
+int av_filter(void);               /* __except-фильтр: +1 к счётнику, EXECUTE_HANDLER */
+
 /* FUN_0044bbf0 — grid_query (состояние+гейт, инвентарь 1.4 §1.10, вердикт
  * «нативно»): листинг 0x44bbf0..0x44bcef. __thiscall, ECX = world
  * (site 0x45c67b: `MOV EAX,[ECX]`; `MOV ECX,0x4(EAX)` @0x45c676..0x45c678).

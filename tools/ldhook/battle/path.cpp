@@ -117,6 +117,66 @@ PathState *s6_pfs_ctor(void)
     return pfs;                             /* 0x45c32b: EAX = EDX */
 }
 
+/* Диагностикa path-слоя (FUN_0045cb40 / FUN_0045c3a0) — счётники пишутся всегда
+ * (InterlockedIncrement нейтрален к поведению), лог только при LDHOOK_LOG=2,
+ * троттлинг первые 4 + каждый 128-й. Исходы cb40: first (первый c3a0 = NULL),
+ * sign/bound/grid/lookup (ранние выходы), recur (рекурсивный c3a0 = NULL),
+ * gatefail (финальный порог), res (успех). */
+static volatile LONG g_pfs_calls = 0;
+static volatile LONG g_pfs_first_null = 0;
+static volatile LONG g_pfs_sign_null = 0;
+static volatile LONG g_pfs_bound_null = 0;
+static volatile LONG g_pfs_grid_null = 0;
+static volatile LONG g_pfs_recur_null = 0;
+static volatile LONG g_pfs_gate_fail = 0;
+static volatile LONG g_pfs_res = 0;
+static volatile LONG g_ts_calls = 0;
+static volatile LONG g_ts_null = 0;
+static volatile LONG g_pfs_dbg = 0;
+
+#define PFS_R_FIRST   1
+#define PFS_R_SIGN    2
+#define PFS_R_BOUND   3
+#define PFS_R_GRID    4
+#define PFS_R_RECUR   5
+#define PFS_R_GATE    6
+#define PFS_R_OK      7
+
+static void s6_pfs_diag(int reason)
+{
+    switch (reason) {
+        case PFS_R_FIRST: InterlockedIncrement(&g_pfs_first_null); break;
+        case PFS_R_SIGN:  InterlockedIncrement(&g_pfs_sign_null);  break;
+        case PFS_R_BOUND: InterlockedIncrement(&g_pfs_bound_null);  break;
+        case PFS_R_GRID:  InterlockedIncrement(&g_pfs_grid_null);   break;
+        case PFS_R_RECUR: InterlockedIncrement(&g_pfs_recur_null);  break;
+        case PFS_R_GATE:  InterlockedIncrement(&g_pfs_gate_fail);   break;
+        default:          InterlockedIncrement(&g_pfs_res);         break;
+    }
+    if (g_log_level < LD_DEBUG) {
+        return;
+    }
+    if (ld_rate(&g_pfs_dbg, 4, 128)) {
+        ld_debug("pfs: calls=%ld first=%ld sign=%ld bound=%ld grid=%ld recur=%ld "
+                 "gatefail=%ld res=%ld ts_calls=%ld ts_null=%ld (reason=%d)",
+                 (long)g_pfs_calls, (long)g_pfs_first_null, (long)g_pfs_sign_null,
+                 (long)g_pfs_bound_null, (long)g_pfs_grid_null, (long)g_pfs_recur_null,
+                 (long)g_pfs_gate_fail, (long)g_pfs_res, (long)g_ts_calls,
+                 (long)g_ts_null, reason);
+    }
+}
+
+void s6_pfs_snapshot(long *out7)
+{
+    out7[0] = (long)g_pfs_first_null;
+    out7[1] = (long)g_pfs_sign_null;
+    out7[2] = (long)g_pfs_bound_null;
+    out7[3] = (long)g_pfs_grid_null;
+    out7[4] = (long)g_pfs_recur_null;
+    out7[5] = (long)g_pfs_gate_fail;
+    out7[6] = (long)g_pfs_res;
+}
+
 /* FUN_0045c390 (15 байт, 0x45c390..0x45c39e) — знаковый max(a,b).
  *   0x45c390: MOV EAX,[ESP+0x4] ; 0x45c394: MOV ECX,[ESP+0x8]
  *   0x45c398: CMP EAX,ECX ; 0x45c39a: JG 0x45c39e      (a>b → вернуть a)
@@ -213,11 +273,13 @@ GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
     GridCell *cur;
     GridCell *best = NULL;
 
+    InterlockedIncrement(&g_ts_calls);
     (void)p2;                          /* 0x45c3a0 p2 не читает */
     /* p4: store @0x45c43d (FSTPS [EDX]) и numerator гейта @0x45c45a ([ESP+0x20]
      * при ESP=A−16) — p4 читается, слот p4 = адрес store/numerator. */
 
     if (p1 == NULL) {                  /* 0x45c3a6/0x45c3aa → 0x45c479: XOR EAX,EAX */
+        InterlockedIncrement(&g_ts_null);
         return NULL;
     }
 
@@ -284,6 +346,9 @@ GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
                 best = NULL;
             }
         }
+    }
+    if (best == NULL) {
+        InterlockedIncrement(&g_ts_null);
     }
     return best;
 }
@@ -368,7 +433,9 @@ void *s6_path_search(BattleAI *self, PathState *spec)
                                                  (float *)&spec->out_metric,
                                                  &spec->min_sentinel,
                                                  &spec->max_sentinel, 1);  /* @0x45cb82 */
+    InterlockedIncrement(&g_pfs_calls);
     if (LS(0x40) == 0) {
+        s6_pfs_diag(PFS_R_FIRST);
         return NULL;                              /* @0x45cb8f JE 0x45cd75 */
     }
     LS(0x2c) = *(const int *)&spec->min_sentinel; /* @0x45cb9a */
@@ -398,21 +465,22 @@ void *s6_path_search(BattleAI *self, PathState *spec)
                             GridCell *node2;
                             int p7;
 
-                            if (edi < 0) { return NULL; }   /* @0x45cc3f JL */
-                            if (ebp < 0) { return NULL; }   /* @0x45cc47 JL */
+                            if (edi < 0) { s6_pfs_diag(PFS_R_SIGN); return NULL; }  /* @0x45cc3f JL */
+                            if (ebp < 0) { s6_pfs_diag(PFS_R_SIGN); return NULL; }  /* @0x45cc47 JL */
                             grid = (GridLevel *)(INT_PTR)
                                 *(const int *)((const unsigned char *)self->game_ctx + 8);  /* @0x45cc3c */
                             /* FCOMPP ST0=size_x (FILD @0x45cc51) vs ST1=edi (FILD @0x45cc4d):
                              * маска 0x41 (C3|C0) → выход, когда size_x <= edi. */
-                            if (!(grid->size_x > LS(0x30))) { return NULL; }  /* @0x45cc4d..0x45cc5b */
-                            if (!(grid->size_y > LS(0x34))) { return NULL; }  /* @0x45cc61..0x45cc6f */
+                            if (!(grid->size_x > LS(0x30))) { s6_pfs_diag(PFS_R_BOUND); return NULL; }  /* @0x45cc4d..0x45cc5b */
+                            if (!(grid->size_y > LS(0x34))) { s6_pfs_diag(PFS_R_BOUND); return NULL; }  /* @0x45cc61..0x45cc6f */
                             node2 = s6_grid_lookup(grid, edi, ebp);  /* @0x45cc77: x=inner, y=outer */
-                            if (node2 == NULL) { return NULL; }     /* @0x45cc80 */
+                            if (node2 == NULL) { s6_pfs_diag(PFS_R_GRID); return NULL; }  /* @0x45cc80 */
                             p7 = s6_imax(s6_iabs(LS(0x1c)), s6_iabs(LS(0x24)));  /* @0x45cc86..0x45cca2 */
                             if (s6_path_tree_search(self, node2, (int)(INT_PTR)spec->pos,
                                                     (int)(INT_PTR)&spec->out_metric,
                                                     (float *)&LS(0x48), &LS(0x14), &LS(0x18),
                                                     p7) == NULL) {      /* @0x45ccc1 */
+                                s6_pfs_diag(PFS_R_RECUR);
                                 return NULL;                          /* @0x45ccce JE 0x45cd75 */
                             }
                             ebx = LS(0x3c);                           /* @0x45ccce перечитывание pos->x */
@@ -456,9 +524,11 @@ void *s6_path_search(BattleAI *self, PathState *spec)
         float minv = s6_bits_get(LS(0x10));
 
         if (!(outv < minv) || (self->final_threshold + outv <= minv)) {
+            s6_pfs_diag(PFS_R_OK);
             return (void *)(INT_PTR)LS(0x40);
         }
     }
+    s6_pfs_diag(PFS_R_GATE);
     return NULL;                          /* @0x45cd75: XOR EAX,EAX */
 
 #undef LS

@@ -24,6 +24,23 @@ namespace native {
 
 static unsigned char *g_base = NULL;
 
+/* Счётник перехваченных исключений (AV) во всех obёртках ниже. `__except`
+ * с фильтром-счётником меняет только подсчёт: handler тот же
+ * (EXCEPTION_EXECUTE_HANDLER), поток исполнения — идентичен.
+ * Читатели (battle/target.cpp) сравнивают дельты до/после вызова. */
+static volatile LONG g_av = 0;
+
+int av_filter(void)
+{
+    InterlockedIncrement(&g_av);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+long av_count(void)
+{
+    return (long)g_av;
+}
+
 void init(void)
 {
     g_base = (unsigned char *)GetModuleHandleA(NULL);
@@ -77,7 +94,7 @@ TreeNode *lower_bound(void *map, unsigned int key, void *hint)
             mov esp, esi                   /* стек = сохранённый esp при любом ret n */
             popad                          /* + регистры вызывающего */
         }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (native::av_filter()) {
         res = NULL;
     }
     return res;
@@ -108,7 +125,7 @@ TreeNode *lower_bound_slots(void *map, int *out_slot, int *key_slot)
             mov esp, esi                   /* стек = сохранённый esp при любом ret n */
             popad                          /* + регистры вызывающего */
         }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (native::av_filter()) {
         res = NULL;
     }
     return res;
@@ -138,7 +155,7 @@ TreeNode *tree_next(TreeNode *node)
             mov esp, esi                   /* стек = сохранённый esp при любом ret n */
             popad                          /* + регистры вызывающего */
         }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (native::av_filter()) {
         res = NULL;
     }
     return res;
@@ -171,7 +188,7 @@ int tree_lookup(void *world, unsigned int key)
             mov esp, esi                   /* стек = сохранённый esp при любом ret n */
             popad                          /* + регистры вызывающего */
         }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (native::av_filter()) {
         res = 0;
     }
     return res;
@@ -200,7 +217,7 @@ void register_occupied_slot(void *ai, LDObject *obj)
             mov esp, esi                   /* стек = сохранённый esp при любом ret n */
             popad                          /* + регистры вызывающего */
         }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (native::av_filter()) {
     }
 }
 
@@ -226,7 +243,7 @@ int vcall0(void *receiver, unsigned int voffset)
             mov esp, esi                   /* стек = сохранённый esp при любом ret n */
             popad                          /* + регистры вызывающего */
         }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (native::av_filter()) {
         res = 0;
     }
     return res;
@@ -256,7 +273,7 @@ int vcall1(void *receiver, unsigned int voffset, int arg)
             mov esp, esi                   /* стек = сохранённый esp при любом ret n */
             popad                          /* + регистры вызывающего */
         }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (native::av_filter()) {
         res = 0;
     }
     return res;
@@ -296,7 +313,7 @@ int grid_query(void *world, int arg1, int arg2, int arg3, int arg4)
             mov esp, esi                   /* стек = сохранённый esp при любом ret n */
             popad                          /* + регистры вызывающего */
         }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (native::av_filter()) {
         res = 0;
     }
     return res;
@@ -330,7 +347,7 @@ int pt_in_rect(const int *rect, int pt_x, int pt_y)
             mov esp, esi                   /* стек = сохранённый esp при любом ret n */
             popad                          /* + регистры вызывающего */
         }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (native::av_filter()) {
         res = 0;
     }
     return res;
@@ -356,7 +373,7 @@ void *operator_new(unsigned int size)
     }
     __try {
         p = ((PFN_operator_new)addr)(size);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (native::av_filter()) {
         p = NULL;
     }
     return p;
@@ -377,7 +394,7 @@ void deallocate(void *ptr)
     }
     __try {
         ((PFN_free)addr)(ptr);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (native::av_filter()) {
     }
 }
 
