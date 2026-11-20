@@ -24,6 +24,18 @@
  *                   s6_ai_update, battle/target.cpp);
  *   us/ai         — длительность тика (QPC) и адрес BattleAI; НЕ сравниваются.
  *
+ * STATEFP (только при LDHOOK_BATTLE_TRACE=1) — по строке на вход e0a0 (H4):
+ *
+ *   STATEFP tick=%ld unit=%d call=%ld filter=%d s1=%ld s2=%ld
+ *           h1=%08x h2=%08x vis=%ld trap=%d
+ *
+ * s1/s2 — размеры map1 ([ai+0x70]) и map2 ([ai+0x7c]); h1 — FNV-1a 32 over
+ * map1 in-order (pos.x, pos.y, filter, g +0x18, dist2 +0x1c, h10000 +0x20,
+ * metric/cost +0x24); h2 — FNV-1a 32 over map2 in-order occupancy keys;
+ * vis — счётчик входов 45dd70/s6_ai_update в текущем тике. FNV-1a: basis
+ * 0x811c9dc5, prime 0x01000193, int32 подаётся 4 байтами little-endian.
+ * Указатели в хэш не входят; trap=1 означает обрыв разыменования наблюдателя.
+ *
  * Носители H5/H6 (инвариант 5, ab_method §2): в native-режиме — трамплины
  * site5 (`s5_epi_hook`/`s5_tail_hook`, battle/target.cpp); в режиме порта
  * (site6) — сам `s6_target_search`. Отдельных детуров 0x45e0a0/0x45e163

@@ -29,6 +29,23 @@
 #define CAP_MAX_LEAF    32768      /* предохранитель потока листьев */
 #define CAP_MAX_ITER    65536      /* предохранитель iter_seq (H6-латч) */
 #define CAP_WORDS       5          /* dword'ы возвращённого cb40-объекта */
+#define CAP_AI_WORDS    32         /* сырой скалярный блок BattleAI +0x00..+0x7f */
+#define CAP_PS_WORDS    22         /* PathState 0x58 / 4 (значение узла map2) */
+
+/* v3: значение узла map2 (PathState*) — раньше реплика ставила NULL и всегда
+ * шла «свободным путём». w[] — сырые dword'ы PathState; ptr[] — 11 указателей
+ * LDPos* (pos, parent, nbr[9]), ptr-поля в w[] харнесс подменяет по identity. */
+typedef struct {
+    int key;
+    int has_value;
+    int value_addr;                 /* PathState* (только identity) */
+    int pos_addr;                   /* LDPos* (identity map1) */
+    int w[CAP_PS_WORDS];
+    int ptr[11];
+    int pos[2];                     /* координаты LDPos значения */
+    int parent[2];
+    int nbr[9][2];
+} cap_occ_node;
 
 typedef struct {
     int x, y;
@@ -52,6 +69,8 @@ static int   g_closed = 0;
 /* Буферы, выделяются один раз в init (без повторных больших malloc в хуке). */
 static cap_node *g_nodes = NULL;
 static int      *g_occ = NULL;
+static cap_occ_node *g_occ_nodes = NULL;
+static unsigned int  g_ai_words[CAP_AI_WORDS];
 static cap_pos  *g_iter = NULL;
 static int       g_iter_cap = CAP_MAX_ITER;
 static int      *g_path = NULL;
@@ -100,13 +119,16 @@ void battle_capture_init(void)
     setvbuf(g_file, NULL, _IONBF, 0);   /* сборочная запись: краш не теряет записи */
     g_nodes = (cap_node *)malloc((size_t)CAP_MAX_NODES * sizeof(cap_node));
     g_occ = (int *)malloc((size_t)CAP_MAX_NODES * sizeof(int));
+    g_occ_nodes = (cap_occ_node *)malloc((size_t)CAP_MAX_NODES *
+                                        sizeof(cap_occ_node));
     g_iter = (cap_pos *)malloc((size_t)g_iter_cap * sizeof(cap_pos));
     g_path = (int *)malloc((size_t)CAP_MAX_LEAF * CAP_WORDS * sizeof(int));
     g_pptr = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
     g_heur = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
     g_tout = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
-    if (!g_nodes || !g_occ || !g_iter || !g_path || !g_pptr || !g_heur || !g_tout) {
-        free(g_nodes); free(g_occ); free(g_iter);
+    if (!g_nodes || !g_occ || !g_occ_nodes || !g_iter || !g_path || !g_pptr ||
+        !g_heur || !g_tout) {
+        free(g_nodes); free(g_occ); free(g_occ_nodes); free(g_iter);
         free(g_path); free(g_pptr); free(g_heur); free(g_tout);
         fclose(g_file); g_file = NULL;
         ld_info("battle_capture: out of memory — capture OFF");
@@ -234,13 +256,49 @@ static void cap_read_map1(BattleAI *self)
 static void cap_read_occ(BattleAI *self)
 {
     TreeNode *head, *cur;
+    cap_pos tmp;
+    int k;
 
     g_occ_n = 0;
     __try {
         head = self->occ_head;
         cur = (head != NULL) ? head->left : NULL;
         while (cur != NULL && cur != head && g_occ_n < CAP_MAX_NODES) {
-            g_occ[g_occ_n++] = cur->key;
+            int i = g_occ_n;
+            unsigned char *v;
+            PathState *ps;
+
+            g_occ[i] = cur->key;
+            memset(&g_occ_nodes[i], 0, sizeof(g_occ_nodes[i]));
+            g_occ_nodes[i].key = cur->key;
+            v = (unsigned char *)cur->value;
+            g_occ_nodes[i].value_addr = (int)(size_t)v;
+            if (v != NULL) {
+                ps = (PathState *)v;
+                /* Сырые dword'ы PathState + identity указателей (ptr[]), чтобы
+                 * харнесс мог подменить их на объекты своей реплики. */
+                memcpy(g_occ_nodes[i].w, v, CAP_PS_WORDS * sizeof(int));
+                g_occ_nodes[i].ptr[0] = (int)(size_t)ps->pos;
+                g_occ_nodes[i].ptr[1] = (int)(size_t)ps->parent;
+                for (k = 0; k < 9; k++) {
+                    g_occ_nodes[i].ptr[2 + k] = (int)(size_t)ps->nbr[k];
+                }
+                cap_read_pos((void *)(size_t)g_occ_nodes[i].ptr[0], &tmp);
+                g_occ_nodes[i].pos[0] = tmp.x;
+                g_occ_nodes[i].pos[1] = tmp.y;
+                cap_read_pos((void *)(size_t)g_occ_nodes[i].ptr[1], &tmp);
+                g_occ_nodes[i].parent[0] = tmp.x;
+                g_occ_nodes[i].parent[1] = tmp.y;
+                for (k = 0; k < 9; k++) {
+                    cap_read_pos((void *)(size_t)g_occ_nodes[i].ptr[2 + k],
+                                 &tmp);
+                    g_occ_nodes[i].nbr[k][0] = tmp.x;
+                    g_occ_nodes[i].nbr[k][1] = tmp.y;
+                }
+                g_occ_nodes[i].pos_addr = g_occ_nodes[i].ptr[0];
+                g_occ_nodes[i].has_value = 1;
+            }
+            g_occ_n++;
             cur = s6_tree_next(cur);
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -281,6 +339,43 @@ static void cap_write_ints(FILE *f, const int *arr, int n)
         fprintf(f, "%s%d", i ? "," : "", arr[i]);
     }
     fputc(']', f);
+}
+
+/* v3: полная запись значения узла map2 (NULL или PathState) + скалярный блок
+ * BattleAI. v1/v2-файлы этих полей не имеют; харнесс читает их по `v`. */
+static void cap_write_occ_nodes(FILE *f)
+{
+    int i, k;
+
+    fputc('[', f);
+    for (i = 0; i < g_occ_n; i++) {
+        const cap_occ_node *o = &g_occ_nodes[i];
+        fprintf(f, "%s{\"key\":%d,\"value\":", i ? "," : "", o->key);
+        if (!o->has_value) {
+            fputs("null", f);
+        } else {
+            fprintf(f, "{\"value_addr\":%d,\"pos_addr\":%d,\"pos\":[%d,%d],"
+                    "\"w\":",
+                    o->value_addr, o->pos_addr, o->pos[0], o->pos[1]);
+            cap_write_ints(f, o->w, CAP_PS_WORDS);
+            fputs(",\"ptr\":", f);
+            cap_write_ints(f, o->ptr, 11);
+            fprintf(f, ",\"parent\":[%d,%d],\"nbr\":[",
+                    o->parent[0], o->parent[1]);
+            for (k = 0; k < 9; k++) {
+                fprintf(f, "%s[%d,%d]", k ? "," : "",
+                        o->nbr[k][0], o->nbr[k][1]);
+            }
+            fputs("]}", f);
+        }
+        fputc('}', f);
+    }
+    fputc(']', f);
+}
+
+static void cap_write_ai_words(FILE *f)
+{
+    cap_write_ints(f, (const int *)g_ai_words, CAP_AI_WORDS);
 }
 
 static void cap_write_path(FILE *f)
@@ -387,8 +482,10 @@ void battle_capture_e0a0_enter(void *this_, int filter, void *cmp,
 
     cap_read_pos(cmp, &g_cmp);
     g_cmp_addr = (int)(size_t)cmp;
+    memset(g_ai_words, 0, sizeof(g_ai_words));
     __try {
         if (self != NULL) {
+            memcpy(g_ai_words, self, sizeof(g_ai_words));
             memcpy(&timer, &self->timer_start_sec, sizeof(timer));
             memcpy(&finalb, &self->final_threshold, sizeof(finalb));
             memcpy(&distb, &self->dist_threshold, sizeof(distb));
@@ -407,7 +504,7 @@ void battle_capture_e0a0_enter(void *this_, int filter, void *cmp,
     cap_read_occ(self);
 
     g_seq++;
-    fprintf(g_file, "{\"v\":1,\"kind\":\"cap\",\"seq\":%d,\"tick\":%d,"
+    fprintf(g_file, "{\"v\":3,\"kind\":\"cap\",\"seq\":%d,\"tick\":%d,"
             "\"unit\":%d,\"fn\":\"e0a0\",\"args\":{\"filter\":%d,"
             "\"cmp\":[%d,%d],\"cmp_addr\":%d,\"timeout_bits\":%u,\"out_ptr\":%d},"
             "\"ai\":{\"timer_bits\":%u,\"final_bits\":%u,"
@@ -428,6 +525,10 @@ void battle_capture_e0a0_enter(void *this_, int filter, void *cmp,
     cap_write_map1(g_file);
     fputs(",\"occ\":", g_file);
     cap_write_ints(g_file, g_occ, g_occ_n);
+    fputs(",\"occ_nodes\":", g_file);
+    cap_write_occ_nodes(g_file);
+    fputs(",\"ai_words\":", g_file);
+    cap_write_ai_words(g_file);
     fputs(",\"grid\":", g_file);
     cap_write_grid(g_file, self);
     fprintf(g_file, ",\"trap\":%d}\n", g_map_trap);
@@ -515,7 +616,7 @@ void battle_capture_e0a0_exit(void *node)
     /* iters = число кандидатов. H6-латч = rescan; сработавший gate (node !=
      * NULL) означает, что последний кандидат в iter_seq не попал. */
     iters = g_iter_n + ((node != NULL) ? 1 : 0);
-    fprintf(g_file, "{\"v\":1,\"kind\":\"res\",\"seq\":%d,\"node\":", g_seq);
+    fprintf(g_file, "{\"v\":3,\"kind\":\"res\",\"seq\":%d,\"node\":", g_seq);
     if (node != NULL) {
         fprintf(g_file, "[%d,%d]", node_x, node_y);
     } else {

@@ -29,6 +29,7 @@
 #include <limits.h>
 
 #include "../ldhook_internal.h"
+#include "battle.h"
 #include "structs.h"
 #include "trace.h"
 #include "capture.h"
@@ -94,6 +95,88 @@ static void *g_e0a0_this = NULL;   /* ECX входа e0a0 (BattleAI) — H5: +0x
 
 /* Счётчик входов e0a0 за тик: H4 (сброс), выбор слота trace. */
 static volatile LONG g_e0a0_calls = 0;
+
+/* ------------------------ STATEFP: отпечаток состояния ------------------ *
+ * Считается на входе e0a0 (H4), когда LDHOOK_BATTLE_TRACE=1. Хэш FNV-1a 32:
+ * basis 0x811c9dc5, prime 0x01000193, каждое int32 подаётся 4 байтами
+ * little-endian. В хэш идут ТОЛЬКО значения: map1 in-order (pos.x, pos.y,
+ * filter, g_cost +0x18, dist2 +0x1c, h10000 +0x20, metric/cost +0x24),
+ * map2 in-order (ключ узла), а также размеры s1/s2 и vis пишутся отдельно.
+ * Указатели в хэш не попадают; при трапе разыменования — trap=1, хэш
+ * достраивается sentinels. Вне трассировки функция не вызывается.
+ */
+#define FP_FNV_BASIS  0x811c9dc5u
+#define FP_FNV_PRIME  0x01000193u
+#define FP_MAX_NODES  200000      /* защита от зацикливания обхода дерева */
+
+typedef struct {
+    unsigned int h1;              /* FNV(map1) */
+    unsigned int h2;              /* FNV(map2 keys) */
+    long s1, s2;                  /* [ai+0x70], [ai+0x7c] */
+    int trap;
+} trace_statefp;
+
+static void fp_put(unsigned int *h, unsigned int v)
+{
+    int b;
+    for (b = 0; b < 4; b++) {
+        *h ^= (v >> (b * 8)) & 0xffu;
+        *h *= FP_FNV_PRIME;
+    }
+}
+
+static void battle_statefp(void *this_, trace_statefp *out)
+{
+    BattleAI *ai = (BattleAI *)this_;
+    TreeNode *head, *cur;
+    int guard;
+
+    out->h1 = FP_FNV_BASIS;
+    out->h2 = FP_FNV_BASIS;
+    out->s1 = -1;
+    out->s2 = -1;
+    out->trap = 0;
+    if (ai == NULL) {
+        out->trap = 1;
+        return;
+    }
+    __try {
+        head = ai->cand_head;
+        out->s1 = *(const long *)((const unsigned char *)ai + TRACE_AI_OFF_S1);
+        out->s2 = *(const long *)((const unsigned char *)ai + TRACE_AI_OFF_S2);
+        cur = (head != NULL) ? head->left : NULL;
+        for (guard = 0; cur != NULL && cur != head && guard < FP_MAX_NODES;
+             guard++) {
+            PathState *ps = (PathState *)cur->value;
+            if (ps != NULL) {
+                LDPos *p = ps->pos;
+                fp_put(&out->h1, (p != NULL) ? (unsigned int)p->x : 0xffffffffu);
+                fp_put(&out->h1, (p != NULL) ? (unsigned int)p->y : 0xffffffffu);
+                fp_put(&out->h1, (unsigned int)ps->filter);
+                fp_put(&out->h1, (unsigned int)ps->g_cost);
+                fp_put(&out->h1, (unsigned int)ps->dist2);
+                fp_put(&out->h1, (unsigned int)ps->h10000);
+                fp_put(&out->h1, (unsigned int)ps->metric);
+            }
+            cur = s6_tree_next(cur);
+        }
+        if (guard >= FP_MAX_NODES) {
+            out->trap = 1;
+        }
+        head = ai->occ_head;
+        cur = (head != NULL) ? head->left : NULL;
+        for (guard = 0; cur != NULL && cur != head && guard < FP_MAX_NODES;
+             guard++) {
+            fp_put(&out->h2, (unsigned int)cur->key);
+            cur = s6_tree_next(cur);
+        }
+        if (guard >= FP_MAX_NODES) {
+            out->trap = 1;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        out->trap = 1;
+    }
+}
 
 /* uint-таблица ordinal'ов: id = порядок первого появления указателя. */
 static void *g_unit_ptr[TRACE_UNITS];
@@ -350,7 +433,17 @@ void __cdecl battle_trace_e0a0_enter(void *this_, int filter)
     if (g_slot_cur >= 0) {
         trace_slot_reset(&g_slot[g_slot_cur]);
     }
-    (void)filter;               /* вызов идентифицируется счётчиком (п. 1.7) */
+
+    /* STATEFP — состояние, которое реально приходит в e0a0. Отдельная строка,
+     * чтобы не раздувать BATTLE; пишется только при trace=1 (выше early-return). */
+    {
+        trace_statefp fp;
+        battle_statefp(this_, &fp);
+        ld_info("STATEFP tick=%ld unit=%d call=%ld filter=%d "
+                "s1=%ld s2=%ld h1=%08x h2=%08x vis=%ld trap=%d",
+                g_tick_no, g_tick_unit_id, n, filter,
+                fp.s1, fp.s2, fp.h1, fp.h2, g_vis, fp.trap);
+    }
 }
 
 /* H5: выход e0a0 — EAX = возвращённый узел (NULL при пустом скане).

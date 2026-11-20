@@ -217,6 +217,26 @@ struct CapNode {
 };
 struct PathLeaf { bool null; int w[5]; int addr; };
 
+/* v3: значение узла map2 (PathState*) — раньше реплика ставила NULL и шла
+ * «свободным путём» для всех занятых ключей. */
+#define RP_AI_WORDS 32
+#define RP_PS_WORDS 22
+struct OccVal {
+    bool has;
+    int value_addr, pos_addr;
+    unsigned int w[RP_PS_WORDS];
+    int ptr[11];                    /* LDPos*: pos, parent, nbr[9] */
+    int pos[2];
+    int parent[2];
+    int nbr[9][2];
+    OccVal() : has(false), value_addr(0), pos_addr(0) {
+        memset(w, 0, sizeof(w)); memset(ptr, 0, sizeof(ptr));
+        pos[0] = pos[1] = -1;
+        parent[0] = parent[1] = -1;
+        for (int i = 0; i < 9; i++) { nbr[i][0] = nbr[i][1] = -1; }
+    }
+};
+
 struct Call {
     JVal cap;                       /* исходная cap-запись */
     int seq, tick, unit, filter, out_ptr;
@@ -229,6 +249,10 @@ struct Call {
     int ai_code;
     std::vector<CapNode> map1;
     std::vector<int> occ;
+    int version;                    /* cap.v; v1/v2 имеют только occ-ключи */
+    bool has_ai_words;
+    unsigned int ai_words[RP_AI_WORDS];
+    std::map<int, OccVal> occ_vals; /* key -> value (v3) */
     int grid_x, grid_y;
     std::vector<PathLeaf> leaves_path;
     std::vector<int> leaves_heur, leaves_timeout;
@@ -251,6 +275,9 @@ static void read_call(Call &c, const JVal &cap, const JVal *res) {
     const JVal &args = jget(cap, "args", "cap");
     const JVal &ai = jget(cap, "ai", "cap");
 
+    c.version = (int)jint_opt(cap, "v", 1);
+    c.has_ai_words = false;
+    memset(c.ai_words, 0, sizeof(c.ai_words));
     c.seq = (int)jint(cap, "seq", "cap");
     c.tick = (int)jint(cap, "tick", "cap");
     c.unit = (int)jint(cap, "unit", "cap");
@@ -298,6 +325,58 @@ static void read_call(Call &c, const JVal &cap, const JVal *res) {
     const JVal &occ = jarr(cap, "occ", "cap");
     for (size_t i = 0; i < occ.a.size(); i++) {
         c.occ.push_back((int)jnum(occ.a[i], "cap.occ"));
+    }
+    /* v3: полный скалярный блок BattleAI и значения узлов map2. Их отсутствие
+     * в v1/v2 — норма (старые захваты), поэтому всё под jhas(). */
+    if (c.version >= 3 && jhas(cap, "ai_words")) {
+        const JVal &aw = jarr(cap, "ai_words", "cap");
+        if (aw.a.size() != RP_AI_WORDS) {
+            throw std::runtime_error("cap.ai_words: expected 32 dwords");
+        }
+        for (size_t i = 0; i < aw.a.size(); i++) {
+            c.ai_words[i] = (unsigned int)(int)jnum(aw.a[i], "cap.ai_words");
+        }
+        c.has_ai_words = true;
+    }
+    if (c.version >= 3 && jhas(cap, "occ_nodes")) {
+        const JVal &ons = jarr(cap, "occ_nodes", "cap");
+        if (ons.a.size() != occ.a.size()) {
+            throw std::runtime_error("cap.occ_nodes: size differs from occ");
+        }
+        for (size_t i = 0; i < ons.a.size(); i++) {
+            const JVal &o = ons.a[i];
+            OccVal v;
+            int key = (int)jint(o, "key", "cap.occ_nodes");
+            const JVal &val = jget(o, "value", "cap.occ_nodes");
+            if (!jisnull(val)) {
+                const JVal &w = jarr(val, "w", "cap.occ_nodes.value");
+                const JVal &pt = jarr(val, "ptr", "cap.occ_nodes.value");
+                const JVal &po = jarr(val, "pos", "cap.occ_nodes.value");
+                const JVal &pa = jarr(val, "parent", "cap.occ_nodes.value");
+                const JVal &nb = jarr(val, "nbr", "cap.occ_nodes.value");
+                if (w.a.size() != RP_PS_WORDS || pt.a.size() != 11 ||
+                    po.a.size() != 2 || pa.a.size() != 2 || nb.a.size() != 9) {
+                    throw std::runtime_error("cap.occ_nodes.value: bad sizes");
+                }
+                v.has = true;
+                v.value_addr = (int)jint(val, "value_addr", "cap.occ_nodes.value");
+                v.pos_addr = (int)jint(val, "pos_addr", "cap.occ_nodes.value");
+                for (size_t k = 0; k < w.a.size(); k++) {
+                    v.w[k] = (unsigned int)(int)jnum(w.a[k], "cap.occ_nodes.value.w");
+                }
+                for (size_t k = 0; k < pt.a.size(); k++) {
+                    v.ptr[k] = (int)jnum(pt.a[k], "cap.occ_nodes.value.ptr");
+                }
+                for (int k = 0; k < 2; k++) {
+                    v.pos[k] = (int)jnum(po.a[k], "cap.occ_nodes.value.pos");
+                    v.parent[k] = (int)jnum(pa.a[k], "cap.occ_nodes.value.parent");
+                }
+                for (size_t k = 0; k < nb.a.size(); k++) {
+                    read_pos(nb.a[k], v.nbr[k], "cap.occ_nodes.value.nbr");
+                }
+            }
+            c.occ_vals[key] = v;
+        }
     }
     const JVal &grid = jarr(cap, "grid", "cap");
     c.grid_x = c.grid_y = 0;
@@ -484,6 +563,60 @@ static void rep_rebuild_m2(Rep *r) {
     r->m2.head.is_nil = 1;
 }
 
+/* ---------------- v3: значения узлов map2 в реплике --------------------- */
+/* Native/class FUN_0045dd00 кладёт в map2 тот же PathState, что уже лежит в
+ * map1 (ветка 1 dd70 @0x45ded7 читает value как PathState* и идёт в ветку 2).
+ * v1/v2 захваты value не имели — реплика ставила NULL и всегда считала ключ
+ * свободным. Здесь identity восстанавливается по pos_addr. */
+static std::map<int *, PathState *> g_pos_ps;
+static std::vector<RNode *> g_occ_stubs;
+
+static int *rp_pos_obj(int addr, int x, int y)
+{
+    unsigned long long key = (addr != 0) ? pos_key_addr(addr)
+                                         : pos_key_coord(x, y);
+    std::map<unsigned long long, int *>::const_iterator it = g_pos_obj.find(key);
+    if (it != g_pos_obj.end()) return it->second;
+    int *obj = (int *)calloc(8, sizeof(int));
+    obj[3] = x; obj[4] = y;
+    g_pos_obj[key] = obj;
+    g_obj_key[obj] = key;
+    return obj;
+}
+
+static PathState *rp_ps_ref(int addr, int x, int y)
+{
+    if (x == -1 && y == -1) return NULL;         /* NULL-сосед в захвате */
+    int *obj = rp_pos_obj(addr, x, y);
+    std::map<int *, PathState *>::const_iterator it = g_pos_ps.find(obj);
+    if (it != g_pos_ps.end()) return it->second;
+    RNode *rn = new RNode;
+    g_occ_stubs.push_back(rn);
+    rn->pos.x = obj[3]; rn->pos.y = obj[4];
+    rn->ps.pos = (LDPos *)(void *)obj;
+    g_pos_ps[obj] = &rn->ps;
+    return &rn->ps;
+}
+
+static PathState *rp_make_occ_ps(const OccVal &v)
+{
+    int *pobj = rp_pos_obj(v.pos_addr, v.pos[0], v.pos[1]);
+    std::map<int *, PathState *>::const_iterator known = g_pos_ps.find(pobj);
+    /* Обычный dd00: один и тот же объект в map1 и map2 — переиспользуем его. */
+    if (v.value_addr != 0 && known != g_pos_ps.end()) return known->second;
+    RNode *rn = new RNode;
+    g_occ_stubs.push_back(rn);
+    memcpy(&rn->ps, v.w, sizeof(v.w));           /* 22 dword == sizeof(PathState) */
+    rn->pos.x = v.pos[0]; rn->pos.y = v.pos[1];
+    rn->ps.pos = (LDPos *)(void *)pobj;
+    rn->ps.parent = rp_ps_ref(v.ptr[1], v.parent[0], v.parent[1]);
+    for (int k = 0; k < 9; k++) {
+        rn->ps.nbr[k] = rp_ps_ref(v.ptr[2 + k], v.nbr[k][0], v.nbr[k][1]);
+    }
+    g_pos_ps[pobj] = &rn->ps;
+    return &rn->ps;
+}
+
 static void rep_build(Rep *r, const Call &c) {
     BattleAI *ai = (BattleAI *)(void *)r->aiBuf;
     TreeNode *nil = rep_nil(r);
@@ -491,6 +624,14 @@ static void rep_build(Rep *r, const Call &c) {
     std::map<int, RNode *> bypos;
 
     memset(r, 0, sizeof(*r));
+    g_pos_ps.clear();
+    for (size_t si = 0; si < g_occ_stubs.size(); si++) delete g_occ_stubs[si];
+    g_occ_stubs.clear();
+    /* v3: сырой скалярный блок BattleAI (dd70/e0a0 читают и поля за +0x38).
+     * Указательные поля ниже перезаписываются объектами реплики. */
+    if (c.has_ai_words) {
+        memcpy(r->aiBuf, c.ai_words, sizeof(c.ai_words));
+    }
     nil->is_nil = 1;
     nil->left = nil; nil->right = nil; nil->parent = nil;
 
@@ -582,6 +723,7 @@ static void rep_build(Rep *r, const Call &c) {
             : pos_key_coord(n->pos.x, n->pos.y);
         g_pos_obj[k] = (int *)(void *)&n->pos;
         g_obj_key[(int *)(void *)&n->pos] = k;
+        g_pos_ps[(int *)(void *)&n->pos] = &n->ps;
     }
     {
         unsigned long long key;
@@ -615,6 +757,16 @@ static void rep_build(Rep *r, const Call &c) {
         tn->key = c.occ[i];
         tn->is_nil = 0;
         r->m2.nodes.push_back(tn);
+    }
+    /* v3: восстанавливаем значения занятых узлов (ветка 2 dd70). Старые
+     * захваты и явный null оставляют value == NULL, как и раньше. */
+    if (!c.occ_vals.empty()) {
+        for (i = 0; i < r->m2.nodes.size(); i++) {
+            std::map<int, OccVal>::const_iterator oi =
+                c.occ_vals.find(c.occ[i]);
+            if (oi == c.occ_vals.end() || !oi->second.has) continue;
+            r->m2.nodes[i]->value = rp_make_occ_ps(oi->second);
+        }
     }
     rep_rebuild_m2(r);
     ai->map2 = (void *)&r->m2;
