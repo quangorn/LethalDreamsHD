@@ -32,10 +32,19 @@ import paths  # noqa: E402
 BAK = os.environ.get("LD_BAK") or (paths.norm(_ROOT) + "/backup/LETHALDREAMS.EXE.pre4")
 
 SITES = (
-    # имя, сигнатура, ожидаемый VA в baseline
-    ("site1", bytes.fromhex("c641580159"), 0x41CE31),
-    ("site2", bytes.fromhex("898194020000"), 0x40B494),
-    ("site3", bytes.fromhex("e8eb1bffff"), 0x47DD80),
+    # имя, сигнатура, ожидаемые VA в baseline, ожидаемое число вхождений
+    ("site1", bytes.fromhex("c641580159"), (0x41CE31,), 1),
+    ("site2", bytes.fromhex("898194020000"), (0x40B494,), 1),
+    ("site3", bytes.fromhex("e8eb1bffff"), (0x47DD80,), 1),
+    # trace-наблюдатели тика (PLAN_BATTLE_AI_CPP.md 1.7/2.0)
+    ("h1", bytes.fromhex("8be9745fd98514010000"), (0x44BDF5,), 1),
+    # ядро H2 (8B 8C 24 4C 01 00 00) встречается и на 0x420d90; сигнатура
+    # расширена хвостом эпилога (pop edi/esi/ebp) до уникальной.
+    ("h2", bytes.fromhex("8b8c244c0100005f5e5d"), (0x44D074,), 1),
+    ("h7", bytes.fromhex("83ec60538b5c2468"), (0x45DD70,), 1),
+    # R1..R3: пиннинг seed'а (LDHOOK_SEED); R2-сигнатура встречается дважды.
+    ("r1", bytes.fromhex("ff157cc24e0050"), (0x49EBCF,), 1),
+    ("r2", bytes.fromhex("ff15b0c04e0050"), (0x4A7677, 0x4AE87F), 2),
 )
 
 MD5_BASELINE = "45e93d46aad6ceb3dfc17e86d04e4f82"
@@ -68,13 +77,13 @@ def scan(data):
     base, va, vsize, raw, rsize = parse_text(data)
     text = data[raw:raw + rsize][:vsize]
     found = []
-    for name, sig, want in SITES:
+    for name, sig, want, expect in SITES:
         pos = []
         i = text.find(sig)
         while i >= 0:
             pos.append(base + va + i)
             i = text.find(sig, i + 1)
-        found.append((name, sig, want, pos))
+        found.append((name, sig, want, expect, pos))
     return base, va, vsize, raw, found
 
 
@@ -93,33 +102,40 @@ def audit(path):
     print("  md5=%s size=%d .text base=0x%08x VA=0x%08x VirtualSize=0x%x"
           % (md5, len(data), base, base + va, vsize))
 
-    counts = [len(pos) for (_n, _s, _w, pos) in found]
-    for name, sig, want, pos in found:
+    counts = [len(pos) for (_n, _s, _w, _e, pos) in found]
+    for name, sig, want, expect, pos in found:
         occ = ", ".join("0x%08x" % p for p in pos) if pos else "-"
         note = ""
-        if pos and pos != [want]:
-            note = " (ожидался 0x%08x)" % want
+        if pos != list(want) or len(pos) != expect:
+            note = " (ожидалось %s)" % (
+                ", ".join("0x%08x" % p for p in want) if expect == 1
+                else "%d шт.: %s" % (expect, ", ".join("0x%08x" % p for p in want)))
         print("  %-5s %-12s count=%d  at %s%s"
               % (name, sig.hex(), len(pos), occ, note))
 
-    if all(c == 1 for c in counts):
+    baseline_ok = all(len(pos) == expect and pos == list(want)
+                      for (_n, _s, want, expect, pos) in found)
+
+    # Вердикт `patched` относится к HD-cave (site1/2/3): установленный
+    # exepatch12 заменяет их статическими E9, боевой регион остаётся как в
+    # baseline (поэтому trace-сайты на месте и в установке).
+    hd = found[:3]
+    hd_zero = all(len(pos) == 0 for (_n, _s, _w, _e, pos) in hd)
+    hd_e9 = all(bytes_at_va(data, base, va, raw, want[0], 1) == b"\xe9"
+                for (_n, _s, want, _e, _p) in hd)
+
+    if baseline_ok:
         verdict = "installable"
         print("  VERDICT: installable — in-memory хуки ldhook.pyd встанут")
-    elif all(c == 0 for c in counts):
-        firsts = [bytes_at_va(data, base, va, raw, want, 1)
-                  for (_n, _s, want, _p) in found]
-        if all(b == b"\xe9" for b in firsts):
-            verdict = "patched"
-            print("  VERDICT: patched — статические E9 на всех трёх сайтах "
-                  "(cave exepatch12); ldhook.pyd штатно no-op")
-        else:
-            verdict = "UNEXPECTED"
-            print("  VERDICT: UNEXPECTED — сигнатур нет, но сайты не E9: "
-                  "неизвестная сборка")
+    elif hd_zero and hd_e9:
+        verdict = "patched"
+        print("  VERDICT: patched — статические E9 на site1/2/3 "
+              "(cave exepatch12); ldhook.pyd штатно no-op для HD, "
+              "trace-сайты не тронуты")
     else:
         verdict = "UNEXPECTED"
-        print("  VERDICT: UNEXPECTED — сигнатуры не уникальны "
-              "(или пропала часть), скан нестабилен")
+        print("  VERDICT: UNEXPECTED — сигнатуры не совпали с ожиданием "
+              "(site сдвинулся/пропал или сигнатура не уникальна)")
     print("")
     return md5, verdict
 

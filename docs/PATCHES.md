@@ -42,8 +42,9 @@ rewrite даёт header build-time (`2026-11-17 10:42`) и md5, не равны�
 
 ## Известные дрейфы
 
-- `ui/cursor.pyc` (`DRIFT_RELEASE_AHEAD`): установленный `4a8eb4bab413…` = патч
-  курсоров версии 6; base-печать `60754a253515…`.
+- `ui/cursor.pyc` — дрейф закрыт 19.11.2026: установлена published base-печать
+  `60754a253515…` (`release/patches/ui_cursor.patch`); прежняя сборка v6
+  `4a8eb4bab413…` сохранена в `scratch_dir('battle_baseline')/cursor_installed_v6.pyc`.
 - `ui/olmenu.pyc` — с 18.11.2026 каноническая сборка (`MATCH`, md5 `af176d4859a1…`);
   прежний `DRIFT_KNOWN` (приватное дерево `3d96162df727…`, base-печать
   `5cb5cc88ddc8…`) закрыт пересборкой из опубликованного дерева вместе с фиксом

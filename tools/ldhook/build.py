@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Сборка ldhook.pyd (расширение Python 2.2.3, MSVC x86) — tools/ldhook/ldhook.cpp.
+"""Сборка ldhook.pyd (расширение Python 2.2.3, MSVC x86).
+
+Источники (Фаза 0 каркаса боевого порта, PLAN_BATTLE_AI_CPP.md п. 0.1):
+  tools/ldhook/ldhook.cpp      — init, Python-API, логгер, PE/.text-скан,
+                                 установка хуков (install_site*), общие утилиты;
+  tools/ldhook/sites_hd.cpp    — site1/site2/site3 (naked-хуки, site3_fp);
+  tools/ldhook/battle/*.cpp    — structs.h, native.cpp (обёртки по VA),
+                                 grid.cpp, path.cpp, target.cpp, move.cpp, tick.cpp.
+Объявления: ldhook_internal.h, battle/battle.h, battle/structs.h, battle/native.h.
 
 Требует:
   - vendor/py223/include/ — python3 tools/ldhook/fetch_headers.py;
@@ -23,7 +31,21 @@ import paths  # noqa: E402
 INCLUDE = paths.win_path(os.path.join(_ROOT, "vendor", "py223", "include"))
 LIBDIR = paths.win_path(os.path.join(_ROOT, "vendor", "py223", "DLLs"))
 OUTDIR = paths.win_path(os.path.join(_ROOT, "build", "ldhook"))
-SRC = paths.win_path(os.path.join(_ROOT, "tools", "ldhook", "ldhook.cpp"))
+
+# Порядок: главный TU (init + Python-API) + сайты HD + боевые слои.
+# Пути через win_path: abspath под Cygwin даёт /cygdrive/..., cl понимает C:/...
+SOURCES = [paths.win_path(s) for s in (
+    os.path.join(_HERE, "ldhook.cpp"),
+    os.path.join(_HERE, "sites_hd.cpp"),
+    os.path.join(_HERE, "battle", "native.cpp"),
+    os.path.join(_HERE, "battle", "grid.cpp"),
+    os.path.join(_HERE, "battle", "path.cpp"),
+    os.path.join(_HERE, "battle", "target.cpp"),
+    os.path.join(_HERE, "battle", "move.cpp"),
+    os.path.join(_HERE, "battle", "tick.cpp"),
+    os.path.join(_HERE, "battle", "trace.cpp"),
+)]
+
 
 VSWHERE = paths.win_path(os.path.join(
     os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
@@ -56,8 +78,9 @@ def main():
         sys.exit("нет заголовков Python.h: python3 tools/ldhook/fetch_headers.py")
     if not os.path.isfile(os.path.join(LIBDIR, "python22.lib")):
         sys.exit("нет python22.lib: %s" % LIBDIR)
-    if not os.path.isfile(SRC):
-        sys.exit("нет источника: %s" % SRC)
+    missing = [s for s in SOURCES if not os.path.isfile(s)]
+    if missing:
+        sys.exit("нет источников: %s" % ", ".join(missing))
     if not os.path.isfile(VSWHERE):
         sys.exit("нет vswhere: %s" % VSWHERE)
     vs = vs_install_path()
@@ -69,6 +92,7 @@ def main():
     out = os.path.join(OUTDIR, "ldhook.pyd")
     bat = os.path.join(OUTDIR, "build.bat")
     win = lambda p: p.replace("/", "\\")  # noqa: E731
+    srcs = " ".join('"%s"' % win(s) for s in SOURCES)
     body = [
         "@echo off",
         'call "%s" x86' % win(vcvars),
@@ -77,9 +101,9 @@ def main():
         # cave1; без contraction/reassociation, как требует побитовая identity 4:3).
         # /EHsc — модель обработки исключений для C++ (cl определяет C++ по .cpp,
         # /TP не нужен).
-        'cl /nologo /LD /MT /EHsc /O2 /W3 /fp:precise /I"%s" "%s" '
+        'cl /nologo /LD /MT /EHsc /O2 /W3 /fp:precise /I"%s" %s '
         '/link /LIBPATH:"%s" python22.lib /OUT:ldhook.pyd'
-        % (win(INCLUDE), win(SRC), win(LIBDIR)),
+        % (win(INCLUDE), srcs, win(LIBDIR)),
         "exit /b %errorlevel%",
         "",
     ]

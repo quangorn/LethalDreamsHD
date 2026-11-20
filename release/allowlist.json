@@ -39,7 +39,7 @@
    "target": "data/scripts/hd_res.pyc"
   },
   {
-   "note": "installed build is older than release; DRIFT_RELEASE_AHEAD in the code tier, allowlisted for --untouched",
+   "note": "release patch base print installed (cursor drift closed 2026-11-19); allowlisted for --untouched",
    "target": "data/scripts/ui/cursor.pyc"
   }
  ],

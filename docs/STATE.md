@@ -8,12 +8,10 @@
 - EXE md5 `171319bbc170cf6e57c8d36a8ae5f50d`, размер 1191936 — базовая пропатченная версия
  (pristine-EXE того же размера, md5 `7943036fbd12…`). Маппинг: fileoff = VA − 0x400000
  (cave VA 0x4ebf12 = fileoff 966418; 491308 — fileoff первой правки exepatch3).
-- Известный drift: `ui/cursor.pyc` в установке = патч курсоров версии 6
- (установленный md5 `4a8eb4bab413…`, размер 26396); published base-печать того же
-  diff-патча — `60754a253515…` (`release/patches/ui_cursor.patch`).
-  Число `644b54d8…`, встречавшееся в ранних заметках, ни в одном измерении
-  не подтверждено (см.
-  `docs/CONTRADICTIONS.md`, п. 5). Разбор и команда применения: `docs/VERIFY.md`.
+- `ui/cursor.pyc` = published base-печать `60754a253515…` (drift v6 закрыт 19.11.2026
+  установкой `release/patches/ui_cursor.patch`; копия v6 `4a8eb4bab413…` — в
+  `scratch_dir('battle_baseline')/cursor_installed_v6.pyc`). `check_state --quick` rc 0.
+  Разбор и команда применения: `docs/VERIFY.md`.
 - Реестр:
   `HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\App Compat Flags\LETHALDREAMS.EXE` =
   строковый `~ HIGHDPIAWARE` (флаг совместимости, отключает системное масштабирование exe).
@@ -71,8 +69,7 @@
 - `[P]` Текущая сборка `battlecamera` (18.11.2026): MMB-обзор + зум колесом шагом
   `zoom_step = 1.0` (`h_MouseWheel`, `patches/battlecamera.py`); установленный md5 = base-печать
   `c7d3150409af…`, state `MATCH`; разбор — `docs/PATCHES.md` («Боевая камера: MMB-обзор и зум колесом», «Ослабление зума колесом»).
-- Известные дрейфы кодового яруса (manifest `state`): `ui/cursor.pyc` = `DRIFT_RELEASE_AHEAD`
-  (в установке патч курсоров версии 6, md5 `4a8eb4bab413` vs base-печать `60754a253515`);
+- Дрейфов кодового яруса нет: `ui/cursor.pyc` приведён к base `60754a25…` (19.11.2026);
   `ui/olmenu.pyc` (md5 `af176d4859a1…`, state `MATCH`) — каноническая сборка с фиксом Esc×2:
   шестой элемент `ShowMainmenu` = `2` (ResumeGame) в `patches/ui/olmenu.py`.
 
@@ -169,6 +166,16 @@ PRISTINE 2967, HD_PACK 1379, ALLOWED 728, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0
 - `[P]` Cap тормозов боя (site4, 19.11.2026): пролог `0x45e0a0` + хвост цикла `0x45e163` в `ldhook.pyd`,
   env `LDHOOK_CAP`; в поставку **не идёт** — прогон показал «лаги уходят, агро ломается»
   (31% поисков упираются в cap). Установка откачена в чистое состояние (`ui/ui.pyc ae59f601…`).
+- `[P]` site6 проверен в бою (19.11.2026): контрольный прогон `tools/probes/battle_test.ps1` — принятые дефолты
+  `MenuSec=6`, `wait:10` после Enter, `wait:5` после атаки, `battle:30`; дефолтный сценарий с 19.11.2026 —
+  3 волны призыва (по 2 саммона) → снимок через 1 с (`shot:summons`), без `waitfor` (детект `SCENE`
+  ненадёжен); по 2 саммона рядом с персонажем — критерий Боевого гейта (`docs/PLAN_BATTLE_AI_CPP.md`).
+  Грабля — ниже.
+- `[P]` Фаза 0 порта боя закрыта (19.11.2026): монолит `tools/ldhook/ldhook.cpp` разбит на TU (`sites_hd.cpp`,
+  `battle/*`), `battle/structs.h` с именованными полями, каркас trace `LDHOOK_BATTLE_TRACE`; поведение site1/site2/site3/site5/site6 не изменилось — `docs/PLAN_BATTLE_AI_CPP.md`.
+- `[U]` Цель порта боя (19.11.2026): читаемая C++-реализация боевой логики и поиска пути
+  (слои `44bdd0` → `45eee0` → `e0a0` → `dd70`), нативные вызовы для GUI/плумбинга; fidelity-first,
+  CPU = baseline. Фазы, границы и гейты — `docs/PLAN_BATTLE_AI_CPP.md`.
 
 ## Прочие принятые правки сессий
 

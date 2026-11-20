@@ -1,6 +1,6 @@
 # battle_test.ps1 — вход в бой из сейва и призыв монстров удержанием ПКМ.
 #
-#   battle_test.ps1 [-W 3840 -H 2160 -F 1] [-Tag battle] [-MenuSec 1] [-LogLevel 1]
+#   battle_test.ps1 [-W 3840 -H 2160 -F 1] [-Tag battle] [-MenuSec 6] [-LogLevel 1]
 #       [-Steps "<dsl>"] [-BattleWait 180] [-HoldMs 5000] [-EndWait 3] [-NoKill]
 #       [-GameRoot <дерево>] [-ShotsDir <каталог>]
 #
@@ -11,18 +11,21 @@
 #   hold:CX:CY:MS    ПКМ вниз в точке, держать MS, отпустить (каст заклинания)
 #   key:VK           нажатие клавиши (13=Enter, 32=Space)
 #   shot:NAME        снимок окна -> <ShotsDir>/<Tag>_NAME.png
+#   cpu:SEC          замер CPU процесса игры за SEC секунд (строка CPU в лог)
 #   waitfor:battle[:SEC]  ждать строку "SCENE battle" в hdlog.txt (курсор шевелится:
 #                    hd_scale пишет SCENE только на событиях мыши)
 #
-# Детект боя — строка "SCENE battle" в config[game.root]/hdlog.txt. Снимается ТОЛЬКО
-# окно игры, DPI-aware; кнопки/клавиши идут через mouse_event/keybd_event. Сейв
+# Детект боя — строка "SCENE battle" в config[game.root]/hdlog.txt — НЕНАДЁЖЕН
+# (в прогонах 19.11.2026 не срабатывал ни разу: playbook не полагается на
+# waitfor; вход в бой — фиксированные шаги и паузы). Снимается ТОЛЬКО окно игры,
+# DPI-aware; кнопки/клавиши идут через mouse_event/keybd_event. Сейв
 # грузится из профиля пользователя (Documents\Boolat Games\Lethal Dreams\Saves),
 # скрипт его не трогает. Игра гасится после последнего шага (-NoKill оставляет).
 # Требует реестровый флаг ~ HIGHDPIAWARE на <GameRoot>/LETHALDREAMS.EXE (иначе окно
 # масштабируется системой и канвасные точки не совпадут).
 param([int]$W = 3840, [int]$H = 2160, [int]$F = 1, [string]$Tag = "battle_test",
-      [int]$MenuSec = 1, [int]$LogLevel = 1,
-      [string]$Steps = "shot:menu;click:350:107;wait:0.2;click:280:161;wait:0.2;key:13;wait:0.2;key:13;wait:2.5;shot:overland;hover:672:542;wait:0.2;click:672:542;wait:0.2;hover:413:524;wait:0.2;click:413:524;wait:2.5;key:32;waitfor:battle:15;shot:battle;click:473:733;wait:0.2;hold:500:430:5000;shot:monsters1;click:473:733;wait:0.2;hold:500:430:5000;shot:monsters2",
+      [int]$MenuSec = 6, [int]$LogLevel = 1,
+      [string]$Steps = "shot:menu;click:350:107;wait:0.2;click:280:161;wait:0.2;key:13;wait:0.2;key:13;wait:10;shot:overland;hover:672:542;wait:0.2;click:672:542;wait:1;hover:413:524;wait:1;click:413:524;wait:5;key:32;wait:6;click:473:733;wait:0.2;hold:500:430:5000;wait:1;click:473:733;wait:0.2;hold:500:430:5000;wait:1;click:473:733;wait:0.2;hold:500:430:5000;wait:1;shot:summons",
       [int]$BattleWait = 180, [int]$HoldMs = 5000, [double]$EndWait = 10,
       [switch]$NoKill, [string]$GameRoot = $env:LD_GAME, [string]$ShotsDir = $env:LD_SHOTS)
 if (-not $GameRoot) { throw "GameRoot не задан: -GameRoot <дерево> или LD_GAME" }
@@ -137,6 +140,17 @@ function Key([int]$vk) {
   Start-Sleep -Milliseconds 200
 }
 
+function Cpu([int]$sec) {
+  # CPU-замер: CPU-секунды процесса игры за sec секунд (доля одного ядра)
+  $g = Get-Process LETHALDREAMS -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $g) { Log "CPU skip (no game process)"; return }
+  $c1 = $g.CPU
+  Start-Sleep -Seconds $sec
+  $g.Refresh()
+  $d = $g.CPU - $c1
+  Log ("CPU pid={0} {1:N2}s over {2}s ({3:P0} of one core)" -f $g.Id, $d, $sec, ($d / $sec))
+}
+
 function Wait-Battle([int]$timeout) {
   $deadline = (Get-Date).AddSeconds($timeout)
   $main = $null
@@ -191,6 +205,7 @@ foreach ($step in $Steps.Split(';')) {
     'rclick'  { $a = To-Abs $main ([double]$v[1]) ([double]$v[2]); Log "STEP $si rclick canvas $($v[1]),$($v[2]) -> abs ($($a[0]),$($a[1]))"; RClick $a[0] $a[1] }
     'hold'    { $a = To-Abs $main ([double]$v[1]) ([double]$v[2]); $ms = $HoldMs; if ($v.Count -gt 3 -and $v[3]) { $ms = [int]$v[3] }; Log "STEP $si hold canvas $($v[1]),$($v[2]) -> abs ($($a[0]),$($a[1])) ${ms}ms"; Hold $a[0] $a[1] $ms }
     'key'     { Log "STEP $si key $($v[1])"; Key ([int]$v[1]) }
+    'cpu'     { $sec = 3; if ($v.Count -gt 1 -and $v[1]) { $sec = [int]$v[1] }; Log "STEP $si cpu $($sec)s"; Cpu $sec }
     'shot'    { Shot $main $v[1]; Log "STEP $si shot $($v[1])" }
     'waitfor' {
       $to = $BattleWait

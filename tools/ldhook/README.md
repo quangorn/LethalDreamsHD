@@ -23,15 +23,28 @@ site3 считает FP-последовательность `cave3` (x87: `fild
 под чужим EXE (`vendor/py223/PYTHON.EXE`) модуль грузится без риска выйти за
 секцию, а сдвиг `.text` в игре не ломает установку хуков.
 
-Канва: `docs/PLAN_proxy_dll.md` (§2A, §4 Фазы 1–3). Правила: `AGENTS.md`.
+Канва: `docs/PLAN_proxy_dll.md` (§2A, §4 Фазы 1–3). Порт боевой логики и поиска
+пути — `docs/PLAN_BATTLE_AI_CPP.md` (цель — читаемость, fidelity-first; нативные
+листья для GUI/плумбинга допустимы). Правила: `AGENTS.md`.
 
 ## Файлы
 
 | файл | роль |
 |---|---|
-| `ldhook.cpp` | .pyd: логгер + `install_site1/2/3/5` (скан + E9) + `site1_hook`/`site2_hook`/`site3_hook` + `site3_fp` (x87) + `site5` (target-search diag) + Python-API отладки. Порт на C++ (Вариант B: C++ + статический CRT `/MT`); `initldhook` — `extern "C"` (C-ABI для `imp.load_dynamic`). `ldhook.c` оставлен как reference (DEPRECATED, не собирается). |
+| `ldhook.cpp` | .pyd: логгер + `install_site1/2/3/5/6` (скан + E9) + общие утилиты + Python-API отладки + `initldhook`. Порт на C++ (Вариант B: C++ + статический CRT `/MT`); `initldhook` — `extern "C"` (C-ABI для `imp.load_dynamic`). `ldhook.c` оставлен как reference (DEPRECATED, не собирается). |
+| `ldhook_internal.h` | общие объявления между translation units: логгер/троттлинг/замер времени, `s4_rel_fits`, трамплины (`site*_hook`, `s4/s5/s6_*_hook`) и счётчики сайтов; сигнатуры сайтов (только для установки). |
+| `sites_hd.cpp` | site1/site2/site3: impl'ы, naked-трамплины, x87-хелпер `site3_fp` (перенесено из `ldhook.cpp`, логика 1:1). |
+| `battle/structs.h` | именованные структуры `BattleAI`, `Candidate` (=`LDObject`), `TreeNode`, `GridLevel`, `GridCell`, `PathState`, `LDPos` с семантическими полями и layout-`static_assert`; размер `BattleAI` уточняется Фазой 1. |
+| `battle/battle.h` | объявления слоёв боевого AI (grid/path/target/tick). |
+| `battle/native.{h,cpp}` | `native::fn(VA)` = base + (VA−0x400000) + именованные обёртки листьев (`lower_bound` 0x434bc0, `tree_next` 0x47f800, `tree_lookup` 0x449160, `register_occupied_slot` 0x45dd00). |
+| `battle/path.cpp` | pathfinding: `s6_tree_next`, `s6_map_lower_bound`, `s6_pfs_ctor`, `s6_imax` (0x45c390), `s6_path_tree_search` (0x45c3a0), `s6_path_search`. |
+| `battle/grid.cpp` | доступ к сетке: спуск по `next_level` (+0x1c), ячейка `cells + idx*0x34`. |
+| `battle/target.cpp` | цикл поиска цели `FUN_0045e0a0` и callees (`ce80`/`c880`/`c5a0`/`c4b0`/`dd70`), хуки site4 (cap), site5 (диагностика), site6 (detour). |
+| `battle/move.cpp` | движение/выбор точки `FUN_0045eee0` (Фаза 4 плана; каркас, кода нет). |
+| `battle/tick.{cpp,h} + trace.h` | тик `FUN_0044bdd0` (Фаза 5) и trace-каркас `LDHOOK_BATTLE_TRACE` (формат строки — п. 1.7 плана; API/формат — `trace.h`). |
+| `battle/trace.cpp` | наблюдатели тика H1/H2/H7 + trace-строка (29 полей, sentinel'ы до Фаз 3–5), общий счётчик `vis` с портом `s6_ai_update`, пиннинг seed'а R1..R3. |
 | `fetch_headers.py` | официальный Python 2.2.3 (python.org): `Include/*.h` + `PC/pyconfig.h` → `vendor/py223/include/` (untracked) |
-| `build.py` | MSVC x86 (`/LD /MT /EHsc /O2 /W3 /fp:precise`) → `build/ldhook/ldhook.pyd` (gitignored). `/fp:precise` обязателен — битовая identity 4:3 в site1/site3 |
+| `build.py` | MSVC x86 (`/LD /MT /EHsc /O2 /W3 /fp:precise`) по списку источников → `build/ldhook/ldhook.pyd` (gitignored). `/fp:precise` обязателен — битовая identity 4:3 в site1/site3 |
 | `smoke_api.py` | локальный смоук Python-API под `vendor/py223` (без игры): `log`/`set_level`/`stats`/`cap_stats`, уровень 0, TypeError, безопасный скан `.text` |
 | `patch_ui.py` | каноническая установка загрузчика в игру: `--build` (ui.pyc + блок `imp.load_dynamic`), `--install` (бэкап + `.pyd` + `ui.pyc`), `--restore` |
 | `check_sites.py` | аудит Фазы 4 (без игры): уникальность трёх сигнатур в `.text`, вердикт `installable`/`patched`/`UNEXPECTED` (rc 1) для установки и baseline |
@@ -54,6 +67,8 @@ Python-патчи (`hd_scale.py`, `tex_hook_*.py`), поэтому `probe_exitco
 | `LDHOOK_LOG=0` (`off`) | файл не создаётся, ODS молчит; маркер `ldhook_marker.txt` пишется всегда |
 | `LDHOOK_LOG=1` (дефолт) | диагностика: загрузка, установка сайтов, guard identity, первый вызов хука |
 | `LDHOOK_LOG=2` (`debug`) | + числовая трассировка масштабирующего пути (троттлинг: site1 4+1024, site2 4+1024, site3 3+300) |
+| `LDHOOK_BATTLE_TRACE=1` | трассировка боевого тика (`battle/trace.cpp`, формат — `battle/trace.h`): одна строка `BATTLE …` на вызов `FUN_0044bdd0`; хуки H1/H2/H7 ставятся только при включённом флаге |
+| `LDHOOK_SEED=<uint32>` | пиннинг RNG для A/B: `push <константа>` на R1..R3 (`0x49ebcf`, `0x4a7677`, `0x4ae87f`) + `whrandom.seed(7,11,13)` из загрузчика `.pyd`; decimal или `0x`-hex. Не задан — seed-хуки не ставятся |
 
 `ldhook.set_level(n)` из игрового скрипта перекрывает env на лету (возвращает
 прежний уровень); `ldhook.log(msg)` — строка info из Python; `ldhook.stats()`

@@ -14,16 +14,15 @@
 - 10 игровых .pyc: md5 установленный vs md5 base-печати манифеста; при
   расхождении — разбор header (magic, source mtime) и тела: печатается
   KNOWN-drift с объяснением и fix_command;
-- строгий ярус `--quick` при drift'е cursor → rc 1 (CI); `--full`
-  печатает KNOWN и считает rc 0 (известное разрешённое расхождение).
+- строгий ярус `--quick`: расхождение cursor → rc 1 (CI); на 19.11.2026 дрейфов нет,
+  rc 0 (cursor приведён к base-печати). `--full` печатает KNOWN и считает rc 0.
 
 Пояснение md5-разбора для mirror-дерева: `co_filename` компилируется из пути,
 из которого компилировали; тело совпадает только при компиляции из канонического
 пути — checker печатает поясняющую строку.
 
-Известные дрейфы манифеста (strict: DRIFT, soft: KNOWN): `ui/cursor.pyc`
-(`DRIFT_RELEASE_AHEAD`) и `ui/olmenu.pyc` (`DRIFT_KNOWN`, приватный исторический
-co_filename; `docs/PATCHES.md`).
+Дрейфов манифеста нет (cursor закрыт 19.11.2026, `MATCH`); механизм `DRIFT_KNOWN`
+сохраняется для аналогичных исторических сборок (`docs/PATCHES.md`).
 
 ## Ярус assets (входит в `--full`)
 
@@ -64,7 +63,8 @@ black-эксперимент: чёрные .btf в установку не вх�
 
 ## Контур тестов (пройдены)
 
-1. real install `--quick`: 1 DRIFT (cursor) + fix_command, rc 1; снапшот diff 0;
+1. real install `--quick`: на 19.11.2026 — rc 0, нарушений 0 (cursor приведён к base);
+   исторически (до 19.11) — 1 DRIFT (cursor) + fix_command, rc 1; снапшот diff 0;
 2. real install `--full`: rc 0, KNOWN-drift, diff 0;
 3. `--untouched`: rc 0 (PRISTINE 2967 / HD_PACK 1379 / ALLOWED 728 / CODE 17 /
    EXCLUDED 4 — без code-файлов), diff 0;
@@ -78,7 +78,8 @@ black-эксперимент: чёрные .btf в установку не вх�
    types.pyc/hd_res.pyc — ALLOWED.
 
 Перед и после каждой команды — снапшот дерева установки (md5+mtime); во всех
-тестах diff = 0, EXE md5 и cursor drift не изменились.
+тестах diff = 0, кроме runtime-эффектов (`hdlog.txt`; движок при запуске перекомпилирует
+часть `Lib/*.pyc`); EXE md5 не менялся, cursor приведён к base 19.11.2026.
 
 - `[P]` Известный mtime-дрейф: ровно 9 файлов установки меняют **mtime без изменения md5** —
   `data/fonts/ld_numbers15.fdf`, `data/fonts/ld_tahoma11.fdf`, `data/fonts/ld_uncial12.fdf`,
@@ -129,9 +130,10 @@ black-эксперимент: чёрные .btf в установку не вх�
 
 ## Финальная верификация (2026-11-16)
 
-- `[P]` rc-модель: `--quick` rc 1 (два известных дрейфа — `ui/cursor.pyc` `4a8eb4bab413…` против
-  base-печати `60754a253515…`, и историческая сборка `ui/olmenu.pyc`), `--full` rc 0, `--untouched` rc 0;
+- `[P]` rc-модель (2026-11-16): `--quick` rc 1 (тогда — два известных дрейфа: `ui/cursor.pyc` `4a8eb4bab413…`
+  против base-печати `60754a253515…`, и историческая сборка `ui/olmenu.pyc`), `--full` rc 0, `--untouched` rc 0;
   EXE установки `171319bbc170cf6e57c8d36a8ae5f50d` (1191936 B), md5-diff установок = 0.
+- `[P]` (2026-11-19) Оба дрейфа закрыты: `--quick` rc 0, нарушений 0; `hd.cfg` = `3840 2160 32 1`.
 - `[P]` (2026-11-18) Из установки удалены `lethaldreams.dll` (неиспользуемый
   StarForce/SFORCE-стаб; копия в `backup_orig/` и в `original.7z`) и `LD-setup.bat`
   (копия только в snapshot `6.7z`). Установка 5095 файлов; `lethaldreams.dll` в

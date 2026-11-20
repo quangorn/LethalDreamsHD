@@ -137,7 +137,7 @@
     "repo_py": "patches/ui/cursor.py",
     "repo_pyc": "patches/ui/cursor.pyc",
     "size": 26396,
-    "state": "DRIFT_RELEASE_AHEAD",
+    "state": "MATCH",
     "target": "data/scripts/ui/cursor.pyc"
    },
    {

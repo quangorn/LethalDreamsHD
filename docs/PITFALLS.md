@@ -422,10 +422,9 @@ BM-B0EXC 'int' object has no attribute 'find'
 - **`mm_bkg01.btf` в игре побитово равен hd_pack `mm_bkg01_169.btf`**: ярус assets сверяет .btf по
   правилу манифеста, и «родной» фон меню в установке — это HD Pack-запись. Обход: оригинальный фон
   искать в archive.pristine, не в установке.
-- **Два дрейфа code tier легальны**: `ui/cursor.pyc` = `DRIFT_RELEASE_AHEAD` (в установке патч курсоров
-  версии 6), `ui/olmenu.pyc` = `DRIFT_KNOWN` (приватная историческая сборка). Строгий `--quick` из-за
-  cursor даёт rc 1; `--full` — rc 0. Обход: drift'ы documented (`docs/VERIFY.md`, `docs/PATCHES.md`);
-  «починить» их md5 до совпадения нельзя.
+- **Строгий `--quick` падает на любом дрейфе code tier** (так было с `ui/cursor.pyc` v6 до 19.11.2026;
+  `--full` показывал KNOWN, rc 0). Обход: привести файл к base-печати манифеста
+  (`apply_patch.py <м>` + `install_patch.py <м> --install`), вручную md5 не править.
 - **`data/video/*.wmv` удалены из установки намеренно** (allowlist, glob `data/video/*.wmv`);
   отсутствие `boolat.wmv`, `russobit_r.wmv` разрешено. Обход: не добавлять их в проверку как MISSING.
 - **Игра не запускается с родной альфа-`python22.dll` и без `Lib/` и корневых `.pyc`**
@@ -683,3 +682,15 @@ tgz. Замеренное дерево и его состав — `docs/TOOLS.md
 **Обход:** `Process.findModuleByName('opengl32.dll').findExportByName('wglSwapBuffers')`
 с fallback на `Module.getGlobalExportByName`. API проверять до прогона: attach к
 любому живому процессу и `typeof` (`D:/tmp/.../api_probe.js`, образец — `tools/perf/perf_frida9_frames.js`).
+
+## Ротация лога затирает контрольные строки при LDHOOK_LOG=2 (19.11.2026)
+
+**Симптом:** `waitfor:battle` в прогоне видит `SCENE battle`, но после прогона в `hdlog.txt` нет
+ни её, ни `site6: first call`, ни скриптовых строк (`BATTLETEST`, `STEP`).
+
+**Причина:** при уровне 2 трассировка `s6_path_search` на оверленде даёт ~84K строк; при 8 MiB
+(`LDHOOK_LOG_MAX`) логгер ротирует файл в `hdlog.txt.1`, и строки скрипта, append'емые к этому
+файлу, уходят вместе с ним.
+
+**Обход:** контрольные прогоны — `LDHOOK_LOG=1` (инфо-строки троттлятся, ротации нет); контрольные
+строки искать и в `hdlog.txt.1`.
