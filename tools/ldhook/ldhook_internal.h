@@ -84,6 +84,16 @@ void s5_epi_hook(void);
 #define S6_TAIL_LEN    6
 #define S6_ENV         "LDHOOK_SITE6"
 
+/* Гейт порта site6 — единственный источник истины для S6_ENV (target.cpp). */
+int s6_port_enabled(void);
+
+/* ---------------- 4.2: detour 45eee0 (тик выбора точки) ---------------- */
+#define S7_ENTRY_SIG   "\x83\xec\x58\x53\x55"   /* sub $0x58,%esp; push ebx; push ebp */
+#define S7_ENTRY_LEN   5
+extern volatile LONG g_s7_tick_on;      /* 1 = порт s6_tick_move, 0 = трамплин */
+extern void *g_s7_tick_cont;            /* продолжение 0x45eee5 (push esi) */
+void s7_tick_hook(void);                /* __declspec(naked) — battle/move.cpp */
+
 extern volatile LONG g_site6_calls;
 extern volatile LONG g_site6_heavy;
 extern volatile LONG g_site6_max;

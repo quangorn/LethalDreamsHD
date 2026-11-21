@@ -512,14 +512,12 @@ static void install_site6(void)
 {
     unsigned char *entry_site;
     unsigned char *tail_site;
-    const char *env;
 
     if (!ld_off_ok || !ld_off_ok2) {
         ld_info("install_site6: struct layout mismatch (LDObject/TreeNode) -> NOT installed");
         return;
     }
-    env = getenv(S6_ENV);
-    if (env == NULL || *env == '\0' || atoi(env) == 0) {
+    if (!s6_port_enabled()) {
         ld_info("install_site6: disabled (%s not set) -> hook NOT installed", S6_ENV);
         return;
     }
@@ -558,6 +556,55 @@ static void install_site6(void)
         return;
     }
     ld_info("install_site6: hook installed (full detour, original NOT executed)");
+}
+
+/* ------------------------------------------------------------------ */
+/* Phase 4.2: detour FUN_0045eee0 (тик выбора точки движения) на его  */
+/* faithful-порт s6_tick_move (battle/move.cpp). Тот же гейт, что у    */
+/* site6 (LDHOOK_SITE6 через s6_port_enabled). Пролог = 5 Б            */
+/* (`sub $0x58,%esp; push %ebx; push %ebp` @0x45eee0..0x45eee4),       */
+/* продолжение 0x45eee5 сохраняется; трамплин s7_tick_tramp в move.cpp */
+/* исполняет украденное и прыгает туда — путь «порт выключен».         */
+/* ------------------------------------------------------------------ */
+static void install_tick_hook(void)
+{
+    unsigned char *site;
+    void *cont;
+
+    if (!s6_port_enabled()) {
+        ld_info("install_tick_hook: disabled (%s off) -> hook NOT installed",
+                S6_ENV);
+        return;
+    }
+    /* Тот же layout-гейт, что у install_site6: при несовпадении раскладки
+     * Candidate/TreeNode порт писал бы self+0x2c/+0x34/+0x38 и звал
+     * band_rebuild/clear_maps/register_occupied_slot → порча кучи. */
+    if (!ld_off_ok || !ld_off_ok2) {
+        ld_info("install_tick_hook: struct layout mismatch (LDObject/TreeNode) -> NOT installed");
+        return;
+    }
+    site = find_in_text((const unsigned char *)S7_ENTRY_SIG, S7_ENTRY_LEN);
+    if (site == NULL) {
+        ld_info("install_tick_hook: signature NOT found (0x45eee0 prologue)");
+        return;
+    }
+    cont = native::fn(0x45eee5);
+    if (cont == NULL) {
+        ld_info("install_tick_hook: no base -> NOT installed");
+        return;
+    }
+    g_s7_tick_cont = cont;
+    if (!rel32_fits(site, (void *)s7_tick_hook)) {
+        ld_info("install_tick_hook: E9 rel32 out of range");
+        return;
+    }
+    if (!write_jmp(site, (void *)s7_tick_hook, S7_ENTRY_LEN)) {
+        ld_info("install_tick_hook: write_jmp FAILED");
+        return;
+    }
+    g_s7_tick_on = 1;                 /* порт активен; 0 → трамплин (натив) */
+    ld_info("install_tick_hook: 0x%08x -> s6_tick_move (5 B stolen, cont=0x%08x)",
+            (unsigned)(size_t)site, (unsigned)(size_t)cont);
 }
 
 /* ------------------------------------------------------------------ */
@@ -890,14 +937,14 @@ extern "C" __declspec(dllexport) void initldhook(void)
          * адреса (пролог 0x45e0a0 + хвост 0x45e163). Если site6 активен — site5
          * пропускаем, иначе E9 от site5 затрёт сигнатуру и site6 не встанет. */
         {
-            const char *s6env = getenv(S6_ENV);
-            int s6_on_site = (s6env && *s6env && atoi(s6env) != 0);
+            int s6_on_site = s6_port_enabled();
             if (!s6_on_site) {
                 install_site5();
             } else {
                 ld_info("initldhook: %s=1 -> site5 (diag) пропущен, ставится site6", S6_ENV);
             }
             install_site6();
+            install_tick_hook();       /* 4.2: детур 45eee0 (тот же гейт site6) */
             s6_on = s6_on_site;
         }
         install_trace_sites();

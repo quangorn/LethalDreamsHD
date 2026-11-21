@@ -283,6 +283,43 @@ void native_45af10(void *band)
     }
 }
 
+/* FUN_0045e0a0 — нативный поиск цели (только режим site6 OFF: порт eee0 вызывает
+ * его вместо s6_target_search, диспетчер — battle/move.cpp 4.2). __thiscall,
+ * ECX = BattleAI, 4 стек-аргумента (`ret $0x10` @0x45e16d/0x45e170):
+ * arg1 filter, arg2 cmp_pos, arg3 float-биты таймаута, arg4 out_code
+ * (порядок push @0x45f25d..0x45f260: out_code первым, filter последним).
+ * Возврат — узел/NULL в EAX. Тело не портировано здесь (порт s6_target_search).
+ * ABI (число стек-аргументов и ret n) — стек восстанавливается сохранением
+ * esp (см. lower_bound). */
+void *target_search(void *ai, int filter, void *cmp_pos, int arg3, int *out_code)
+{
+    void *addr = fn(0x45e0a0);
+    void *res = NULL;
+
+    if (addr == NULL) {
+        return NULL;
+    }
+    __try {
+        __asm {
+            pushad                         /* esp «до аргументов», регистры в стеке */
+            mov esi, esp                   /* сохранённый esp */
+            mov ecx, ai
+            push out_code                  /* arg4 — старший, первый push */
+            push arg3                      /* arg3 = float-биты таймаута */
+            push cmp_pos                   /* arg2 */
+            push filter                    /* arg1 — младший, [ESP+4] на входе */
+            mov eax, addr
+            call eax
+            mov res, eax                   /* eax читается до восстановления esp */
+            mov esp, esi                   /* стек = сохранённый esp при любом ret n */
+            popad                          /* + регистры вызывающего */
+        }
+    } __except (native::av_filter()) {
+        res = NULL;
+    }
+    return res;
+}
+
 /* FUN_0045e9c0 (SEH-пролог 0x45e9c0..0x45e9d5; конец тела в этом суб-шаге не
  * проверялся) — перестройка ленты `this+0x3c`: SEH-фрейм
  * (`push -1; mov fs:0; push 0x4e70c8; mov esp,fs:0; sub 0x3c`), далее

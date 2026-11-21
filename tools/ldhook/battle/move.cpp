@@ -19,6 +19,77 @@
 #include "native.h"
 #include "trace.h"
 
+/* --- 4.2: детур FUN_0045eee0 и диспетчер e0a0 ---------------------------- */
+
+volatile LONG g_s7_tick_on = 0;      /* 1 = порт s6_tick_move, 0 = трамплин */
+void *g_s7_tick_cont = NULL;         /* 0x45eee5 — продолжение после 5 Б пролога */
+
+/* Диспетчер e0a0 с НАТИВНЫМ ABI (thiscall, ECX = BattleAI, 4 стек-аргумента,
+ * ret 0x10). Гейт — s6_port_enabled() (target.cpp; тот же, что у site6):
+ * включён → порт s6_target_search, выключен → нативный 0x45e0a0 через
+ * native::target_search (поведение = то, что сделала бы игра). Аргументы —
+ * ровно те, что уже стоят в call-site порта: filter, cmp_pos, float-биты,
+ * out_code. */
+static int s6_e0a0_dispatch(BattleAI *self, int filter, void *cmp_pos, int arg3,
+                            int *out_code)
+{
+    if (s6_port_enabled()) {
+        return (int)(INT_PTR)s6_target_search(self, (void *)(INT_PTR)filter,
+                                              cmp_pos, (void *)(INT_PTR)arg3,
+                                              out_code);
+    }
+    return (int)(INT_PTR)native::target_search(self, filter, cmp_pos, arg3,
+                                               out_code);
+}
+
+/* cdecl-обёртка порта для накед-хука: (this_, rec) → код 0..4. */
+static int s6_tick_move(BattleAI *self, void *rec_arg);   /* порт 4.1a..4.1h */
+
+static int s7_tick_run(BattleAI *self, void *rec_arg)
+{
+    return s6_tick_move(self, rec_arg);
+}
+
+/* Трамплин выключенного порта: воспроизводит украденный пролог (5 Б:
+ * `sub $0x58,%esp; push %ebx; push %ebp`, 0x45eee0..0x45eee4) и переходит на
+ * 0x45eee5 (`push %esi`) — нативное тело исполняется целиком, состояние
+ * стека/регистров как на входе 0x45eee0. */
+__declspec(naked) void s7_tick_tramp(void)
+{
+    __asm {
+        sub  esp, 0x58
+        push ebx
+        push ebp
+        jmp  dword ptr [g_s7_tick_cont]
+    }
+}
+
+/* Хук на вход 0x45eee0 (E9 из 5 Б). ABI: __thiscall, ECX = BattleAI,
+ * [esp+4] = rec, `ret $4`, EAX = код 0..4. Переключатель — g_s7_tick_on
+ * (ставится install_tick_hook при LDHOOK_SITE6=1): 1 → порт s6_tick_move,
+ * 0 → трамплин с нативным телом (хук в этом режиме не активен). Ре-энтри
+ * гарда нет — как у site6 (полная замена, тело натива не исполняется). */
+__declspec(naked) void s7_tick_hook(void)
+{
+    __asm {
+        cmp  dword ptr [g_s7_tick_on], 0
+        je   s7_tick_off
+        push eax                       /* esp: E-4 */
+        push edx                       /* E-8 */
+        push ecx                       /* E-12: [esp+0x10] = rec (E+4) */
+        push dword ptr [esp + 16]      /* arg2: rec */
+        push ecx                       /* arg1: this */
+        call s7_tick_run               /* cdecl, результат в eax */
+        add  esp, 8                    /* снять this и rec */
+        pop  ecx
+        pop  edx
+        add  esp, 4                    /* пропустить сохранённый eax — результат уже в eax */
+        ret  4                         /* нативный хвост: thiscall, 1 стек-аргумент */
+    s7_tick_off:
+        jmp  s7_tick_tramp             /* esp = E, ecx = this — как на входе */
+    }
+}
+
 /* float ↔ int-биты слота (x87-операнды `FLDS/FSTPS [ESP+off]` над int-слотами
  * кадра; паттерн path.cpp). */
 static void s6_bits_set(int *slot, float f)
@@ -433,12 +504,12 @@ static int s6_tick_move(BattleAI *self, void *rec_arg)
          * bits == 0.0f, включая NaN как «не равно» → вызов. */
         if (s6_bits_get(LS(0x10)) != 0.0f) {                  /* @0x45f23a flds 0x10 / @0x45f23e fcomps [0x4ec37c] / @0x45f246 test $0x44 / @0x45f249 jnp 0x45f26b */
             s6_timer_restart(self);                           /* @0x45f24b/0x45f24d call 0x45c570 — ДО e0a0 */
-            cand = (int)(INT_PTR)s6_target_search(
+            cand = s6_e0a0_dispatch(
                 self,                                         /* @0x45f262 mov %esi,%ecx */
-                (void *)(INT_PTR)1,                           /* @0x45f260 push $1 — arg1 filter */
+                1,                                            /* @0x45f260 push $1 — arg1 filter */
                 self->anchor,                                 /* @0x45f25a mov 0x2c(%esi),%ecx / @0x45f25f push — arg2 cmp_pos */
-                (void *)(INT_PTR)LS(0x10),                    /* @0x45f256 mov 0x10(%esp),%eax / @0x45f25e push — arg3 float bits */
-                (void *)(INT_PTR)LS(0x14));                   /* @0x45f252 mov 0x14(%esp),%edx / @0x45f25d push — arg4 out_code = &self+0x38 */
+                LS(0x10),                                     /* @0x45f256 mov 0x10(%esp),%eax / @0x45f25e push — arg3 float bits */
+                (int *)(INT_PTR)LS(0x14));                    /* @0x45f252 mov 0x14(%esp),%edx / @0x45f25d push — arg4 out_code = &self+0x38 */
         }                                                     /* @0x45f269 mov %eax,%edi */
         /* B12 (0x45f26b..0x45f292) — код == 1 → эвристика 45c5e0 по spec-окну.
          * Если гейт выше пропустил поиск, cand остаётся 0 и разыменования
@@ -520,12 +591,12 @@ static int s6_tick_move(BattleAI *self, void *rec_arg)
                            (int)(INT_PTR)LS_BYTES(0x34), /* @0x45f340 lea 0x3c(%esp) / @0x45f344 push — src = &spec */
                            0x3fe);                       /* @0x45f332 push $0x3fe / @0x45f34b call 0x45c4b0 — +0x04..+0x20 */
             s6_timer_restart(self);                      /* @0x45f350/0x45f352 call 0x45c570 — до e0a0 #2 */
-            cand = (int)(INT_PTR)s6_target_search(
+            cand = s6_e0a0_dispatch(
                 self,                                    /* @0x45f366 mov %esi,%ecx */
-                (void *)(INT_PTR)2,                      /* @0x45f364 push $2 — arg1 filter */
+                2,                                       /* @0x45f364 push $2 — arg1 filter */
                 (void *)(INT_PTR)n1_pos,                 /* @0x45f35f mov (%edi),%eax / @0x45f363 push — arg2 node1->pos */
-                (void *)(INT_PTR)LS(0x18),               /* @0x45f35b mov 0x18(%esp),%edx / @0x45f362 push — arg3 float bits */
-                (void *)(INT_PTR)LS(0x14));              /* @0x45f357 mov 0x14(%esp),%ecx / @0x45f361 push — arg4 out_code */
+                LS(0x18),                                /* @0x45f35b mov 0x18(%esp),%edx / @0x45f362 push — arg3 float bits */
+                (int *)(INT_PTR)LS(0x14));               /* @0x45f357 mov 0x14(%esp),%ecx / @0x45f361 push — arg4 out_code */
         }                                                /* @0x45f36d mov %eax,%edi — EDI = node2 (вход B15) */
     }
 

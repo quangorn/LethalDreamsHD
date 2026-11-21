@@ -31,6 +31,7 @@ void native_45af10(void *band);      /* FUN_0045af10 — `movb $1,0x4(ecx)`; н�
 void clear_maps(void *ai);           /* FUN_0045ca70 — erase+_free по map1/map2 (обход от this+0x6c) */
 void search_params_update(void *ai); /* FUN_0045c8c0 — пересчёт радиуса/RECT/порога поиска */
 void band_rebuild(void *ai, void *node, int bits);  /* FUN_0045e9c0 — перестройка ленты (ret 8) */
+void *target_search(void *ai, int filter, void *cmp_pos, int arg3, int *out_code);  /* FUN_0045e0a0 */
 
 /* FUN_00458050 (0x458050..0x4581f4) — grid-якорь: ECX = ctx[8] (GridLevel),
  * 6 стек-аргументов (`ret $0x18`): arg1..arg4 — 16-байтовый temp (dword 0/2 —

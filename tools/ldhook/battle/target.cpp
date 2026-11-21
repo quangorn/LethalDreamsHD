@@ -357,6 +357,30 @@ __declspec(naked) void s5_tail_hook(void)
 
 #define S6_HEAVY_ITER  20        /* > нормы (~2): считаем вызов тяжёлым */
 
+/* Гейт порта site6 — единственный источник истины для env LDHOOK_SITE6
+ * (дефолт 0 = выкл). Включают: непустое числовое значение != 0 либо ведущий
+ * `t`/`T` (true/TRUE) — `atoi("true")` даёт 0, поэтому префикс разбирается
+ * отдельно. Читается install_site6 (ldhook.cpp), initldhook и диспетчером
+ * e0a0/детуром 45eee0 (battle/move.cpp). Значение кэшируется на первом
+ * вызове — env в рантайме не меняется. */
+int s6_port_enabled(void)
+{
+    static int on = -1;
+
+    if (on < 0) {
+        const char *env = getenv(S6_ENV);
+
+        if (env == NULL || *env == '\0') {
+            on = 0;
+        } else if (*env == 't' || *env == 'T') {
+            on = 1;
+        } else {
+            on = (atoi(env) != 0);
+        }
+    }
+    return on;
+}
+
 volatile LONG g_site6_calls = 0;
 volatile LONG g_site6_heavy = 0;
 volatile LONG g_site6_max = 0;
