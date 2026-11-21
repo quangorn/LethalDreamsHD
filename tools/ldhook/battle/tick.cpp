@@ -8,9 +8,11 @@
  * B41..B54, вход band-loop: string-блок C, ctx bit3, `45c730` cursor) и
  * R8 (`0x44c3ed..0x44c4dc`, B55..B60, тело band-loop A: count-гейты,
  * `403e80` equality, `45b150`), R9 (`0x44c4dd..0x44c5b0`, B61..B66, тело
- * band-loop B: `45b3e0`, log-блоки E/F) и R10 (`0x44c5b1..0x44c67d`,
+ * band-loop B: `45b3e0`, log-блоки E/F), R10 (`0x44c5b1..0x44c67d`,
  * B67..B71, тело band-loop C: `45b150` vs 3.0f, log-блок G, `45b3e0`,
- * back-edge `0x44c66d` → B46); все листья — нативные
+ * back-edge `0x44c66d` → B46) и R11 (`0x44c67e..0x44c74c`, B72..B81: log-блок
+ * H + общий cursor-tail B73/B74, pos-слот из `45c6f0` B75/B76, flags-join
+ * B77..B81); все листья — нативные
  * `native::…`, один детур на функцию (инвариант 5) — H1 `0x44bdf5` с возвратом
  * в нативный эпилог `0x44d074` (там же H2/capture, поэтому трассировка тика и
  * захват продолжают работать).
@@ -23,7 +25,7 @@
  * EDI/EBX не восстанавливает (их снимает нативный эпилог).
  *
  * Детур разоружён, пока тело неполное: `b0_port_enabled()` = LDHOOK_SITE5=1
- * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R10 — явные UNPORTED-
+ * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R11 — явные UNPORTED-
  * заглушки с адресом блока-цели; они возвращают 0 (= `xor al,al` @0x44d072).
  */
 #include <stdlib.h>
@@ -33,7 +35,7 @@
 #include "battle.h"
 #include "native.h"
 
-/* B0_BODY_COMPLETE — 0: портирован только R1..R10, тело неполное (дальше —
+/* B0_BODY_COMPLETE — 0: портирован только R1..R11, тело неполное (дальше —
  * UNPORTED-выходы), поэтому детур обязан быть разоружён. Определяется в 1
  * тем чанком, который доводит тело до единственного RET `0x44d08c`. */
 #ifndef B0_BODY_COMPLETE
@@ -142,6 +144,9 @@ static int b0_body_r1_r2(void *unit_, unsigned char *frame)
     float cur_triple[3];            /* B34: тройка из result+4..0xc (второй grid_query) */
     float band_triple[3];           /* R8 B60: тройка из result+4..0xc (натив: [esp] после sub 0xc) */
     float gate;                     /* R8 B60: ST(0) 45b150 (float-гейт ленты) */
+    float world_triple[3];          /* R11 B78: тройка под vtable+0x38 (натив: [esp] после sub 0xc) */
+    void *tail_str;                 /* R11 B73: EAX = строка из 413060 (вход 49ad70) */
+    int edi;                        /* R11 B77: `XOR EDI,EDI` (модель регистра, читают R12/R14) */
 
     __try {
 
@@ -486,7 +491,6 @@ b41:
      * байт `[esp+0x154]` = 7; `JMP 0x44c6b6` (cursor tail B73, R11 → выход). */
     {
         void *str_a = frame + 0x10;
-        void *str_r;
 
         native::string_ctor(str_a, native::literal(0x4eed90)); /* 0x44c307..0x44c310 */
         /* 0x44c31a `ADD EBP,0x18` — сдвиг ровно здесь, не откатывается
@@ -495,8 +499,7 @@ b41:
         unit_x += 0x18;                                 /* 0x44c31a */
         ebx = 6;                                        /* 0x44c322 */
         *(unsigned int *)(frame + 0x154) = ebx;         /* 0x44c328 (SEH-слот) */
-        str_r = native::string_format(frame + 0x20, unit_x, str_a); /* 0x44c32f */
-        (void)str_r;                                    /* аргумент уходит в B73 (R11) */
+        tail_str = native::string_format(frame + 0x20, unit_x, str_a); /* 0x44c32f */
         frame[0x154] = 7;                               /* 0x44c337 */
     }
     goto b73_cursor_tail;                               /* 0x44c33f jmp 0x44c6b6 */
@@ -593,35 +596,89 @@ b49:
     }
     goto b55;                                           /* fall 0x44c3ed → R8 */
 
-/* --- R7: далёкие цели (UNPORTED, точные адреса) ----------------------- *
- * Логика этих блоков не изобретается: заглушки возвращают 0 (путь
- * `xor al,al` @0x44d072 / out-guard @0x44d061). */
+/* --- R11: выходы loop + flags-join (`0x44c67e..0x44c74c`, LOGIC) -------- *
+ * unit_x на входе каждой части:
+ *  - B72 (fall B71): EBP НЕ сдвинут; сам B72 делает `ADD EBP,0x18` (0x44c691)
+ *    и передаёт в 413060 сдвинутый unit+0x18;
+ *  - B73/B74: входы — fall B72 и jmp B41/B62/B65/B69, т.е. на ВСЕХ путях
+ *    EBP уже сдвинут (+0x18). Адресация B73/B74 — только ESP-слоты
+ *    (`frame+0x154/0x20/0x10`, выход `0x44d061` читает `frame+0x164`),
+ *    поэтому сдвиг на них не влияет;
+ *  - B75/B76 (R7 B47 JZ / B48 jmp): EBP НЕ сдвинут; B75/B76 тоже только
+ *    ESP-слоты (`frame+0x38`, `frame+0x20`, `frame+0x2c..0x34`) + ctx
+ *    `unit+0x138` (ESI, снят в B45 при несдвинутом EBP);
+ *  - B77..B81: входы R7 B49/B52/B53/B54 (+B76 fall), R8 B55, R9 B66 — на
+ *    всех EBP НЕ сдвинут, поэтому `[EBP]` = vptr unit и ECX = unit. */
 b73_cursor_tail:
-    /* 0x44c6b6..0x44c6ca (B73, R11): `ECX=EAX; 49ad70` (c_str) → `PUSH EAX;
-     * CALL IAT 0x4ec064` (OutputDebugStringA); байт trylevel = BL; затем
-     * fall B74 (0x44c6cb — dtor'ы, реализованы отдельной меткой ниже).
-     * Входы B41 (EAX = 413060, BL = 6) и R9 B62/B65 (BL = 0xa/0xc).
-     * UNPORTED: log-хвост не исполняется, возврат 0 = путь `xor al,al`. */
-    return 0;
+    /* B73 (0x44c6b6..0x44c6ca) — общий cursor-tail: EAX = строка из 413060
+     * (`MOV ECX,EAX; CALL 49ad70` — c_str) → `PUSH EAX; CALL IAT 0x4ec064`
+     * (OutputDebugStringA, stdcall снимает аргумент) → `MOV BL,[esp+0x154]`
+     * (ESP здесь = frame: байт trylevel = низ EBX). BL по путям: 6 (B41),
+     * 0xa (B62), 0xc (B65), 0xe (B69), 0x10 (B72). fall → B74. */
+    native::output_debug_string_a(native::string_c_str(tail_str)); /* 0x44c6b8..0x44c6be */
+    frame[0x154] = (unsigned char)ebx;                  /* 0x44c6c4 mov %bl,0x154(%esp) */
+    goto b74_cursor_tail;                               /* fall 0x44c6cb */
 
 b75:
-    /* 0x44c6ed (B75, R11): anchor `[esp+0x38]` = 0; fall B76. */
-    return 0;
+    /* B75 (0x44c6ed..0x44c6f4) — anchor `[esp+0x38]` = 0; fall B76. */
+    *(unsigned int *)(frame + 0x38) = 0;
+    goto b76;                                           /* fall 0x44c6f5 */
 
 b76:
-    /* 0x44c6f5 (B76, R11): 45c6f0(ECX=&ctx, &[esp+0x20]) → копия
-     * result+0/+4/+8 в `[esp+0x2c/0x30/0x34]`; fall B77. */
-    return 0;
+    /* B76 (0x44c6f5..0x44c714) — `45c6f0(ECX = ESI = &unit+0x138,
+     * out = frame+0x20)`; три dword результата → pos-тройка
+     * `frame+0x2c/0x30/0x34`. fall → B77. */
+    native::ctx_pos_get(unit + 0x138, out);             /* 0x44c6f5..0x44c6fc */
+    memcpy(frame + 0x2c, out, 12);                      /* 0x44c701..0x44c711 */
+    /* fall → b77_join */
 
 b77_join:
-    /* 0x44c715 (B77, R11): flags-join (EBX re-load, world-notify/grid). */
+    /* B77 (0x44c715..0x44c71a) — flags-join. `XOR EDI,EDI`; `CMP EBX,EDI;
+     * JNE 0x44c73d`. EDI=0 моделируется локальной (его читают R12 B82 —
+     * заполнение record-слотов — и R14 `CMP EAX,EDI`; оба ещё UNPORTED). */
+    edi = 0;
+    if (ebx != (unsigned int)edi) {
+        goto b80;                                       /* 0x44c719 jne 0x44c73d */
+    }
+
+    /* B78 (0x44c71b..0x44c738) — grid-гейт: `MOV EDX,[EBP]` (vptr),
+     * `PUSH EDI` (arg4 для 44bbf0), `SUB ESP,0xc` (тройка), `PUSH &тройки`
+     * (arg1 геттера), `CALL *0x38(EDX)` с ECX = unit; затем `44bbf0`
+     * (ECX = unit) читает тройку+0 как 4 dword-аргумента (arg4 = тот push
+     * EDI). Слот `[esp+0x2c]=&тройка` (frame+0x1c) — мёртвая запись (R17
+     * берёт &pos-тройки напрямую). Тройка натива неинициализирована; порт
+     * зануляет её (как B34). */
+    world_triple[0] = world_triple[1] = world_triple[2] = 0.0f;
+    (void)native::vcall38_ptr(unit_x, world_triple);     /* 0x44c71b..0x44c72b */
+    grid = native::grid_query(unit_x, b0_float_bits(world_triple[0]),
+                              b0_float_bits(world_triple[1]),
+                              b0_float_bits(world_triple[2]), 0); /* 0x44c72e..0x44c730 */
+    if (grid != 0) {                    /* 0x44c735/0x44c737 `jbe` (unsigned ⇒ ==0) */
+        /* B79 (0x44c739..0x44c73c) — grid ≠ 0: `XOR EBX,EBX` → B81. */
+        ebx = 0;
+        goto b81;                                       /* 0x44c73b jmp 0x44c744 */
+    }
+
+b80:
+    /* B80 (0x44c73d..0x44c743) — EBX := param_2 (`frame+0x160`): единственная
+     * запись слота — B4 `orl $8` (CONTRADICTIONS #16). */
+    ebx = *(const unsigned int *)(frame + 0x160);
+
+b81:
+    /* B81 (0x44c744..0x44c74c) — `TEST BL,0x8`: бит снят → B102 (R16,
+     * sentinel-тройка −9990.0f); иначе fall → B82 (R12, grid-anchor 458050). */
+    if ((ebx & 0x8u) == 0) {
+        /* TODO(5.1b-11) UNPORTED: B102 R16 `0x44cb07`. Возврат 0 = `xor al,al`. */
+        return 0;
+    }
+    /* TODO(5.1b-11) UNPORTED: B82 R12 `0x44c74d` — grid-anchor (458050). */
     return 0;
 
 b74_cursor_tail:
-    /* 0x44c6cb..0x44c6ec (B74, R11) — хвост cursor-блока: два dtor'а строк
-     * (`frame+0x20`, затем `frame+0x10`), между ними dword trylevel = -1,
-     * затем `JMP 0x44d061` (out-guard, AL=0). Тело видно целиком; хвост
-     * реализован (а не заглушён), чтобы путь B58 не терял строки. */
+    /* B74 (0x44c6cb..0x44c6ec) — общий хвост cursor-блока: dtor строки
+     * `frame+0x20`, dword trylevel = −1, dtor `frame+0x10`, затем
+     * `JMP 0x44d061` (out-guard, AL=0). Входы: fall B73 (B41/B62/B65/B69/B72)
+     * и jmp B58. */
     native::string_dtor(frame + 0x20);                  /* 0x44c6cb..0x44c6cf */
     *(unsigned int *)(frame + 0x154) = 0xffffffffu;     /* 0x44c6d8 (dword) */
     native::string_dtor(frame + 0x10);                  /* 0x44c6e3 */
@@ -662,15 +719,13 @@ b61_r9:
      * 0xb; `JMP 0x44c6b6` (B73, R11: c_str + OutputDebugStringA + dtor'ы). */
     {
         void *str_a = frame + 0x10;
-        void *str_r;
 
         native::string_ctor(str_a, native::literal(0x4eed1c)); /* 0x44c4e8..0x44c4f1 */
         unit_x += 0x18;                                 /* 0x44c4fb ADD EBP,0x18 */
         ebx = 0xa;                                      /* 0x44c503 */
         *(unsigned int *)(frame + 0x154) = ebx;         /* 0x44c509 (dword) */
-        str_r = native::string_format(frame + 0x20, unit_x, str_a); /* 0x44c510 */
+        tail_str = native::string_format(frame + 0x20, unit_x, str_a); /* 0x44c510 */
         frame[0x154] = 0xb;                             /* 0x44c518 */
-        (void)str_r;                                    /* EAX уходит в B73 (R11) */
     }
     goto b73_cursor_tail;                               /* 0x44c520 jmp 0x44c6b6 */
 
@@ -698,15 +753,13 @@ b63_r9:
      * dword trylevel 0xc и байтом 0xd; `JMP 0x44c6b6` (B73, R11). */
     {
         void *str_a = frame + 0x10;
-        void *str_r;
 
         native::string_ctor(str_a, native::literal(0x4eecc0)); /* 0x44c568..0x44c571 */
         unit_x += 0x18;                                 /* 0x44c57b ADD EBP,0x18 */
         ebx = 0xc;                                      /* 0x44c583 */
         *(unsigned int *)(frame + 0x154) = ebx;         /* 0x44c589 (dword) */
-        str_r = native::string_format(frame + 0x20, unit_x, str_a); /* 0x44c590 */
+        tail_str = native::string_format(frame + 0x20, unit_x, str_a); /* 0x44c590 */
         frame[0x154] = 0xd;                             /* 0x44c598 */
-        (void)str_r;
     }
     goto b73_cursor_tail;                               /* 0x44c5a0 jmp 0x44c6b6 */
 
@@ -756,15 +809,13 @@ b67_r10:
      * B41/B62/B65). */
     {
         void *str_a = frame + 0x10;
-        void *str_r;
 
         native::string_ctor(str_a, native::literal(0x4eed1c)); /* 0x44c5fd..0x44c606 */
         unit_x += 0x18;                                 /* 0x44c610 ADD EBP,0x18 */
         ebx = 0xe;                                      /* 0x44c618 */
         *(unsigned int *)(frame + 0x154) = ebx;         /* 0x44c61e (dword) */
-        str_r = native::string_format(frame + 0x20, unit_x, str_a); /* 0x44c625 */
+        tail_str = native::string_format(frame + 0x20, unit_x, str_a); /* 0x44c625 */
         frame[0x154] = 0xf;                             /* 0x44c62d */
-        (void)str_r;                                    /* EAX уходит в B73 (R11) */
     }
     goto b73_cursor_tail;                               /* 0x44c635 jmp 0x44c6b6 */
 
@@ -792,10 +843,22 @@ b70_r10:
     goto b72_r11;                                       /* fall 0x44c67e → R11 */
 
 b72_r11:
-    /* 0x44c67e..0x44c6b5 (B72, R11): log-block H, литерал 0x4eec68,
-     * local_160 = 0x10, флаг 0x11; fall → B73. UNPORTED: возврат 0 = путь
-     * `xor al,al` @0x44d072 (лог-побочка отсутствует). */
-    return 0;
+    /* B72 (0x44c67e..0x44c6b5) — log-block H, литерал 0x4eec68; клон B62 ради
+     * 413060-формы: ctor объекта A (`frame+0x10`); `ADD EBP,0x18`;
+     * `MOV EBX,0x10`; dword trylevel (0x44c69f `[esp+0x160]` при esp = frame−0xc
+     * ⇒ `frame+0x154`, CONTRADICTIONS #16); 413060(dst `frame+0x20`,
+     * arg2 = unit_x, arg3 = A); байт trylevel 0x11; fall → B73. */
+    {
+        void *str_a = frame + 0x10;
+
+        native::string_ctor(str_a, native::literal(0x4eec68)); /* 0x44c67e..0x44c687 */
+        unit_x += 0x18;                                 /* 0x44c691 ADD EBP,0x18 */
+        ebx = 0x10;                                     /* 0x44c699 */
+        *(unsigned int *)(frame + 0x154) = ebx;         /* 0x44c69f (dword) */
+        tail_str = native::string_format(frame + 0x20, unit_x, str_a); /* 0x44c6a6 */
+        frame[0x154] = 0x11;                            /* 0x44c6ae */
+    }
+    goto b73_cursor_tail;                               /* fall 0x44c6b6 */
 
 b55:
     /* B55 (0x44c3ed..0x44c407) — band-loop тело A: курсор ленты должен

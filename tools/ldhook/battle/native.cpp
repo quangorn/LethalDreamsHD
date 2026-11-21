@@ -876,6 +876,33 @@ void *player_get(void *unit, int arg)
     return res;
 }
 
+/* vtable unit[+0x38] — вызов с одним stack-аргументом-указателем
+ * (`MOV EDX,[unit]; PUSH <ptr>; CALL *0x38(EDX)`, ECX = unit, `ret $4`).
+ * site 0x44c71b (B78): ptr = локальная тройка, которую затем читает 44bbf0;
+ * второй сайт того же оффсета — R14 0x44c883. Возврат в R11 не читается. */
+int vcall38_ptr(void *unit, void *out_triple)
+{
+    int res = 0;
+
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, unit
+            mov edx, [ecx]                 /* vtable = [receiver] */
+            mov eax, [edx + 0x38]          /* CALL *[vtable+0x38] */
+            push out_triple
+            call eax
+            mov res, eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+        res = 0;
+    }
+    return res;
+}
+
 /* FUN_00439ae0 — сравнение string-объектов (__cdecl, 2 аргумента, очистка
  * вызывающим). site 0x44bf44. */
 int string_obj_cmp(void *a, void *b)

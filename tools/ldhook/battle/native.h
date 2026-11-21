@@ -136,6 +136,13 @@ void phase_time(void *unit, float *out_f);
  * (arg = *(frame+4)). */
 void *player_get(void *unit, int arg);
 
+/* vtable `unit[+0x38]` — вызов с одним стек-аргументом-указателем
+ * (`MOV EDX,[unit]; PUSH <ptr>; CALL *0x38(EDX)`, ECX = unit; 1 аргумент,
+ * `ret $4`). site 0x44c71b (R11 B78: ptr = локальная тройка, её же dword'ы
+ * уходят аргументами в 44bbf0); второй сайт оффсета — R14 0x44c883.
+ * Возврат в R11 не читается. */
+int vcall38_ptr(void *unit, void *ptr);
+
 /* FUN_00439ae0 — сравнение string-объектов. __cdecl, 2 аргумента, очистка
  * вызывающим (`add $0x8,%esp` @0x44bf49). Возврат — uint в EAX; вызывающий
  * тестирует только AL (`test %al,%al`). site: 0x44bf44. */
