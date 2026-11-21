@@ -7,9 +7,10 @@
  *
  * Статус: портированы sub-steps 4.1a — пролог 0x45eee0..0x45ef7f (B0/B1/B2),
  * 4.1b — 0x45ef82..0x45efdb (B3/B4/B5), 4.1c — 0x45efdc..0x45f0c7 (B6/B7/B8),
- * 4.1d — 0x45f0cc..0x45f13a (B9), 4.1e — 0x45f13d..0x45f21a (B10) и 4.1f —
- * 0x45f21d..0x45f292 (B11/B12; карта re/phase4_45eee0.md §8.2). B13 и далее не
- * портированы; функция static и ниоткуда не вызывается (детур и wiring — 4.2).
+ * 4.1d — 0x45f0cc..0x45f13a (B9), 4.1e — 0x45f13d..0x45f21a (B10), 4.1f —
+ * 0x45f21d..0x45f292 (B11/B12) и 4.1g — 0x45f295..0x45f36d (B13/B14; карта
+ * re/phase4_45eee0.md §8.2). B15 и далее не портированы; функция static и
+ * ниоткуда не вызывается (детур и wiring — 4.2).
  */
 #include <string.h>
 
@@ -100,6 +101,8 @@ static void s6_tick_move(BattleAI *self, void *rec_arg)
     int l[34];                       /* F−0x18..F+0x6c: index 0 = слот F−0x18 (temp B9) */
     unsigned char *ctx;
     const unsigned char *rec;
+    void *ebp;                       /* EBP кадра: PathState/узел B10 → B14 (dst copy, [ebp]->pos) */
+    int cand;                        /* EDI кадра: кандидат B11 → B13/B14 (node1), затем node2 */
 
 #define LS(k) (l[((k) + 0x18) >> 2])
 #define LS_BYTES(k) ((unsigned char *)(l + (((k) + 0x18) >> 2)))
@@ -336,7 +339,6 @@ static void s6_tick_move(BattleAI *self, void *rec_arg)
      * PathState/узел, его читает B11 (0x45f21d). */
     {
         int node;
-        void *ebp;
 
         native::lower_bound_slots(&self->map1,               /* @0x45f142 ecx = lea 0x68(%esi) */
                                   &LS(0x6c),                 /* @0x45f13e lea 0x70(%esp) / @0x45f145 push — out */
@@ -403,7 +405,6 @@ static void s6_tick_move(BattleAI *self, void *rec_arg)
      * = out-указатель, поэтому node = *(out) = LS(0x6c) (`mov (%eax),%eax`
      * @0x45f230). EDI = кандидат: 0 или node->[0x10]. */
     {
-        int cand;
         int node2;
         int *code_ptr;
 
@@ -442,6 +443,78 @@ static void s6_tick_move(BattleAI *self, void *rec_arg)
             /* @0x45f28d test %eax,%eax / @0x45f28f seta %al (unsigned above 0) */
             *(unsigned char *)((unsigned char *)self + 0x30) = (unsigned char)((unsigned int)hres != 0u);  /* @0x45f292 mov %al,0x30(%esi) */
         }
+    }
+
+    /* B13 (0x45f295..0x45f2f0) — гейт S(0x18) (маска 0x44 — тот же приём, что
+     * в B11), NULL-путь cand == 0 → эпилог 0x45f373, propagation-цикл по map1
+     * (итератор в S(0x6c), шаг — in-order successor 47f800 с записью обратно в
+     * слот). Маска 0x44 = AH.C3 (0x40) | AH.C2 (0x04): FCOMPS даёт C3=1,C2=0
+     * для equal, C3=C2=0 для less/greater, C3=C2=1 для unordered. Маскированный
+     * байт = 0x40 только при equal → popcount 1 → PF=0 → `jnp` взят; 0x00 и
+     * 0x44 → popcount чётный → PF=1 → `jnp` не взят. Значит пропуск ⟺ ровно
+     * 0.0f; отрицательные и NaN идут в поиск (x87-проба: >0→AH 0x00, <0→0x01,
+     * ==0→0x40, NaN→0x45). */
+    if (s6_bits_get(LS(0x18)) != 0.0f) {                 /* @0x45f295 flds 0x18 / @0x45f299 fcomps [0x4ec37c] / @0x45f2a1 test $0x44 / @0x45f2a4 jnp 0x45f36f */
+        if (cand == 0) {                                 /* @0x45f2aa cmp %ebx,%edi / @0x45f2ac je 0x45f373 */
+            return;                                      /* эпилог 0x45f373..0x45f382: *LS(0x14)=0 (код), EAX=0, ret $4 — код оформляется в 4.1h */
+        }
+        LS(0x6c) = *(const int *)((const unsigned char *)self->cand_head);  /* @0x45f2b2 mov 0x6c(%esi),%ecx / @0x45f2b5 mov (%ecx),%eax / @0x45f2b9 mov %eax,0x6c(%esp) — итератор = head->[0] */
+        if (LS(0x6c) != (int)(INT_PTR)self->cand_head) { /* @0x45f2b7 cmp %ecx,%eax / @0x45f2bd je 0x45f2f2 — пустая карта */
+            for (;;) {                                   /* виток: @0x45f2f0 jne 0x45f2c0 */
+                int inner = *(const int *)((const unsigned char *)(INT_PTR)LS(0x6c) + 0x10);  /* @0x45f2c0 mov 0x10(%eax),%eax — Candidate узла */
+
+                if (*(const int *)((const unsigned char *)(INT_PTR)inner + 0x08) == 1) {  /* @0x45f2c3 cmpl $1,0x8(%eax) / @0x45f2c7 je 0x45f2e0 */
+                    /* filter == 1 — копия не делается, сразу шаг итератора */
+                } else {
+                    LS(0x3c) = 0;                        /* @0x45f2d3 mov %ebx,0x48(%esp) — spec+0x08 filter = 0 */
+                    LS(0x38) = 0;                        /* @0x45f2d7 mov %ebx,0x44(%esp) — spec+0x04 parent = 0 */
+                    s6_copy_fields(inner,                /* @0x45f2cb push %eax — dst = inner (Candidate) */
+                                   (int)(INT_PTR)LS_BYTES(0x34),  /* @0x45f2cc lea 0x3c(%esp) / @0x45f2d0 push — src = &spec */
+                                   6);                   /* @0x45f2c9 push $6 / @0x45f2db call 0x45c4b0 — маска 6 = +0x04 parent, +0x08 filter */
+                }
+                LS(0x6c) = (int)(INT_PTR)s6_tree_next((TreeNode *)(INT_PTR)LS(0x6c));  /* @0x45f2e0 lea 0x6c(%esp) / @0x45f2e4 call 0x47f800 / @0x45f2e9 mov 0x6c(%esp),%eax */
+                if (LS(0x6c) == (int)(INT_PTR)self->cand_head) {  /* @0x45f2ed cmp 0x6c(%esi) / @0x45f2f0 jne 0x45f2c0 */
+                    break;
+                }
+            }
+        }
+        /* B14 (0x45f2f2..0x45f36d) — вторая спека (filter 2) и e0a0 #2 по pos
+         * node1; последняя запись EDI = node2 (@0x45f36d) — вход B15. */
+        {
+            const unsigned char *world;
+            int ps_pos, n1_pos, d2;
+            float ws, p14;
+
+            ctx = (unsigned char *)self->game_ctx;       /* @0x45f2f2 mov (%esi),%edx */
+            world = (const unsigned char *)*(const void **)(ctx + 0x04);  /* @0x45f2f4 mov 0x4(%edx),%ecx — world */
+            memcpy(&ws, world + 0x120, sizeof(float));   /* @0x45f2f7 flds 0x120(%ecx) */
+            ps_pos = *(const int *)((const unsigned char *)ebp + 0x00);  /* @0x45f2fd mov 0x0(%ebp),%eax — PathState->pos */
+            n1_pos = *(const int *)((const unsigned char *)(INT_PTR)cand + 0x00);  /* @0x45f300 mov (%edi),%edx — node1->pos */
+            memcpy(&p14, (const unsigned char *)(INT_PTR)ps_pos + 0x14, sizeof(float));  /* @0x45f302 fadds 0x14(%eax) */
+            s6_bits_set(&LS(0x44), ws + p14);            /* @0x45f309 fstps 0x4c(%esp) — spec+0x10 = world[0x120] + pos[0x14] */
+            LS(0x38) = 0;                                /* @0x45f30d mov %ebx,0x40(%esp) — spec+0x04 parent */
+            LS(0x3c) = 2;                                /* @0x45f311 movl $2,0x44(%esp) — spec+0x08 filter */
+            LS(0x40) = 0;                                /* @0x45f319 movl $0,0x48(%esp) — spec+0x0c */
+            LS(0x48) = 0;                                /* @0x45f321 movl $0,0x50(%esp) — spec+0x14 */
+            LS(0x4c) = 0;                                /* @0x45f329 mov %ebx,0x54(%esp) — spec+0x18 g_cost */
+            /* c480(PathState->pos, node1->pos): arg1 — последний push %eax @0x45f306,
+             * arg2 — %edx @0x45f305. */
+            d2 = s6_distance2((void *)(INT_PTR)ps_pos,
+                              (void *)(INT_PTR)n1_pos);  /* @0x45f305/0x45f306/0x45f32d */
+            LS(0x50) = d2;                               /* @0x45f337 mov %eax,0x54(%esp) — spec+0x1c dist² */
+            LS(0x58) = d2;                               /* @0x45f33b mov %eax,0x5c(%esp) — spec+0x24 cost = dist² */
+            LS(0x4c) = 0;                                /* @0x45f347 mov %ebx,0x60(%esp) при esp=F−12 → F+0x4c = spec+0x18 (повторно после 0x45f329); spec+0x20 здесь НЕ обнуляется (утверждение карты §3.4/B14 — арифметическая ошибка), spec+0x2c не трогается */
+            s6_copy_fields((int)(INT_PTR)ebp,            /* @0x45f33f push %ebp — dst = PathState */
+                           (int)(INT_PTR)LS_BYTES(0x34), /* @0x45f340 lea 0x3c(%esp) / @0x45f344 push — src = &spec */
+                           0x3fe);                       /* @0x45f332 push $0x3fe / @0x45f34b call 0x45c4b0 — +0x04..+0x20 */
+            s6_timer_restart(self);                      /* @0x45f350/0x45f352 call 0x45c570 — до e0a0 #2 */
+            cand = (int)(INT_PTR)s6_target_search(
+                self,                                    /* @0x45f366 mov %esi,%ecx */
+                (void *)(INT_PTR)2,                      /* @0x45f364 push $2 — arg1 filter */
+                (void *)(INT_PTR)n1_pos,                 /* @0x45f35f mov (%edi),%eax / @0x45f363 push — arg2 node1->pos */
+                (void *)(INT_PTR)LS(0x18),               /* @0x45f35b mov 0x18(%esp),%edx / @0x45f362 push — arg3 float bits */
+                (void *)(INT_PTR)LS(0x14));              /* @0x45f357 mov 0x14(%esp),%ecx / @0x45f361 push — arg4 out_code */
+        }                                                /* @0x45f36d mov %eax,%edi — EDI = node2 (вход B15) */
     }
 
 #undef LS_BYTES
