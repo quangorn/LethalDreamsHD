@@ -13,8 +13,10 @@
  * back-edge `0x44c66d` → B46) и R11 (`0x44c67e..0x44c74c`, B72..B81: log-блок
  * H + общий cursor-tail B73/B74, pos-слот из `45c6f0` B75/B76, flags-join
  * B77..B81), R12 (`0x44c74d..0x44c82b`, B82..B84: PathFinder-init на
- * `frame+0xcc`, grid-record `frame+0x88`, `458050` anchor, log при NULL);
- * все листья — нативные
+ * `frame+0xcc`, grid-record `frame+0x88`, `458050` anchor, log при NULL) и
+ * R13 (`0x44c82c..0x44c877`, B85..B87: flags-цепочка tail anchor-NULL пути,
+ * `448c30(0x40)` join, все выходы — dtor-join `0x44cad2`); все листья —
+ * нативные
  * `native::…`, один детур на функцию (инвариант 5) — H1 `0x44bdf5` с возвратом
  * в нативный эпилог `0x44d074` (там же H2/capture, поэтому трассировка тика и
  * захват продолжают работать).
@@ -27,7 +29,7 @@
  * EDI/EBX не восстанавливает (их снимает нативный эпилог).
  *
  * Детур разоружён, пока тело неполное: `b0_port_enabled()` = LDHOOK_SITE5=1
- * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R12 — явные UNPORTED-
+ * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R13 — явные UNPORTED-
  * заглушки с адресом блока-цели; они возвращают 0 (= `xor al,al` @0x44d072).
  */
 #include <stdlib.h>
@@ -37,7 +39,7 @@
 #include "battle.h"
 #include "native.h"
 
-/* B0_BODY_COMPLETE — 0: портирован только R1..R11, тело неполное (дальше —
+/* B0_BODY_COMPLETE — 0: портирован только R1..R13, тело неполное (дальше —
  * UNPORTED-выходы), поэтому детур обязан быть разоружён. Определяется в 1
  * тем чанком, который доводит тело до единственного RET `0x44d08c`. */
 #ifndef B0_BODY_COMPLETE
@@ -673,7 +675,7 @@ b81:
     /* B81 (0x44c744..0x44c74c) — `TEST BL,0x8`: бит снят → B102 (R16,
      * sentinel-тройка −9990.0f); иначе fall → B82 (R12, grid-anchor 458050). */
     if ((ebx & 0x8u) == 0) {
-        /* TODO(5.1b-12) UNPORTED: B102 R16 `0x44cb07` — sentinel −9990.0f.
+        /* TODO(5.1b-13) UNPORTED: B102 R16 `0x44cb07` — sentinel −9990.0f.
          * Возврат 0 = путь `xor al,al` @0x44d072. */
         return 0;
     }
@@ -745,17 +747,41 @@ b81:
     goto b85_r13;                                       /* fall 0x44c82c → R13 */
 
 b85_r13:
-    /* 0x44c82c — TODO(5.1b-12) UNPORTED: R13 B85 (flags-tail anchor-NULL пути).
-     * Возврат 0 = путь `xor al,al` @0x44d072. */
-    return 0;
+    /* --- R13 (`0x44c82c..0x44c877`): flags-цепочка tail anchor-NULL пути --- *
+     * Единственный вход — fall B84 (`0x44c826 je` не взят), т.е. R13 на входе
+     * в точности там, где и R12: `ADD EBP,0x18` не исполнялся (сдвиги
+     * B21/B30/B41/B58/B62/B65/B69/B72 уходят из flags-join), поэтому
+     * `[EBP+…]` = `unit_x == unit`. EDI = 0 (B77) — в R13 не читается ни в
+     * одной инструкции листинга. ESP на входе = frame.
+     * B85 (0x44c82c..0x44c847) — цепочка ×1 (`push 1` → vtable+0x40 → 42da60
+     * → 435d50 = b0_player_flag_chain); `TESTB $2,(%eax)`: бит взят → B87.
+     * NULL-guard в R13 нет: цепочка B84 защищена гейтом `0x44c826`. */
+    flags_obj = b0_player_flag_chain(unit_x);           /* 0x44c82c..0x44c841 */
+    if ((*(const unsigned char *)flags_obj & 0x2) != 0) {
+        goto b87_r13;                                   /* 0x44c847 jne 0x44c86a */
+    }
+
+    /* B86 (0x44c849..0x44c864) — цепочка ×2, `TESTB $4,(%eax)`: бит снят →
+     * dtor-join `0x44cad2`; иначе fall → B87. */
+    flags_obj = b0_player_flag_chain(unit_x);           /* 0x44c849..0x44c85e */
+    if ((*(const unsigned char *)flags_obj & 0x4) == 0) {
+        goto b100_join;                                 /* 0x44c864 je 0x44cad2 */
+    }
+
+b87_r13:
+    /* B87 (0x44c86a..0x44c877) — cursor/mode update с аргументом 0x40, затем
+     * `JMP 0x44cad2`. Оба входа: B85 JNZ и B86 fall. Все выходы R13 — через
+     * dtor-join (AL=0), return-значение порта = 0. */
+    native::cursor_mode_update(unit_x, 0x40);           /* 0x44c86a..0x44c870 */
+    goto b100_join;                                     /* 0x44c873 jmp 0x44cad2 */
 
 b88_r14:
-    /* 0x44c878 — TODO(5.1b-12) UNPORTED: R14 B88 (core-A: 45e1d0 + запись
+    /* 0x44c878 — TODO(5.1b-13) UNPORTED: R14 B88 (core-A: 45e1d0 + запись
      * unit+0xa4..0xac). Возврат 0 = путь `xor al,al` @0x44d072. */
     return 0;
 
 b100_join:
-    /* 0x44cad2 — TODO(5.1b-12) UNPORTED: R16 B100 (dtor 45e5e0 по frame+0xcc,
+    /* 0x44cad2 — TODO(5.1b-13) UNPORTED: R16 B100 (dtor 45e5e0 по frame+0xcc,
      * dword trylevel −1, `JMP 0x44d072`). Возврат 0 = AL=0. */
     return 0;
 
