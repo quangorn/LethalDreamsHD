@@ -19,7 +19,10 @@
  * (`0x44c878..0x44c96f`, B88 core-A: world-notify + `45e1d0` → запись
  * `unit+0xa4..0xac`, save/write/restore pos-полей состояния, FSTP фазы),
  * R15 (`0x44c970..0x44ca4b`, B89..B95: float-гейт `[unit+0xfc]`,
- * string-клон msg + `446a80`, цепочки флагов, `448c30(0x40)`);
+ * string-клон msg + `446a80`, цепочки флагов, `448c30(0x40)`) и R16
+ * (`0x44ca4c..0x44cb38`, B96..B102: cursor-хвост `0x4eec4c`, out-write
+ * `*param_3 = 1`, msg-dtor `462780`, dtor-join PathFinder `45e5e0` на
+ * `frame+0xcc`, sentinel −10000.0f в `unit+0xa4..0xac`);
  * все листья —
  * нативные
  * `native::…`, один детур на функцию (инвариант 5) — H1 `0x44bdf5` с возвратом
@@ -34,7 +37,7 @@
  * EDI/EBX не восстанавливает (их снимает нативный эпилог).
  *
  * Детур разоружён, пока тело неполное: `b0_port_enabled()` = LDHOOK_SITE5=1
- * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R15 — явные UNPORTED-
+ * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R16 — явные UNPORTED-
  * заглушки с адресом блока-цели; они возвращают 0 (= `xor al,al` @0x44d072).
  */
 #include <stdlib.h>
@@ -44,7 +47,7 @@
 #include "battle.h"
 #include "native.h"
 
-/* B0_BODY_COMPLETE — 0: портирован только R1..R15, тело неполное (дальше —
+/* B0_BODY_COMPLETE — 0: портирован только R1..R16, тело неполное (дальше —
  * UNPORTED-выходы), поэтому детур обязан быть разоружён. Определяется в 1
  * тем чанком, который доводит тело до единственного RET `0x44d08c`. */
 #ifndef B0_BODY_COMPLETE
@@ -74,7 +77,7 @@ int b0_env_on(void)
 int b0_port_enabled(void)
 {
 #if !B0_BODY_COMPLETE
-    /* UNPORTED: R16..R23 не портированы — детур не встаёт. */
+    /* UNPORTED: R17..R23 не портированы — детур не встаёт. */
     return 0;
 #else
     return b0_env_on();
@@ -679,11 +682,9 @@ b80:
 
 b81:
     /* B81 (0x44c744..0x44c74c) — `TEST BL,0x8`: бит снят → B102 (R16,
-     * sentinel-тройка −9990.0f); иначе fall → B82 (R12, grid-anchor 458050). */
+     * sentinel-тройка −10000.0f); иначе fall → B82 (R12, grid-anchor 458050). */
     if ((ebx & 0x8u) == 0) {
-        /* TODO(5.1b-13) UNPORTED: B102 R16 `0x44cb07` — sentinel −9990.0f.
-         * Возврат 0 = путь `xor al,al` @0x44d072. */
-        return 0;
+        goto b102_r16;                                  /* 0x44c74a jz 0x44cb07 */
     }
 
 /* --- R12: grid-req + `458050` anchor + log при NULL (`0x44c74d..0x44c82b`) *
@@ -911,24 +912,100 @@ b95_r15:
     }
     goto b96_r16;                                       /* fall 0x44ca4c */
 
-b101_r16:
-    /* 0x44caee — TODO(5.1b-15) UNPORTED: R16 B101 (dtor 45e5e0(&frame+0xcc),
-     * dword trylevel −1, `JMP 0x44cb39` → R17). Возврат 0. */
-    return 0;
-
 b96_r16:
-    /* 0x44ca4c — TODO(5.1b-15) UNPORTED: R16 B96 (cursor-блок I). Путь
-     * B96 → B97 → B99 → B100 → `0x44d072`, возврат AL=0. */
-    return 0;
+    /* --- R16: cursor-хвост → out-код → dtors (`0x44ca4c..0x44cb38`) ------ *
+     * Блоки: B96 `..0x44caaf`, B97/B98 `..0x44cac0`, B99 `..0x44cad1`,
+     * B100 `..0x44caed` (join), B101 `..0x44cb06`, B102 `..0x44cb38`.
+     *
+     * ESP. Вход B96 — fall B95. В отличие от R9..R11 (там ESP блока =
+     * frame−0xc), сюда R15 приходит с ESP = frame: B90 `SUB ESP,0x3c` +
+     * `PUSH src` снимаются копией `4040f0` (`RET 4` @0x40415a) и
+     * `446a80` (`RET 0x3c` @0x446aeb), итого 0x40 = 0x3c+4. Поэтому
+     * (esp отсчитывается от frame на каждой инструкции):
+     *   0x44ca4c `push lit`      esp frame−4
+     *   0x44ca51 `lea 0x14(%esp)` esp frame−4 → frame+0x10  — string A
+     *   0x44ca55 `call 49b0f0`   RET 4 ⇒ esp frame
+     *   0x44ca5a `lea 0x10(%esp)` esp frame   → frame+0x10  — arg 413060
+     *   0x44ca5e `push`          esp frame−4
+     *   0x44ca62 `lea 0x24(%esp)` esp frame−4 → frame+0x20  — dst 413060
+     *   0x44ca66/0x44ca69 push ×2 ⇒ esp frame−0xc
+     *   0x44ca6a `[esp+0x160]`   esp frame−0xc → frame+0x154 (trylevel byte)
+     *   0x44ca71 `call 413060` + `add $0xc` ⇒ esp frame
+     *   0x44ca7b `[esp+0x154]`   esp frame   → frame+0x154
+     *   0x44ca83 `49ad70`, 0x44ca88 push, 0x44ca89 `call *0x4ec064`
+     *            (OutputDebugStringA, stdcall снимает аргумент) ⇒ esp frame
+     *   0x44ca8f `lea 0x20(%esp)` esp frame   → frame+0x20  — dtor string B
+     *   0x44ca9f `lea 0x10(%esp)` esp frame   → frame+0x10  — dtor string A
+     * То есть B96 исполняется при ESP = frame, а «S−4» — только транзиент
+     * после первого `push`; dtor-слоты +0x20/+0x10 (не +0x1c/+0xc): та же
+     * пара, что в B73/B74 (0x44c6cb/0x44c6d4). `[esp+0x160]` = trylevel, не
+     * param_2 (CONTRADICTIONS #16). */
+    native::string_ctor(frame + 0x10, native::literal(0x4eec4c)); /* 0x44ca4c..0x44ca55 */
+    /* 0x44ca5f `ADD EBP,0x18` — сдвиг ровно здесь; на остатке R16 (B97..B100)
+     * EBP не читается (B97/B99 — ESP-слоты, B100 → 0x44d072), т.е. мёртв. */
+    unit_x += 0x18;                                     /* 0x44ca5f */
+    frame[0x154] = 0x14;                                /* 0x44ca6a (BL=0x14) */
+    tail_str = native::string_format(frame + 0x20, unit_x, frame + 0x10); /* 0x44ca71 */
+    frame[0x154] = 0x15;                                /* 0x44ca7b */
+    native::output_debug_string_a(native::string_c_str(tail_str)); /* 0x44ca83..0x44ca89 */
+    frame[0x154] = 0x14;                                /* 0x44ca93 (BL) */
+    native::string_dtor(frame + 0x20);                  /* 0x44ca8f..0x44ca9a */
+    frame[0x154] = 0x13;                                /* 0x44caa3 */
+    native::string_dtor(frame + 0x10);                  /* 0x44ca9f..0x44caab */
 
 b97_r16:
-    /* 0x44cab0 — TODO(5.1b-15) UNPORTED: R16 B97/B98 (out-write
-     * `[param_3]=1`). Заглушка возвращает 0 (в нативе — AL=0 @0x44d072). */
-    return 0;
+    /* B97/B98 (0x44cab0..0x44cac0) — out-код: `TEST [frame+0x164]` (param_3,
+     * ESP=frame) → NULL ⇒ B99, иначе `*param_3 = 1`. */
+    {
+        void *p3 = *(void **)(frame + 0x164);
+
+        if (p3 != NULL) {
+            *(int *)p3 = 1;                             /* 0x44cabb */
+        }
+    }
+    goto b99_r16;                                       /* fall 0x44cac1 */
+
+b99_r16:
+    /* B99 (0x44cac1..0x44cad1) — dtor поля msg-объекта (`frame+0x58` =
+     * `frame+0x4c + 0xc`), trylevel byte 0x12 перед вызовом; fall → B100. */
+    frame[0x154] = 0x12;                                /* 0x44cac5 */
+    native::msg_string_dtor(frame + 0x58);              /* 0x44cac1..0x44cacd */
 
 b100_join:
-    /* 0x44cad2 — TODO(5.1b-13) UNPORTED: R16 B100 (dtor 45e5e0 по frame+0xcc,
-     * dword trylevel −1, `JMP 0x44d072`). Возврат 0 = AL=0. */
+    /* B100 (0x44cad2..0x44caed) — dtor-join: входы R12 B83/B84 (JZ), R13
+     * B86/B87 (JZ/jmp), B99 fall. ESP = frame на всех входах. dtor объекта
+     * PathFinder `frame+0xcc` (тот же, что ctor 45f430 в B82 и приёмник
+     * 45e1d0 в R14), dword trylevel −1, затем `JMP 0x44d072` (эпилог,
+     * AL=0) — out-guard `0x44d061` не исполняется. */
+    *(unsigned int *)(frame + 0x154) = 0xffffffffu;     /* 0x44cad9 */
+    native::pathfinder_dtor(frame + 0xcc);              /* 0x44cad2..0x44cae4 */
+    return 0;                                           /* 0x44cae9 jmp 0x44d072 */
+
+b101_r16:
+    /* B101 (0x44caee..0x44cb06) — входы R14 B88 JZ (`state == 3`) и R15 B89
+     * JP (фаза > порога/unordered). Тот же dtor + trylevel −1, затем
+     * `JMP 0x44cb39` → R17. */
+    *(unsigned int *)(frame + 0x154) = 0xffffffffu;     /* 0x44caf5 */
+    native::pathfinder_dtor(frame + 0xcc);              /* 0x44caee..0x44cb00 */
+    goto b103_r17;                                      /* 0x44cb05 jmp 0x44cb39 */
+
+b102_r16:
+    /* B102 (0x44cb07..0x44cb38) — sentinel «нет валидной точки»: тройка
+     * `frame+0x10/0x14/0x18` = 0xc61c4000, затем без guard в
+     * `unit+0xa4..0xac`. Литерал — **−10000.0f** (0xc61c4000; «−9990» в
+     * disasm4 — опечатка). Стейджинг-слоты frame+0x10..0x18 после store
+     * мёртвы (R14 restore уже выполнен), но порядок инструкций сохранён.
+     * fall → 0x44cb39 (R17). */
+    *(unsigned int *)(frame + 0x10) = 0xc61c4000u;      /* 0x44cb07 */
+    *(unsigned int *)(frame + 0x14) = 0xc61c4000u;      /* 0x44cb1b */
+    *(unsigned int *)(frame + 0x18) = 0xc61c4000u;      /* 0x44cb27 */
+    *(unsigned int *)(unit_x + 0xa4) = *(const unsigned int *)(frame + 0x10); /* 0x44cb0f..0x44cb19 */
+    *(unsigned int *)(unit_x + 0xa8) = *(const unsigned int *)(frame + 0x14); /* 0x44cb23..0x44cb33 */
+    *(unsigned int *)(unit_x + 0xac) = *(const unsigned int *)(frame + 0x18); /* 0x44cb2f..0x44cb36 */
+    /* fall 0x44cb39 */
+b103_r17:
+    /* 0x44cb39 — TODO(5.1b-16) UNPORTED: R17 (per-tick запись + 45eee0).
+     * Возврат 0 = путь `xor al,al` @0x44d072. */
     return 0;
 
 b74_cursor_tail:
@@ -1257,12 +1334,12 @@ b135_join:
 
 /* Точка входа порта (ABI натива: ECX = unit, 3 стек-аргумента, RET 0xc).
  * Тело — под B0_BODY_COMPLETE: пока оно неполное, функция возвращает 0 и
- * детур разоружён (b0_port_enabled). Тело R1..R8 остаётся скомпилированным и
+ * детур разоружён (b0_port_enabled). Тело R1..R16 остаётся скомпилированным и
  * типизированным — `(void)&` ниже, чтобы /W3 не снял его как неиспользуемый. */
 int b0_battle_ai_dispatch(void *unit, unsigned char *frame)
 {
 #if B0_BODY_COMPLETE
-    return b0_body_r1_r2(unit, frame);      /* TODO(5.1b-14): R15..R23 */
+    return b0_body_r1_r2(unit, frame);      /* TODO(5.1b-16): R17..R23 */
 #else
     /* UNPORTED: тело неполное — единственный вход детура остаётся пустым. */
     (void)&b0_body_r1_r2;

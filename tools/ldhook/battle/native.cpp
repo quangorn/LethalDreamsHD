@@ -424,6 +424,32 @@ void pathfinder_init(void *pf)
     }
 }
 
+/* FUN_0045e5e0 (0x45e5e0..0x45e6ab) — dtor PathFinder: `45ca70(this)`, `_free`
+ * блоков `[this]`/`[[this]+0xc]`, map-dtor `+0x74`/`+0x68` (45d990/45d8d0) и
+ * `45b670(this+0x3c)`. __thiscall, ECX = this, 0 стек-аргументов (`ret`).
+ * sites R16: 0x44cae4 (B100), 0x44cb00 (B101) — один объект кадра `frame+0xcc`
+ * (ctor 45f430 @0x44c74d, приёмник 45e1d0 @0x44c8b6). */
+void pathfinder_dtor(void *pf)
+{
+    void *addr = fn(0x45e5e0);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, pf
+            mov eax, addr
+            call eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
 /* IAT 0x4ec268 — SetRectEmpty(rect), форма site @0x45c34c (`call *0x4ec268`,
  * байты FF 15 68 C2 4E 00 — вызов через IAT-слот, поэтому `MOV EAX,[addr]`
  * перед CALL). В FUN_0045c330 аргумент — `&this+0x18` (`LEA EAX,[ESI+0x18]`
@@ -1252,6 +1278,31 @@ const char *string_c_str(void *obj)
         res = NULL;
     }
     return res;
+}
+
+/* FUN_00462780 (0x462780..0x4627a3) — dtor ссылочной строки: `[this+4]` —
+ * указатель на блок {count, ..., vtable}; при count→0 вызов `*0x18`.
+ * __thiscall, ECX = this, 0 стек-аргументов (`ret`). site R16 B99 0x44cacd
+ * (ECX = `frame+0x58`, поле msg-объекта `frame+0x4c`). */
+void msg_string_dtor(void *obj)
+{
+    void *addr = fn(0x462780);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, obj
+            mov eax, addr
+            call eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+    }
 }
 
 /* FUN_0049ac70 — dtor строкового объекта: ECX = объект, 0 аргументов (`ret`).

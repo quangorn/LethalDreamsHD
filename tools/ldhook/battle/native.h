@@ -49,6 +49,12 @@ void *grid_anchor(void *grid, int a1, int a2, int a3, int a4, int *flag_slot, vo
  * Тело не портировано. */
 void pathfinder_init(void *pf);
 
+/* FUN_0045e5e0 (0x45e5e0..0x45e6ab) — dtor объекта PathFinder (`frame+0xcc`):
+ * `45ca70` (очистка карт), `_free` блоков +0x00/+0x0c, map-dtor +0x74/+0x68,
+ * `45b670` по +0x3c. __thiscall, ECX = объект, 0 стек-аргументов (`ret`
+ * @0x45e6ab). sites R16: 0x44cae4 (B100), 0x44cb00 (B101). */
+void pathfinder_dtor(void *pf);
+
 /* IAT 0x4ec268 — SetRectEmpty(rect) (`call *0x4ec268` @0x45c34c в FUN_0045c330;
  * вызов через IAT-слот — `mov eax,[addr]` перед call). 1 аргумент, возврат BOOL
  * в EAX (в порту не читается). */
@@ -169,6 +175,12 @@ void msg_ctor(void *this_);
 /* FUN_004040f0 — копия msg-объекта (0x3c Б: +0x00..+0x38). __thiscall,
  * ECX = dst, 1 стек-аргумент = src (`ret $0x4` @0x40415a). site: 0x44bfa0. */
 void msg_copy(void *dst, const void *src);
+
+/* FUN_00462780 (0x462780..0x4627a3) — dtor ссылочной строки (поле msg-объекта
+ * `+0x0c`; `+0x04` — указатель на блок {count, ..., vtable}, декремент и вызов
+ * `*0x18` при нуле). __thiscall, ECX = объект, 0 стек-аргументов (`ret`).
+ * site R16 B99 — 0x44cacd, ECX = `&frame+0x58`. */
+void msg_string_dtor(void *obj);
 
 /* --- Фаза 5.1b-2: листья R3 (FUN_0044bdd0, `0x44bfb8..0x44c09c`) --- */
 
