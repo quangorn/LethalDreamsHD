@@ -103,3 +103,9 @@
     занимают 26 байт (`hdr_off = name_off + name_len`), а перед ними внешний TLV-заголовок записи
     (type по `name_off-32`, size по `name_off-28`). Формулировка ранней scan-схемы; уточнение —
     `docs/OBSERVATIONS_TEXTURE.md` (раздел 2026-11-17, вечер).
+14. **«B23 `0x44c0b0`: равно/unordered → B31» — неверно.** `TEST AH,0x41; JP` берётся при
+    **строго большем** и unordered (`phase > [unit+0xfc]`); меньше и равно (упорядоченное ≤) идут
+    в fall B24. Та же ошибка — `battle_ai_disasm4.md` R4/B23 и строка «state≠3+float==».
+15. **«IAT `0x4ec064` = LoadCursorFromFileA» — неверно.** `objdump -p` установочного EXE:
+    `000ec064` = `OutputDebugStringA` (ordinal 0x268), `LoadCursorFromFileA` — `0x4ec264`.
+    Сайт `0x44c1c0` пишет debug-строку; реализация — `native::output_debug_string_a`.
