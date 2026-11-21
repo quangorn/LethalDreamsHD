@@ -40,7 +40,7 @@ site3 считает FP-последовательность `cave3` (x87: `fild
 | `battle/path.cpp` | pathfinding: `s6_tree_next`, `s6_map_lower_bound`, `s6_pfs_ctor`, `s6_imax` (0x45c390), `s6_path_tree_search` (0x45c3a0), `s6_path_search`. |
 | `battle/grid.cpp` | доступ к сетке: спуск по `next_level` (+0x1c), ячейка `cells + idx*0x34`. |
 | `battle/target.cpp` | цикл поиска цели `FUN_0045e0a0` и callees (`ce80`/`c880`/`c5a0`/`c4b0`/`dd70`), хуки site5 (диагностика) и site6 (faithful-порт + счётчики цикла). |
-| `battle/move.cpp` | движение/выбор точки `FUN_0045eee0` (Фаза 4 плана; каркас, кода нет). |
+| `battle/move.cpp` | `s6_unit_ai_tick` — тик юнит-AI `FUN_0045eee0` (Фаза 4: порт тела + детур). |
 | `battle/tick.{cpp,h} + trace.h` | тик `FUN_0044bdd0` (Фаза 5) и trace-каркас `LDHOOK_BATTLE_TRACE` (формат строки — п. 1.7 плана; API/формат — `trace.h`). |
 | `battle/trace.cpp` | наблюдатели тика H1/H2/H3/H7 + trace-строка (29 полей; H5/H6 — точки site5/порта), общий счётчик `vis` с портом `s6_ai_update`, пиннинг seed'а R1..R3. |
 | `fetch_headers.py` | официальный Python 2.2.3 (python.org): `Include/*.h` + `PC/pyconfig.h` → `vendor/py223/include/` (untracked) |

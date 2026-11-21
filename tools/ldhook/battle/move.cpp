@@ -1,16 +1,14 @@
-/* battle/move.cpp — движение и выбор точки (FUN_0045eee0, PLAN_BATTLE_AI_CPP.md).
+/* battle/move.cpp — тик юнит-AI `FUN_0045eee0` (PLAN_BATTLE_AI_CPP.md, Фаза 4).
  *
- * Фаза 4: faithful-порт тела по дизасму 1.2 (все ветки, включая пост-обработку
- * результата FUN_0045e0a0 и хвост 0x45f3a5), нативные листья — по инвентарю 1.4,
- * один детур на функцию (инвариант 5). Имя функции — по смыслу, который даст
- * дизасм (п. 4.3). Поле trace-строки — решение движения и его аргументы.
+ * Функция — не «перемещение»: за тик она обновляет ctx из rec, применяет
+ * band/reset/map-clear флаги, севит search-параметры и spec-окно, берёт
+ * grid-якорь и anchor-pathfind, прогоняет два поиска цели `e0a0` (filter 1 по
+ * якорю, filter 2 по pos первого узла) и пост-обрабатывает: перестройка ленты,
+ * сдвиг кода 1→2, порог dist². Имя — `s6_unit_ai_tick` (п. 4.3).
  *
- * Статус: портированы sub-steps 4.1a — пролог 0x45eee0..0x45ef7f (B0/B1/B2),
- * 4.1b — 0x45ef82..0x45efdb (B3/B4/B5), 4.1c — 0x45efdc..0x45f0c7 (B6/B7/B8),
- * 4.1d — 0x45f0cc..0x45f13a (B9), 4.1e — 0x45f13d..0x45f21a (B10), 4.1f —
- * 0x45f21d..0x45f292 (B11/B12) и 4.1g — 0x45f295..0x45f36d (B13/B14; карта
- * re/phase4_45eee0.md §8.2). B15 и далее не портированы; функция static и
- * ниоткуда не вызывается (детур и wiring — 4.2).
+ * Порт тела — дизасм 1.2 (все ветки, включая пост-обработку результата
+ * FUN_0045e0a0 и хвост 0x45f3a5), нативные листья — по инвентарю 1.4, один
+ * детур на функцию (инвариант 5) — `install_tick_hook` (4.2).
  */
 #include <string.h>
 
@@ -21,7 +19,7 @@
 
 /* --- 4.2: детур FUN_0045eee0 и диспетчер e0a0 ---------------------------- */
 
-volatile LONG g_s7_tick_on = 0;      /* 1 = порт s6_tick_move, 0 = трамплин */
+volatile LONG g_s7_tick_on = 0;      /* 1 = порт s6_unit_ai_tick, 0 = трамплин */
 void *g_s7_tick_cont = NULL;         /* 0x45eee5 — продолжение после 5 Б пролога */
 
 /* Диспетчер e0a0 с НАТИВНЫМ ABI (thiscall, ECX = BattleAI, 4 стек-аргумента,
@@ -43,11 +41,11 @@ static int s6_e0a0_dispatch(BattleAI *self, int filter, void *cmp_pos, int arg3,
 }
 
 /* cdecl-обёртка порта для накед-хука: (this_, rec) → код 0..4. */
-static int s6_tick_move(BattleAI *self, void *rec_arg);   /* порт 4.1a..4.1h */
+static int s6_unit_ai_tick(BattleAI *self, void *rec_arg);   /* порт 4.1 */
 
 static int s7_tick_run(BattleAI *self, void *rec_arg)
 {
-    return s6_tick_move(self, rec_arg);
+    return s6_unit_ai_tick(self, rec_arg);
 }
 
 /* Трамплин выключенного порта: воспроизводит украденный пролог (5 Б:
@@ -66,7 +64,7 @@ __declspec(naked) void s7_tick_tramp(void)
 
 /* Хук на вход 0x45eee0 (E9 из 5 Б). ABI: __thiscall, ECX = BattleAI,
  * [esp+4] = rec, `ret $4`, EAX = код 0..4. Переключатель — g_s7_tick_on
- * (ставится install_tick_hook при LDHOOK_SITE6=1): 1 → порт s6_tick_move,
+ * (ставится install_tick_hook при LDHOOK_SITE6=1): 1 → порт s6_unit_ai_tick,
  * 0 → трамплин с нативным телом (хук в этом режиме не активен). Ре-энтри
  * гарда нет — как у site6 (полная замена, тело натива не исполняется). */
 __declspec(naked) void s7_tick_hook(void)
@@ -157,7 +155,7 @@ static void s6_timer_restart(BattleAI *self)
     }
 }
 
-/* FUN_0045eee0 — тик выбора точки движения (__thiscall, ECX = BattleAI*,
+/* FUN_0045eee0 = `s6_unit_ai_tick` — тик юнит-AI (__thiscall, ECX = BattleAI*,
  * 1 стек-аргумент rec, RET 4). Кадр: F = entry−104 (sub $0x58 + push
  * ebx/ebp/esi/edi @0x45eee0..0x45eeee); слоты F+k моделируются массивом dword
  * по паттерну LS(k) из path.cpp. rec — стек-аргумент [entry+4] = слот F+0x6c.
@@ -172,8 +170,8 @@ static void s6_timer_restart(BattleAI *self)
  * 4.1h — B15/B16/B17 и три эпилога (0x45f36f..0x45f427). Сигнатура нативная
  * (int, один стек-аргумент, `ret $4`), возврат = код 0..4 как в EAX эпилогов
  * 0x45f382/0x45f413/0x45f425. Тело — под harness-__try (§8.1 п.9, паттерн
- * s6_ai_update). Функция static и ниоткуда не вызывается (детур и wiring — 4.2). */
-static int s6_tick_move(BattleAI *self, void *rec_arg)
+ * s6_ai_update). Детур и wiring — `install_tick_hook` (ldhook.cpp, 4.2). */
+static int s6_unit_ai_tick(BattleAI *self, void *rec_arg)
 {
     int l[34];                       /* F−0x18..F+0x6c: index 0 = слот F−0x18 (temp B9) */
     unsigned char *ctx;

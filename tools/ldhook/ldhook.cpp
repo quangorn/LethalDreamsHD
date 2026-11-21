@@ -559,8 +559,8 @@ static void install_site6(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* Phase 4.2: detour FUN_0045eee0 (тик выбора точки движения) на его  */
-/* faithful-порт s6_tick_move (battle/move.cpp). Тот же гейт, что у    */
+/* Phase 4.2: detour FUN_0045eee0 (тик юнит-AI) на его                */
+/* faithful-порт s6_unit_ai_tick (battle/move.cpp). Тот же гейт, что у */
 /* site6 (LDHOOK_SITE6 через s6_port_enabled). Пролог = 5 Б            */
 /* (`sub $0x58,%esp; push %ebx; push %ebp` @0x45eee0..0x45eee4),       */
 /* продолжение 0x45eee5 сохраняется; трамплин s7_tick_tramp в move.cpp */
@@ -603,7 +603,7 @@ static void install_tick_hook(void)
         return;
     }
     g_s7_tick_on = 1;                 /* порт активен; 0 → трамплин (натив) */
-    ld_info("install_tick_hook: 0x%08x -> s6_tick_move (5 B stolen, cont=0x%08x)",
+    ld_info("install_tick_hook: 0x%08x -> s6_unit_ai_tick (5 B stolen, cont=0x%08x)",
             (unsigned)(size_t)site, (unsigned)(size_t)cont);
 }
 

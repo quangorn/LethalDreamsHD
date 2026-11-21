@@ -1,6 +1,6 @@
 /* battle/battle.h — объявления слоёв боевого AI (PLAN_BATTLE_AI_CPP.md).
  * Слои: сетка (grid.cpp), pathfinding (path.cpp), поиск цели (target.cpp),
- * движение (move.cpp, Фаза 4), тик (tick.cpp, Фаза 5), trace-каркас.
+ * юнит-AI (move.cpp, Фаза 4), тик (tick.cpp, Фаза 5), trace-каркас.
  * Имена s6_* взяты из ldhook.cpp (перенос кода); переименование
  * по дизасму — Фазы 2–5.
  */
