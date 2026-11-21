@@ -4,11 +4,12 @@
 реализовано. Актуальное состояние — `docs/STATE.md`, пайплайны — `docs/PIPELINE.md`,
 отменённые планы — `docs/archive/CANCELLED_Q_MODE.md`, грабли — `docs/PITFALLS.md`.
 
-## Сессия 2026-11-21: порт боя — Фаза 3 закрыта офлайн-replay
+## Сессия 2026-11-21: порт боя — Фазы 3 и 4 закрыты офлайн-replay
 
-- `[P]` Гейт Фазы 3 — офлайн per-call replay (`battle_replay_diff.py` rc 0 на capture v8); живой A/B санитарный
+- `[P]` Гейт Фазы 3 — офлайн per-call replay (`battle_replay_diff.py` на capture v8); живой A/B санитарный
   — решение 3.7, `docs/PLAN_BATTLE_AI_CPP.md`.
-- `[P]` Известный остаток (решение 3.8): на части вызовов порт убегает в цикле `e0a0`; Фаза 4 не блокируется.
+- `[P]` Фаза 4 закрыта (решение 4.8): `s6_unit_ai_tick` + детур, capture v9 + replay `eee0` (решение 28/28),
+  живой прогон без крашей; остаток `map1`/`occ`/`s30` — класс 3.8.
 - `[P]` Site4/cap-API удалены (п. 3.4), site5 — носитель H4/H5/H6; эталон `.pyd` и `battle_replay.exe` — артефакты
   `tools/ldhook/build.py` и `tools/probes/battle_replay_build.py`.
 

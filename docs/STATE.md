@@ -174,12 +174,14 @@ PRISTINE 2967, HD_PACK 1379, ALLOWED 728, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0
 - `[P]` Контрольный прогон боя — обёртки `tools/probes/battle_169.ps1` (16:9) и `battle_43.ps1` (4:3) над раннером
   `perform_action_in_game.ps1` (20.11.2026): `MenuSec=6`, `-Waves 3`, снимок `shot:summons`; Enter×2 при загрузке
   сейва, Enter на «Атака?», один `key:32` сразу после входа в бой (снимает стартовую паузу боя). Грабля — `docs/PITFALLS.md`.
-- `[P]` Порт боя: Фазы 0–3 закрыты (19–21.11.2026); гейт Фазы 3 — офлайн per-call replay
-  (`battle_replay_diff.py` rc 0 на capture v8), живой A/B — санитарный, решение 3.7 — `docs/PLAN_BATTLE_AI_CPP.md`.
+- `[P]` Порт боя: Фазы 0–4 закрыты (19–21.11.2026); гейт Фазы 3 — офлайн per-call replay
+  (`battle_replay_diff.py` на capture v8), Фазы 4 — capture v9 + replay `eee0` (решение 4.8),
+  живой A/B — санитарный, решения 3.7/4.8 — `docs/PLAN_BATTLE_AI_CPP.md`.
 - `[P]` Остаток Фазы 3 (решение 3.8): на части вызовов порт уходит в runaway цикла `e0a0`; листья
-  расходятся с первого такого вызова; открытый дефект, Фаза 4 не блокируется.
-- `[P]` Фаза 4: `45eee0` = `s6_unit_ai_tick` (тик юнит-AI, не «движение»); trace — фиксированные
-  29 полей 1.7, решение и аргументы несут `code`/`out`, `c1/x1/y1`, `c2/x2/y2`, `trk/bd2` — `battle/move.cpp`, `battle/trace.cpp`.
+  расходятся с первого такого вызова; открытый дефект, перенесён в остаток Фазы 4 (решение 4.8).
+- `[P]` Фаза 4 закрыта: `45eee0` = `s6_unit_ai_tick` (тик юнит-AI, не «движение»), детур
+  `install_tick_hook`, capture v9 + офлайн-replay `eee0`; trace — фиксированные 29 полей 1.7
+  (`code`/`out`, `c1/x1/y1`, `c2/x2/y2`, `trk/bd2`) — `battle/move.cpp`, `battle/trace.cpp`.
 - `[U]` Цель порта боя (19.11.2026): читаемая C++-реализация боевой логики и поиска пути
   (слои `44bdd0` → `45eee0` → `e0a0` → `dd70`), нативные вызовы для GUI/плумбинга; fidelity-first,
   CPU = baseline. Фазы, границы и гейты — `docs/PLAN_BATTLE_AI_CPP.md`.
