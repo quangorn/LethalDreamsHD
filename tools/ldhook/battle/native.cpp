@@ -1496,6 +1496,37 @@ int band_target_moved(void *band, float p1, int p2, float p3)
     return res;
 }
 
+/* --- Фаза 5.1b-16: R17 (сайт `0x44cbd0`) --- */
+
+/* FUN_0045eee0 — тик юнит-AI. ECX = BattleAI (= unit+0x138), 1 стек-аргумент
+ * = &per-tick record, `ret $4`, EAX = код 0..4. Нативная форма для диспетчера
+ * R17 (battle/tick.cpp), т.е. хук site6/трамплин не задействованы. */
+int unit_ai_tick(void *ai, void *rec)
+{
+    void *addr = fn(0x45eee0);
+    int res = 0;
+
+    if (addr == NULL) {
+        return 0;
+    }
+    __try {
+        __asm {
+            pushad                         /* esp «до аргументов», регистры в стеке */
+            mov esi, esp                   /* сохранённый esp */
+            mov ecx, ai
+            push rec                       /* arg1 — [ESP+4] на входе */
+            mov eax, addr
+            call eax
+            mov res, eax                   /* eax читается до восстановления esp */
+            mov esp, esi                   /* RET 4 снял аргумент */
+            popad                          /* + регистры вызывающего */
+        }
+    } __except (native::av_filter()) {
+        res = 0;
+    }
+    return res;
+}
+
 /* Игровой строковый литерал по VA (base + RVA), см. native.h. */
 const char *literal(unsigned int va)
 {

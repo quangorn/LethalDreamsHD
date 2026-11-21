@@ -301,6 +301,15 @@ void band_interp_gate(void *band, float p2, int p3, float p4, float *out_f);
  * sites: 0x44c554 (B63), 0x44c65d (B70, R10). */
 int band_target_moved(void *band, float p1, int p2, float p3);
 
+/* --- Фаза 5.1b-16: R17 (FUN_0044bdd0, сайт `0x44cbd0`) --- */
+
+/* FUN_0045eee0 — тик юнит-AI (порт Фазы 4 — `s6_unit_ai_tick`; здесь нативная
+ * форма для диспетчера выключенного порта, см. `b0_45eee0_dispatch` в
+ * battle/tick.cpp). ABI: `int __thiscall(BattleAI*, ptr)` — ECX = BattleAI
+ * (= unit+0x138), 1 стек-аргумент = &per-tick record (7 dword, frame+0xa4),
+ * `ret $4`, EAX = код 0..4. Наке́д-хук/трамплин site6 не используется. */
+int unit_ai_tick(void *ai, void *rec);
+
 /* Игровая куча (п. 2.2): путь аллокации игровых структур — только через эти
  * обёртки; malloc/free из .pyd запрещены (план, «Риски»). Оба — cdecl с одним
  * аргументом, очистка вызывающим (листинг 0x4cfa11: вызывающий ADD ESP,4

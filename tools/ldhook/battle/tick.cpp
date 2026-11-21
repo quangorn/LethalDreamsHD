@@ -22,7 +22,10 @@
  * string-клон msg + `446a80`, цепочки флагов, `448c30(0x40)`) и R16
  * (`0x44ca4c..0x44cb38`, B96..B102: cursor-хвост `0x4eec4c`, out-write
  * `*param_3 = 1`, msg-dtor `462780`, dtor-join PathFinder `45e5e0` на
- * `frame+0xcc`, sentinel −10000.0f в `unit+0xa4..0xac`);
+ * `frame+0xcc`, sentinel −10000.0f в `unit+0xa4..0xac`) и R17
+ * (`0x44cb39..0x44cc18`, B103..B108: per-tick запись из 7 dword на
+ * `frame+0xa4`, `45eee0` через диспетчер, `[unit+0x170]==0` → assert-лог +
+ * цепочка флагов);
  * все листья —
  * нативные
  * `native::…`, один детур на функцию (инвариант 5) — H1 `0x44bdf5` с возвратом
@@ -37,7 +40,7 @@
  * EDI/EBX не восстанавливает (их снимает нативный эпилог).
  *
  * Детур разоружён, пока тело неполное: `b0_port_enabled()` = LDHOOK_SITE5=1
- * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R16 — явные UNPORTED-
+ * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R17 — явные UNPORTED-
  * заглушки с адресом блока-цели; они возвращают 0 (= `xor al,al` @0x44d072).
  */
 #include <stdlib.h>
@@ -47,7 +50,7 @@
 #include "battle.h"
 #include "native.h"
 
-/* B0_BODY_COMPLETE — 0: портирован только R1..R16, тело неполное (дальше —
+/* B0_BODY_COMPLETE — 0: портирован только R1..R17, тело неполное (дальше —
  * UNPORTED-выходы), поэтому детур обязан быть разоружён. Определяется в 1
  * тем чанком, который доводит тело до единственного RET `0x44d08c`. */
 #ifndef B0_BODY_COMPLETE
@@ -77,7 +80,7 @@ int b0_env_on(void)
 int b0_port_enabled(void)
 {
 #if !B0_BODY_COMPLETE
-    /* UNPORTED: R17..R23 не портированы — детур не встаёт. */
+    /* UNPORTED: R18..R23 не портированы — детур не встаёт. */
     return 0;
 #else
     return b0_env_on();
@@ -131,6 +134,22 @@ static void *b0_player_flag_chain(void *unit)
     void *player = native::player_get(unit, 1);          /* 0x44bfbf */
     void *flag = native::player_flag_get(player, 1);     /* 0x44bfc4 */
     return native::player_flags(flag);                   /* 0x44bfcb */
+}
+
+/* --- R17: диспетчер `45eee0` -------------------------------------------- *
+ * Сигнатура натива: `int __thiscall(ECX = BattleAI*, stack = rec)`, `ret $4`.
+ * Гейт — `s6_port_enabled()` (target.cpp; тот же, что у site6): включён →
+ * порт Фазы 4 `s6_unit_ai_tick`, выключен → нативный `45eee0` через чистую
+ * thiscall-обёртку `native::unit_ai_tick` (НЕ накед-хук/трамплин site6 —
+ * тот ставится только под LDHOOK_SITE6 и заменяет вход функции целиком).
+ * Аргументы — ровно те, что уже стоят в call-site порта: ctx = unit+0x138,
+ * rec = &per-tick записи (frame+0xa4). */
+static int b0_45eee0_dispatch(void *ctx, void *rec)
+{
+    if (s6_port_enabled()) {
+        return s6_unit_ai_tick((BattleAI *)ctx, rec);
+    }
+    return native::unit_ai_tick(ctx, rec);
 }
 
 static int b0_body_r1_r2(void *unit_, unsigned char *frame)
@@ -1004,8 +1023,94 @@ b102_r16:
     *(unsigned int *)(unit_x + 0xac) = *(const unsigned int *)(frame + 0x18); /* 0x44cb2f..0x44cb36 */
     /* fall 0x44cb39 */
 b103_r17:
-    /* 0x44cb39 — TODO(5.1b-16) UNPORTED: R17 (per-tick запись + 45eee0).
-     * Возврат 0 = путь `xor al,al` @0x44d072. */
+    /* --- R17: tick core — per-tick запись → `45eee0` → `[unit+0x170]==0`
+     * лог (`0x44cb39..0x44cc18`, B103..B108) ---------------------------- *
+     * Входы: B101 `0x44cb05 jmp` ×2 (R14 state==3 / R15 JP) и B102 fall.
+     * На обоих EBP не сдвинут (`ADD EBP,0x18` B96 уходит в b97/b99/b100),
+     * поэтому `[EBP+…]` == unit_x == unit.
+     * EDI на обоих входах = 0: B77 `XOR EDI,EDI`; R14 его только читает,
+     * R15 B90 пишет frame+0x80 уже ПОСЛЕ B89 JP — до R17 не доходит. R17
+     * EDI не переписывает, а использует как ноль в pre-zero и `CMP`.
+     * EBX = `frame+0x160` (B80) либо 0 (B79): R16 B96 пишет только BL, а
+     * B101/B102 её не исполняют, поэтому EBX = значение B80/B79.
+     * Запись — 7 dword (base `[ESP+0xa4]` = frame+0xa4; record[6] натив
+     * пишет как `[ESP+0xc0]` уже после PUSH, т.е. frame+0xbc), приёмник
+     * `45eee0` — ECX = `&unit+0x138`, стек-аргумент = `PUSH &record`,
+     * `RET 4`, возврат EAX не читается. */
+    {
+        unsigned char cl;
+        unsigned int flags;
+        void *tree;
+        void *pos_ptr;
+        float rec5;
+
+        /* B103 (0x44cb39..0x44cb9e) — сборка записи. Порядок = листинг. */
+        cl = frame[0x15c];                              /* 0x44cb39 param_1 slot */
+        tree = *(void **)(unit_x + 0xe0);               /* 0x44cb40 */
+        *(unsigned int *)(frame + 0xac) = (unsigned int)edi;  /* 0x44cb4a rec[2]=EDI */
+        *(unsigned int *)(frame + 0xb0) = (unsigned int)edi;  /* 0x44cb51 rec[3]=EDI */
+        *(unsigned int *)(frame + 0xb4) = (unsigned int)edi;  /* 0x44cb58 rec[4]=EDI */
+        *(void **)(frame + 0xa8) = unit_x;              /* 0x44cb5f rec[1]=EBP */
+        /* 0x44cb46..0x44cb68: DL=CL; NEG DL; SBB EDX,EDX; AND EDX,0x80 —
+         * bit7 = (CL != 0); далее `OR EBX`, `OR 0x63` (@0x44cb6e/0x44cb70). */
+        flags = ebx | 0x63u;
+        if (cl != 0) {
+            flags |= 0x80u;
+        }
+        /* 0x44cb73 `TEST CL,CL` — ZF живёт до ветви 0x44cb9e. */
+        *(unsigned int *)(frame + 0xa4) = flags;        /* 0x44cb75 rec[0] */
+        tree = *(void **)((unsigned char *)tree + 0x44);      /* 0x44cb7c */
+        tree = *(void **)((unsigned char *)tree + 0x238);     /* 0x44cb7f */
+        pos_ptr = frame + 0x2c;                         /* 0x44cb85 &pos-тройки */
+        *(void **)(frame + 0xac) = tree;                /* 0x44cb89 rec[2] */
+        *(unsigned int *)(frame + 0xb4) = (unsigned int)edi;  /* 0x44cb90 rec[4] re-zero */
+        *(void **)(frame + 0xb0) = pos_ptr;             /* 0x44cb97 rec[3] */
+        /* B104/B105 (0x44cba0/0x44cba8) — CL≠0 → `[unit+0x12c]`, иначе
+         * `[unit+0x128]`; B106 FSTP m32 (`fstps`, x87 80 → float 32). */
+        rec5 = (cl != 0) ? *(const float *)(unit_x + 0x12c)
+                         : *(const float *)(unit_x + 0x128);
+        *(float *)(frame + 0xb8) = rec5;                /* 0x44cbb5 rec[5] */
+        *(unsigned int *)(frame + 0xbc) = 0;            /* 0x44cbc5 rec[6] */
+        /* 0x44cbbc..0x44cbd0 — ECX = &unit+0x138 (ESI), PUSH &record. */
+        (void)b0_45eee0_dispatch(unit_x + 0x138, frame + 0xa4);
+    }
+    /* B106 (0x44cbd5..0x44cbdd) — dispatch по `[unit+0x170]` (сравнение с
+     * EDI=0); возврат `45eee0` в EAX не читается. */
+    if (*(const int *)(unit_x + 0x170) != edi) {
+        goto b116_r18;                                  /* 0x44cbdd jne 0x44cc84 */
+    }
+
+    /* B107 (0x44cbe3..0x44cbfb) — assert-лог (код 0xa), затем vtable+0x40
+     * БЕЗ push: callee читает свой [esp+4] = верх ESP вызывающего = frame =
+     * слот сохранённого EDI пролога (модель B15/B24/B35). NULL → B112. */
+    native::log_assert(unit_x, native::literal(0x51cc50), 0xa); /* 0x44cbe3..0x44cbec */
+    if (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL) {
+        goto b112_r18;                                  /* 0x44cbfb je 0x44cc5c */
+    }
+
+    /* B108 (0x44cbfd..0x44cc17) — цепочка флагов (`push 1` → vtable+0x40 →
+     * 42da60 → 435d50); NULL → B112, иначе fall → R18 B109. */
+    flags_obj = b0_player_flag_chain(unit_x);           /* 0x44cbfd..0x44cc10 */
+    if (flags_obj == NULL) {
+        goto b112_r18;                                  /* 0x44cc17 je 0x44cc5c */
+    }
+    goto b109_r18;                                      /* fall 0x44cc19 → R18 */
+
+b109_r18:
+    /* 0x44cc19 — TODO(5.1b-17) UNPORTED: R18 B109..B111 (каскад dispatch,
+     * `testb $2`/`testb $4` → `448c30(0x40)`). Возврат 0 = `xor al,al`
+     * @0x44d072. */
+    return 0;
+
+b112_r18:
+    /* 0x44cc5c — TODO(5.1b-17) UNPORTED: R18 B112..B115 (msg-гейт
+     * `[unit+0x34]`, LoadCursorFromFileA(0x4eec24), out-guard `*param_3 = 0`
+     * → эпилог 0x44d072). */
+    return 0;
+
+b116_r18:
+    /* 0x44cc84 — TODO(5.1b-17) UNPORTED: R18 B116..B120 (`CMP EAX,2` →
+     * cursor-блок K1 → проверки ==3/==4 → R19 0x44cd74). */
     return 0;
 
 b74_cursor_tail:
@@ -1339,7 +1444,7 @@ b135_join:
 int b0_battle_ai_dispatch(void *unit, unsigned char *frame)
 {
 #if B0_BODY_COMPLETE
-    return b0_body_r1_r2(unit, frame);      /* TODO(5.1b-16): R17..R23 */
+    return b0_body_r1_r2(unit, frame);      /* TODO(5.1b-17): R18..R23 */
 #else
     /* UNPORTED: тело неполное — единственный вход детура остаётся пустым. */
     (void)&b0_body_r1_r2;
