@@ -69,7 +69,9 @@ python tools/probes/trace_diff.py <nat.log> <port.log> --align=ordinal [--fields
 
 - Исполнитель-сабагент по одному пункту; **первое ревью — всегда `strata`**; модель по
   сложности: простые — `strata/q3.8-fn#medium`, средние/сложные — `ernie-5.5-flash:free#high`,
-  резерв — `particle-1:free#high`.
+  резерв — `particle-1:free#high`. Бесплатные варианты имеют суточный лимит: когда он
+  исчерпан, переходим на платные — Ernie → `@preset/hy4-flash#thinking`,
+  Particle → `@preset/ds-flash-41-cheapest#low`.
 - Сабагенты **не коммитят**: коммит и docs — оркестратор. Один сабагент за раз.
 - После каждой правки: сборки, `check_sites.py`, replay на регрессионной базе (числа не
   должны падать), `check_state.py --quick`.
