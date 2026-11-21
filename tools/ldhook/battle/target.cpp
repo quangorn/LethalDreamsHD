@@ -403,7 +403,7 @@ static PFN_timeGetTime s6_time_get(void)
     return fn;
 }
 
-static unsigned long s6_time_ms(void)
+unsigned long s6_time_ms(void)
 {
 #ifdef BATTLE_REPLAY
     /* Харнесс: часы — внешний вход (захваченный timeGetTime), порт сам

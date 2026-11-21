@@ -7,9 +7,9 @@
  *
  * Статус: портированы sub-steps 4.1a — пролог 0x45eee0..0x45ef7f (B0/B1/B2),
  * 4.1b — 0x45ef82..0x45efdb (B3/B4/B5), 4.1c — 0x45efdc..0x45f0c7 (B6/B7/B8),
- * 4.1d — 0x45f0cc..0x45f13a (B9) и 4.1e — 0x45f13d..0x45f21a (B10; карта
- * re/phase4_45eee0.md §8.2). B11 и далее не портированы; функция static и
- * ниоткуда не вызывается (детур и wiring — 4.2).
+ * 4.1d — 0x45f0cc..0x45f13a (B9), 4.1e — 0x45f13d..0x45f21a (B10) и 4.1f —
+ * 0x45f21d..0x45f292 (B11/B12; карта re/phase4_45eee0.md §8.2). B13 и далее не
+ * портированы; функция static и ниоткуда не вызывается (детур и wiring — 4.2).
  */
 #include <string.h>
 
@@ -56,6 +56,33 @@ static void s6_ai_reset(BattleAI *self)
     *(int *)(p + 0x2c) = 0;                            /* @0x45c355 mov %ebx,0x2c(%esi) */
     *(unsigned char *)(p + 0x30) = 0;                  /* @0x45c358 mov %bl,0x30(%esi) */
     *(unsigned int *)(p + 0x34) = 0x0098967fu;         /* @0x45c35b movl $0x98967f,0x34(%esi) */
+}
+
+/* FUN_0045c570 (0x45c570..0x45c597) — рестарт игрового таймера AI, тонкий порт
+ * (инвентарь §5: «порт» + нативный лист timeGetTime). __thiscall, ECX = BattleAI,
+ * 0 стек-аргументов (`ret` @0x45c597). Схема: `call *0x4ec27c` (@0x45c574,
+ * timeGetTime) → `test eax,eax` (@0x45c57a) → `fildl` (@0x45c580; <0 —
+ * `faddl [0x4ecd10]` = 2^32 @0x45c586) → `fmull [0x4ecd08]` = 0.001
+ * (@0x45c58c) → `fstps 0x4(%esi)` (@0x45c592): this+0x04 = секунды. Цепочка в
+ * 80-битном x87 без промежуточного double — инлайн-асм (как s6_check_timeout). */
+static const double s6_tr_two32 = 4294967296.0;   /* 0x4ecd10 */
+static const double s6_tr_milli = 0.001;          /* 0x4ecd08 */
+
+static void s6_timer_restart(BattleAI *self)
+{
+    int ms = (int)s6_time_ms();                    /* @0x45c574 call *0x4ec27c */
+
+    __asm {
+        fild    dword ptr [ms]                     /* @0x45c580 fildl 0x4(%esp) — знаковое */
+        mov     eax, [ms]
+        test    eax, eax
+        jge     short s6_tr_nofix                  /* @0x45c584 jge 0x45c58c */
+        fadd    qword ptr [s6_tr_two32]            /* @0x45c586 faddl 0x4ecd10 = 2^32 */
+    s6_tr_nofix:
+        fmul    qword ptr [s6_tr_milli]            /* @0x45c58c fmull 0x4ecd08 = 0.001 */
+        mov     eax, [self]
+        fstp    dword ptr [eax + 4]                /* @0x45c592 fstps 0x4(%esi) — this+0x04 */
+    }
 }
 
 /* FUN_0045eee0 — тик выбора точки движения (__thiscall, ECX = BattleAI*,
@@ -367,6 +394,54 @@ static void s6_tick_move(BattleAI *self, void *rec_arg)
             ebp = *(void **)((unsigned char *)(INT_PTR)node + 0x10);  /* @0x45f21a mov 0x10(%eax),%ebp — PathState* узла */
         }
         (void)ebp;   /* регистр живёт до B11 (0x45f21d) — трансляция продолжается в 4.1f */
+    }
+
+    /* B11 (0x45f21d..0x45f269) — lower_bound #2 и поиск #1 e0a0(filter=1).
+     * Слоты #2 (0x434bc0, та же конвенция, что в B10): первый push %eax =
+     * `lea 0x2c(%esi)` @0x45f21d/0x45f220 = &self->anchor — KEY; второй push
+     * %ecx = `lea 0x70(%esp)` @0x45f221/0x45f225 = &F+0x6c — OUT. EAX на выходе
+     * = out-указатель, поэтому node = *(out) = LS(0x6c) (`mov (%eax),%eax`
+     * @0x45f230). EDI = кандидат: 0 или node->[0x10]. */
+    {
+        int cand;
+        int node2;
+        int *code_ptr;
+
+        cand = 0;                                            /* @0x45f229 xor %edi,%edi — до call */
+        native::lower_bound_slots(&self->map1,               /* @0x45f226 ecx = lea 0x68(%esi) */
+                                  &LS(0x6c),                 /* @0x45f221 lea 0x70(%esp) / @0x45f225 push — out */
+                                  (int *)((unsigned char *)self + 0x2c));  /* @0x45f21d lea 0x2c(%esi) / @0x45f220 push — key = &self->anchor */
+        node2 = LS(0x6c);                                    /* @0x45f230 mov (%eax),%eax — eax = out-указатель */
+        if (node2 != (int)(INT_PTR)self->cand_head) {         /* @0x45f232 cmp 0x6c(%esi) / @0x45f235 je 0x45f23a */
+            cand = *(const int *)((unsigned char *)(INT_PTR)node2 + 0x10);  /* @0x45f237 mov 0x10(%eax),%edi */
+        }
+        /* Гейт `flds S(0x10); fcomps 0.0f; fnstsw; test $0x44,%ah; jnp`:
+         * маска C3|C2 — jnp взят ⟺ C3≠C2 ⟺ равно (C3=1,C2=0) → пропуск поиска;
+         * иначе (больше/меньше/unordered: C3=C2) поиск идёт. Итог: skip ⟺
+         * bits == 0.0f, включая NaN как «не равно» → вызов. */
+        if (s6_bits_get(LS(0x10)) != 0.0f) {                  /* @0x45f23a flds 0x10 / @0x45f23e fcomps [0x4ec37c] / @0x45f246 test $0x44 / @0x45f249 jnp 0x45f26b */
+            s6_timer_restart(self);                           /* @0x45f24b/0x45f24d call 0x45c570 — ДО e0a0 */
+            cand = (int)(INT_PTR)s6_target_search(
+                self,                                         /* @0x45f262 mov %esi,%ecx */
+                (void *)(INT_PTR)1,                           /* @0x45f260 push $1 — arg1 filter */
+                self->anchor,                                 /* @0x45f25a mov 0x2c(%esi),%ecx / @0x45f25f push — arg2 cmp_pos */
+                (void *)(INT_PTR)LS(0x10),                    /* @0x45f256 mov 0x10(%esp),%eax / @0x45f25e push — arg3 float bits */
+                (void *)(INT_PTR)LS(0x14));                   /* @0x45f252 mov 0x14(%esp),%edx / @0x45f25d push — arg4 out_code = &self+0x38 */
+        }                                                     /* @0x45f269 mov %eax,%edi */
+        /* B12 (0x45f26b..0x45f292) — код == 1 → эвристика 45c5e0 по spec-окну.
+         * Если гейт выше пропустил поиск, cand остаётся 0 и разыменования
+         * `0x10(%edi)`/`(%edi)` здесь падают так же, как в нативе; SEH-рамку
+         * функции (`__try` по плану §8.1 п.9) добавляет конец 4.1, здесь её нет. */
+        code_ptr = (int *)(INT_PTR)LS(0x14);                  /* @0x45f26b mov 0x14(%esp),%edx — &self+0x38 */
+        if (*code_ptr == 1) {                                 /* @0x45f26f cmpl $1,(%edx) / @0x45f272 jne 0x45f295 */
+            int hres;
+
+            LS(0x44) = *(const int *)((const unsigned char *)(INT_PTR)cand + 0x10);  /* @0x45f274 mov 0x10(%edi),%ecx / @0x45f27d mov %ecx,0x44(%esp) — spec+0x10 */
+            LS(0x34) = *(const int *)((const unsigned char *)(INT_PTR)cand + 0x00);  /* @0x45f277 mov (%edi),%eax / @0x45f284 mov %eax,0x38(%esp) — spec+0x00 */
+            hres = s6_heuristic(self, (int *)LS_BYTES(0x34));  /* @0x45f279 lea 0x34(%esp) / @0x45f281 push / @0x45f282 mov %esi,%ecx / @0x45f288 call 0x45c5e0 */
+            /* @0x45f28d test %eax,%eax / @0x45f28f seta %al (unsigned above 0) */
+            *(unsigned char *)((unsigned char *)self + 0x30) = (unsigned char)((unsigned int)hres != 0u);  /* @0x45f292 mov %al,0x30(%esi) */
+        }
     }
 
 #undef LS_BYTES
