@@ -283,6 +283,38 @@ void native_45af10(void *band)
     }
 }
 
+/* FUN_0045e9c0 (SEH-пролог 0x45e9c0..0x45e9d5; конец тела в этом суб-шаге не
+ * проверялся) — перестройка ленты `this+0x3c`: SEH-фрейм
+ * (`push -1; mov fs:0; push 0x4e70c8; mov esp,fs:0; sub 0x3c`), далее
+ * add+sort+x87-интерполяция (инвентарь §5, вердикт «нативно»). __thiscall,
+ * ECX = BattleAI, 2 стек-аргумента (`ret $8`): arg1 — узел (`push %edi`
+ * @0x45f3cd — последний push), arg2 — int-биты float `S(0x1c)` (`push %edx`
+ * @0x45f3cc). Возврат не используется (EAX перезаписан @0x45f3d5).
+ * ABI (число стек-аргументов и ret n) — стек восстанавливается сохранением
+ * esp (см. lower_bound). */
+void band_rebuild(void *ai, void *node, int bits)
+{
+    void *addr = fn(0x45e9c0);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad                         /* esp «до аргументов», регистры в стеке */
+            mov esi, esp                   /* сохранённый esp */
+            mov ecx, ai
+            push bits                      /* arg2 — старший, первый push */
+            push node                      /* arg1 — младший, [ESP+4] на входе */
+            mov eax, addr
+            call eax
+            mov esp, esi                   /* стек = сохранённый esp при любом ret n */
+            popad                          /* + регистры вызывающего */
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
 /* FUN_00458050 (0x458050..0x4581f4) — grid-якорь. Пролог `sub $0x8` + push
  * ebx/ebp/esi/edi @0x458050..0x45805b; ECX = ctx[8] (@0x45f103/0x45f105),
  * 6 стек-аргументов (`ret $0x18` @0x45814e/0x45815a). Чтения аргументов:

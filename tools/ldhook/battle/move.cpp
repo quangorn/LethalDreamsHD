@@ -95,8 +95,14 @@ static void s6_timer_restart(BattleAI *self)
  * rec→ctx), B2 (аллокация sub-объекта ctx[0xc] + 4-dword копия из rec[0xc]).
  * 4.1b = B3 (x87-гейт world[0x120] → AND флагов ctx, биты 1/5), B4 (бит6 →
  * band_free/native_45af10 по &self[0x3c]), B5 (бит7 → s6_ai_reset/clear_maps).
- * Регистр-носитель нуля: EBX = 0 с @0x45eeea до B16 (перечитывается @0x45f3da). */
-static void s6_tick_move(BattleAI *self, void *rec_arg)
+ * Регистр-носитель нуля: EBX = 0 с @0x45eeea до B16 (перечитывается @0x45f3da).
+ *
+ * 4.1c — B6/B7/B8, 4.1d — B9, 4.1e — B10, 4.1f — B11/B12, 4.1g — B13/B14,
+ * 4.1h — B15/B16/B17 и три эпилога (0x45f36f..0x45f427). Сигнатура нативная
+ * (int, один стек-аргумент, `ret $4`), возврат = код 0..4 как в EAX эпилогов
+ * 0x45f382/0x45f413/0x45f425. Тело — под harness-__try (§8.1 п.9, паттерн
+ * s6_ai_update). Функция static и ниоткуда не вызывается (детур и wiring — 4.2). */
+static int s6_tick_move(BattleAI *self, void *rec_arg)
 {
     int l[34];                       /* F−0x18..F+0x6c: index 0 = слот F−0x18 (temp B9) */
     unsigned char *ctx;
@@ -108,6 +114,11 @@ static void s6_tick_move(BattleAI *self, void *rec_arg)
 #define LS_BYTES(k) ((unsigned char *)(l + (((k) + 0x18) >> 2)))
 
     LS(0x6c) = (int)(INT_PTR)rec_arg;   /* rec = [entry+4] = слот F+0x6c */
+
+    /* Тело — под harness-__try по плану §8.1 п.9 (рамка 0x44bdd0 в игре;
+     * паттерн s6_ai_update: EXCEPTION_EXECUTE_HANDLER → возврат 0). Границы
+     * __try отмечены на нулевом отступе, текст блоков не переиндентирован. */
+    __try {
 
     /* B0 — ленивая аллокация ctx (0x1c байт) игровым operator new.
      * EBX = 0 (@0x45eeea) — носитель нуля для записей ниже. */
@@ -311,7 +322,7 @@ static void s6_tick_move(BattleAI *self, void *rec_arg)
             *(void **)(ctx + 0x04));                         /* arg6 = world */
         self->anchor = (LDPos *)anchor;                      /* @0x45f113 mov %eax,0x2c(%esi) */
         if (anchor == NULL) {                                /* @0x45f111 cmp %ebx,%eax / @0x45f116 je 0x45f379 */
-            return;                                          /* эпилог 0x45f379..0x45f382: EAX=0, ret $4; код — 4.1h */
+            return 0;                                        /* эпилог 0x45f379..0x45f382: EAX=0, ret $4 */
         }
         metric = *(const int *)((const unsigned char *)anchor + 0x14);  /* @0x45f11c mov 0x14(%eax),%edx */
         LS(0x34) = (int)(INT_PTR)anchor;                     /* @0x45f11f mov %eax,0x34(%esp) — spec+0x00 */
@@ -456,7 +467,8 @@ static void s6_tick_move(BattleAI *self, void *rec_arg)
      * ==0→0x40, NaN→0x45). */
     if (s6_bits_get(LS(0x18)) != 0.0f) {                 /* @0x45f295 flds 0x18 / @0x45f299 fcomps [0x4ec37c] / @0x45f2a1 test $0x44 / @0x45f2a4 jnp 0x45f36f */
         if (cand == 0) {                                 /* @0x45f2aa cmp %ebx,%edi / @0x45f2ac je 0x45f373 */
-            return;                                      /* эпилог 0x45f373..0x45f382: *LS(0x14)=0 (код), EAX=0, ret $4 — код оформляется в 4.1h */
+            *(int *)(INT_PTR)LS(0x14) = 0;               /* @0x45f373 mov 0x14(%esp),%ecx / @0x45f377 mov %ebx,(%ecx) — *out_code = 0 */
+            return 0;                                    /* @0x45f379 EAX=0 → эпилог 0x45f382 */
         }
         LS(0x6c) = *(const int *)((const unsigned char *)self->cand_head);  /* @0x45f2b2 mov 0x6c(%esi),%ecx / @0x45f2b5 mov (%ecx),%eax / @0x45f2b9 mov %eax,0x6c(%esp) — итератор = head->[0] */
         if (LS(0x6c) != (int)(INT_PTR)self->cand_head) { /* @0x45f2b7 cmp %ecx,%eax / @0x45f2bd je 0x45f2f2 — пустая карта */
@@ -515,6 +527,70 @@ static void s6_tick_move(BattleAI *self, void *rec_arg)
                 (void *)(INT_PTR)LS(0x18),               /* @0x45f35b mov 0x18(%esp),%edx / @0x45f362 push — arg3 float bits */
                 (void *)(INT_PTR)LS(0x14));              /* @0x45f357 mov 0x14(%esp),%ecx / @0x45f361 push — arg4 out_code */
         }                                                /* @0x45f36d mov %eax,%edi — EDI = node2 (вход B15) */
+    }
+
+    /* B15 (0x45f36f..0x45f384) — NULL-гейт node2 == 0: *out_code = 0, return 0
+     * (эпилог 0x45f379..0x45f382). */
+    if (cand == 0) {                                     /* @0x45f36f cmp %ebx,%edi / @0x45f371 jne 0x45f385 */
+        *(int *)(INT_PTR)LS(0x14) = 0;                   /* @0x45f373 mov 0x14(%esp),%ecx / @0x45f377 mov %ebx,(%ecx) */
+        return 0;                                        /* @0x45f379 xor %eax,%eax → эпилог 0x45f37b..0x45f382 (EAX=0) */
+    }
+
+    /* B16 (0x45f385..0x45f3d0) — база метрики (ctx[0x18] либо world[0x120] по
+     * маске 0x44: jnp взят ⟺ ctx[0x18] == 0.0f → world[0x120]), +pos[0x14],
+     * copy mask 0x10 (только spec+0x10 → node2+0x10), таймер, перестройка
+     * ленты 45e9c0. */
+    {
+        const int n2pos = *(const int *)((const unsigned char *)(INT_PTR)cand + 0x00);  /* @0x45f3a5 mov (%edi),%eax — node2->pos */
+        float base, p14;
+
+        ctx = (unsigned char *)self->game_ctx;           /* @0x45f385 mov (%esi),%ecx */
+        if (s6_bits_get(*(const int *)(ctx + 0x18)) != 0.0f) {  /* @0x45f387 flds 0x18 / @0x45f38a fcomps [0x4ec37c] / @0x45f392 test $0x44 / @0x45f395 jnp 0x45f39c */
+            memcpy(&base, ctx + 0x18, sizeof(float));    /* @0x45f397 flds 0x18(%ecx) / @0x45f39a jmp 0x45f3a5 */
+        } else {
+            const unsigned char *world =
+                (const unsigned char *)*(const void **)(ctx + 0x04);  /* @0x45f39c mov 0x4(%ecx),%edx */
+            memcpy(&base, world + 0x120, sizeof(float)); /* @0x45f39f flds 0x120(%edx) */
+        }
+        memcpy(&p14, (const unsigned char *)(INT_PTR)n2pos + 0x14, sizeof(float));  /* @0x45f3a7 flds 0x14(%eax) */
+        s6_bits_set(&LS(0x44), p14 + base);              /* @0x45f3ac fadd %st(1),%st / @0x45f3b3 fstps 0x4c(%esp) — spec+0x10 = pos[0x14] + base */
+        s6_copy_fields((int)(INT_PTR)cand,               /* @0x45f3ae push %edi — dst = node2 */
+                       (int)(INT_PTR)LS_BYTES(0x34),     /* @0x45f3af lea 0x3c(%esp) / @0x45f3b7 push — src = &spec */
+                       0x10);                            /* @0x45f3aa push $0x10 / @0x45f3bc call 0x45c4b0 — маска 0x10 = только +0x10 (out_metric) */
+        /* @0x45f3ba fstp %st(0) — сброс оставшейся базы (в C++ не нужен). */
+        s6_timer_restart(self);                          /* @0x45f3c1/0x45f3c3 call 0x45c570 */
+        native::band_rebuild(self,                       /* @0x45f3ce mov %esi,%ecx / @0x45f3cd push %edi — arg1 = node2 */
+                             (void *)(INT_PTR)cand,
+                             LS(0x1c));                  /* @0x45f3c8 mov 0x1c(%esp),%edx / @0x45f3cc push — arg2 = float bits S(0x1c); @0x45f3d0 call 0x45e9c0 (ret 8) */
+    }
+
+    /* B17 (0x45f3d5..0x45f427) — сдвиг кода 1→2, dist² vs this+0x34, код 4;
+     * все три эпилога возвращают EAX = *(this+0x38). */
+    {
+        int *code = (int *)(INT_PTR)LS(0x14);            /* @0x45f3da mov 0x14(%esp),%ebx — указатель кода */
+        int anchor = (int)(INT_PTR)self->anchor;         /* @0x45f3d5 mov 0x2c(%esi),%eax */
+
+        if (*(const int *)((const unsigned char *)(INT_PTR)cand + 0x00) != anchor) {  /* @0x45f3d8 cmp %eax,(%edi) / @0x45f3de je 0x45f3eb */
+            if (*code == 1) {                            /* @0x45f3e0 cmpl $1,(%ebx) / @0x45f3e3 jne 0x45f3eb */
+                *code = 2;                               /* @0x45f3e5 movl $2,(%ebx) — цель сместилась */
+            }
+        }
+        if (*code == 1 || *code == 2) {                  /* @0x45f3eb mov (%ebx),%ecx / @0x45f3ed cmp 1 / @0x45f3f2 cmp 2 / @0x45f3f5 jne 0x45f41c */
+            int d2;
+            /* c480(node2->pos, anchor): arg1 — последний push @0x45f3fa, arg2 — anchor @0x45f3f7. */
+            d2 = s6_distance2((void *)(INT_PTR)*(const int *)((const unsigned char *)(INT_PTR)cand + 0x00),
+                              (void *)(INT_PTR)anchor);  /* @0x45f3f7/0x45f3f8/0x45f3fa/0x45f3fd */
+            if ((unsigned int)d2 > self->distance_threshold) {  /* @0x45f402 cmp 0x34(%esi),%eax / @0x45f405 ja 0x45f416 */
+                *code = 4;                               /* @0x45f416 movl $4,(%ebx) */
+            } else {
+                self->distance_threshold = (unsigned int)d2;   /* @0x45f407 mov %eax,0x34(%esi) — новый best */
+            }
+        }
+        return *code;                                    /* @0x45f40a/0x45f41c mov (%ebx),%eax → эпилоги 0x45f413 / 0x45f425 */
+    }
+
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;                                        /* harness-рамка (0x44bdd0 в игре), как s6_ai_update */
     }
 
 #undef LS_BYTES
