@@ -160,21 +160,24 @@ PRISTINE 2967, HD_PACK 1379, ALLOWED 728, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0
   грузятся только при исправленных TLV-заголовках и `rec_bin` без `name_len`-префикса — `docs/KNOWLEDGE.md`,
   `docs/OBSERVATIONS_TEXTURE.md`, `docs/PITFALLS.md`; пайплайн и инструменты — `docs/PIPELINE.md`, `docs/TOOLS.md`.
 
-## ldhook `.pyd` (18.11.2026)
+## ldhook `.pyd` (18–21.11.2026)
 
 - `[P]` **EXE установки не трогаем**: установка остаётся на cave `exepatch12` (`171319bb…`), `ldhook.pyd` в поставку
-  не входит; `.pyd` (хуки site1/site2/site3 + логгер `hdlog.txt`) — проверенный путь следующих правок движка,
+  не входит; `.pyd` (хуки site1/site2/site3, site5/site6 + логгер `hdlog.txt`) — проверенный путь следующих правок движка,
   dev-прогоны на baseline scratch. Критерии перехода — `docs/PLAN_proxy_dll.md`, состояние и вход — `docs/HANDOFF_ldhook.md`.
 - `[P]` Правило: после любой правки EXE — `python3 tools/ldhook/check_sites.py` (скан `.text` по `VirtualSize`).
   Грабли расширений 2.2.3 (`Py_InitModule(name, NULL)` падает) и привязка AppCompat-флага к пути EXE — `docs/PITFALLS.md`.
-- `[P]` Cap тормозов боя (site4, 19.11.2026): пролог `0x45e0a0` + хвост цикла `0x45e163` в `ldhook.pyd`,
-  env `LDHOOK_CAP`; в поставку **не идёт** — прогон показал «лаги уходят, агро ломается»
-  (31% поисков упираются в cap). Установка откачена в чистое состояние (`ui/ui.pyc ae59f601…`).
+- `[P]` Site4 (cap итераций) и cap-API (`set_cap`/`cap_stats`/`diag_stats`, env `LDHOOK_CAP`) удалены
+  (п. 3.4 плана); site5 — носитель точек H4/H5/H6 (`battle/trace.cpp`). Разбор капа — `docs/PERF_BATTLE.md`.
+- `[P]` Эталон `.pyd` = артефакт `python3 tools/ldhook/build.py` (`build/ldhook/ldhook.pyd`, gitignored);
+  эталон харнесса = `build/ldhook/battle_replay.exe` от `tools/probes/battle_replay_build.py`. md5 не фиксируется.
 - `[P]` Контрольный прогон боя — обёртки `tools/probes/battle_169.ps1` (16:9) и `battle_43.ps1` (4:3) над раннером
   `perform_action_in_game.ps1` (20.11.2026): `MenuSec=6`, `-Waves 3`, снимок `shot:summons`; Enter×2 при загрузке
   сейва, Enter на «Атака?», один `key:32` сразу после входа в бой (снимает стартовую паузу боя). Грабля — `docs/PITFALLS.md`.
-- `[P]` Фаза 0 порта боя закрыта (19.11.2026): монолит `tools/ldhook/ldhook.cpp` разбит на TU (`sites_hd.cpp`,
-  `battle/*`), `battle/structs.h` с именованными полями, каркас trace `LDHOOK_BATTLE_TRACE`; поведение site1/site2/site3/site5/site6 не изменилось — `docs/PLAN_BATTLE_AI_CPP.md`.
+- `[P]` Порт боя: Фазы 0–3 закрыты (19–21.11.2026); гейт Фазы 3 — офлайн per-call replay
+  (`battle_replay_diff.py` rc 0 на capture v8), живой A/B — санитарный, решение 3.7 — `docs/PLAN_BATTLE_AI_CPP.md`.
+- `[P]` Остаток Фазы 3 (решение 3.8): на части вызовов порт уходит в runaway цикла `e0a0`; листья
+  расходятся с первого такого вызова; открытый дефект, Фаза 4 не блокируется.
 - `[U]` Цель порта боя (19.11.2026): читаемая C++-реализация боевой логики и поиска пути
   (слои `44bdd0` → `45eee0` → `e0a0` → `dd70`), нативные вызовы для GUI/плумбинга; fidelity-first,
   CPU = baseline. Фазы, границы и гейты — `docs/PLAN_BATTLE_AI_CPP.md`.

@@ -63,13 +63,19 @@ python_libs.7z; тот же мандат applies к истории сессий.
    `LDHOOK_LOG` (`0` off, `1` info по умолчанию, `2` debug-трассировка).
 5. Гейт 16:9: `site3_impl` пишет `matrix[0] = 0x3F7987FA` (эталон exepatch12);
    гейт 4:3: `guard 4h==3w -> identity` и `k==1.0 -> identity`, записей нет;
-   гейт Фазы 3: при `LDHOOK_LOG=1` в логе только `I`-строки, при `2` —
-   `D`-трассировка с троттлингом.
+   гейт Фазы 3 — офлайн replay (п. 7, решение 3.7), живой A/B санитарный.
    EXE на диске не модифицируется (только `VirtualProtect` в памяти).
 6. Аудит Фазы 4 (без игры, после любой правки EXE):
    `python3 tools/ldhook/check_sites.py` — уникальность трёх сигнатур в `.text`;
    `installable` (baseline) / `patched` (cave exepatch12) / `UNEXPECTED` (rc 1).
    Решение: установка остаётся на cave, `ldhook.pyd` — путь следующих правок.
+7. Офлайн replay `e0a0` (capture env `LDHOOK_BATTLE_CAPTURE=<jsonl>`, прогон в scratch-дереве):
+   - `python3 tools/ldhook/build.py`
+   - `python3 tools/probes/battle_replay_build.py`
+   - `build/ldhook/battle_replay.exe [--chained] [--leaf-replay|--real-path] <capture.jsonl> <res_port.jsonl>`
+   - `python3 tools/probes/battle_replay_diff.py <capture.jsonl> <res_port.jsonl> [--fields=leaf]`
+   - `python3 tools/probes/leaf_stream_diff.py <capture.jsonl> <res_port.jsonl>`
+   - `python3 tools/probes/trace_diff.py <native.log> <port.log> --align=ordinal`
 
 
 ## btf-пайплайн (курсоры/иконки)
