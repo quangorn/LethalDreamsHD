@@ -147,6 +147,60 @@ void msg_ctor(void *this_);
  * ECX = dst, 1 стек-аргумент = src (`ret $0x4` @0x40415a). site: 0x44bfa0. */
 void msg_copy(void *dst, const void *src);
 
+/* --- Фаза 5.1b-2: листья R3 (FUN_0044bdd0, `0x44bfb8..0x44c09c`) --- */
+
+/* FUN_0042da60 — ленивый геттер player-флагов: возврат EAX = `[this+0x22c]`
+ * (при 0 и char-арг != 0 — `operator new(0x40)` + 0x4380f0). __thiscall,
+ * ECX = player, 1 стек-аргумент char (`ret $0x4` @0x42dacb; читается как
+ * `[esp+0x14]` @0x42da82 после 4 push пролога). sites: 0x44bfc4/0x44bfe0/
+ * 0x44bffd. */
+void *player_flag_get(void *player, int flag);
+
+/* FUN_00435d50 — флаги игрока: 0 стек-аргументов (`ret` @0x435d6d),
+ * ECX = объект из player_flag_get, возврат EAX. sites: 0x44bfcb/0x44bfe7/
+ * 0x44c004 (`TEST EAX` / `TESTB $2,(%eax)` / `TESTB $4,(%eax)`). */
+void *player_flags(void *flags_obj);
+
+/* FUN_00448c30 — cursor/mode update (SEH-пролог 0x448c30..0x448c44).
+ * __thiscall, ECX = unit, 1 стек-аргумент (`ret $0x4` @0x448e34; сайт — 0x40
+ * @0x44c00e). Возврат не читается. site: 0x44c012. */
+void cursor_mode_update(void *unit, int arg);
+
+/* FUN_0049b0f0 — ctor строкового объекта (3 dword) из char*: __thiscall,
+ * ECX = объект, 1 стек-аргумент = char* (`ret $0x4` @0x49b10a), возврат
+ * EAX = объект. site: 0x44c02b (литерал 0x4eee1c @0x44c022). */
+void *string_ctor(void *obj, const char *s);
+
+/* FUN_00413060 — сборка строки: 3 стек-аргумента, очистка вызывающим
+ * (`ret` @0x4130d6; вызывающий `add $0xc,%esp` @0x44c04b). arg1 — dst-объект
+ * (первый параметр = последний push сайта). Возврат EAX = ESI, снятый
+ * `mov 0x24(%esp),%esi` @0x4130a3 = слот `[S+4]` (dst); @0x4130c9 `mov
+ * %esi,%eax`. Порт передаёт значение как есть.
+ * arg2/arg3 — источники (сайт: arg2 = unit+0x18, arg3 = объект-литерал).
+ * ECX на входе мёртв (перезаписан @0x41307e); обёртка кладёт arg3, как в сайте.
+ * site: 0x44c046. */
+void *string_format(void *dst, const void *a2, const void *a3);
+
+/* FUN_0049ad70 — c_str(): __thiscall, ECX = объект, 0 аргументов (`ret`
+ * @0x49ad7b), EAX = `[obj]` или 0x4ed260 при NULL. site: 0x44c058. */
+const char *string_c_str(void *obj);
+
+/* FUN_0049ac70 — dtor строкового объекта (`_free([obj])`). __thiscall,
+ * ECX = объект, 0 аргументов (`ret` @0x49ac7d). sites: 0x44c070/0x44c081. */
+void string_dtor(void *obj);
+
+/* IAT 0x4ec064 — kernel32!OutputDebugStringA (objdump -p: `000ec064 <none>
+ * 0268 OutputDebugStringA`; LoadCursorFromFileA лежит на 0x4ec264 — правка
+ * ошибочного «cursor» из disasm4). WinAPI __stdcall, 1 аргумент (char*),
+ * callee снимает его; вызов через IAT-слот (`call *0x4ec064` @0x44c05e).
+ * Возврат (void) в теле не читается. */
+void output_debug_string_a(const char *s);
+
+/* Игровой строковый литерал по VA (CP1251 char*): fn(VA) = base + RVA.
+ * Помощник для push-сайтов вида `push $0x4eee1c`: логика передаёт только
+ * номер VA, разрешение адреса — здесь (инвариант 3, без «голых» указателей). */
+const char *literal(unsigned int va);
+
 /* Игровая куча (п. 2.2): путь аллокации игровых структур — только через эти
  * обёртки; malloc/free из .pyd запрещены (план, «Риски»). Оба — cdecl с одним
  * аргументом, очистка вызывающим (листинг 0x4cfa11: вызывающий ADD ESP,4

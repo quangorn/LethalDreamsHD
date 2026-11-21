@@ -953,4 +953,225 @@ void msg_copy(void *dst, const void *src)
     }
 }
 
+/* --- Фаза 5.1b-2: листья R3 (сайты FUN_0044bdd0 0x44bfb8..0x44c09c) --- */
+
+/* FUN_0042da60 — player-флаги: ECX = player, 1 стек-арг char, `ret $0x4`,
+ * EAX = [player+0x22c] (объект флагов). site 0x44bfc4/0x44bfe0/0x44bffd. */
+void *player_flag_get(void *player, int flag)
+{
+    void *addr = fn(0x42da60);
+    void *res = NULL;
+
+    if (addr == NULL) {
+        return NULL;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, player
+            push flag
+            mov eax, addr
+            call eax
+            mov res, eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+        res = NULL;
+    }
+    return res;
+}
+
+/* FUN_00435d50 — указатель на флаги: ECX = объект, 0 стек-аргументов (`ret`),
+ * EAX — результат. sites 0x44bfcb/0x44bfe7/0x44c004. */
+void *player_flags(void *flags_obj)
+{
+    void *addr = fn(0x435d50);
+    void *res = NULL;
+
+    if (addr == NULL) {
+        return NULL;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, flags_obj
+            mov eax, addr
+            call eax
+            mov res, eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+        res = NULL;
+    }
+    return res;
+}
+
+/* FUN_00448c30 — cursor/mode update: ECX = unit, 1 стек-арг, `ret $0x4`.
+ * site 0x44c012. */
+void cursor_mode_update(void *unit, int arg)
+{
+    void *addr = fn(0x448c30);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, unit
+            push arg
+            mov eax, addr
+            call eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
+/* FUN_0049b0f0 — ctor строкового объекта из char*: ECX = объект,
+ * 1 стек-арг, `ret $0x4`, EAX = объект. site 0x44c02b. */
+void *string_ctor(void *obj, const char *s)
+{
+    void *addr = fn(0x49b0f0);
+    void *res = NULL;
+
+    if (addr == NULL) {
+        return NULL;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, obj
+            push s
+            mov eax, addr
+            call eax
+            mov res, eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+        res = NULL;
+    }
+    return res;
+}
+
+/* FUN_00413060 — сборка строки: 3 стек-арга, очистка вызывающим (`ret`),
+ * EAX = ESI (`mov 0x24(%esp),%esi` @0x4130a3 = слот [S+4], dst) @0x4130c9.
+ * ECX на входе мёртв (перезаписан @0x41307e) — кладём arg3, как в сайте
+ * 0x44c046. */
+void *string_format(void *dst, const void *a2, const void *a3)
+{
+    void *addr = fn(0x413060);
+    void *res = NULL;
+
+    if (addr == NULL) {
+        return NULL;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, a3
+            push a3
+            push a2
+            push dst
+            mov eax, addr
+            call eax
+            mov res, eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+        res = NULL;
+    }
+    return res;
+}
+
+/* FUN_0049ad70 — c_str(): ECX = объект, 0 стек-аргументов (`ret`),
+ * EAX = [obj] или 0x4ed260. site 0x44c058. */
+const char *string_c_str(void *obj)
+{
+    void *addr = fn(0x49ad70);
+    const char *res = NULL;
+
+    if (addr == NULL) {
+        return NULL;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, obj
+            mov eax, addr
+            call eax
+            mov res, eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+        res = NULL;
+    }
+    return res;
+}
+
+/* FUN_0049ac70 — dtor строкового объекта: ECX = объект, 0 аргументов (`ret`).
+ * sites 0x44c070/0x44c081. */
+void string_dtor(void *obj)
+{
+    void *addr = fn(0x49ac70);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, obj
+            mov eax, addr
+            call eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
+/* IAT 0x4ec064 — kernel32!OutputDebugStringA(s): stdcall, 1 аргумент,
+ * callee снимает; вызов через IAT-слот (`call *0x4ec064`). site 0x44c05e. */
+void output_debug_string_a(const char *s)
+{
+    void *addr = fn(0x4ec064);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            push s
+            mov eax, addr
+            mov eax, [eax]                 /* CALL *0x4ec064 — через IAT-слот */
+            call eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
+/* Игровой строковый литерал по VA (base + RVA), см. native.h. */
+const char *literal(unsigned int va)
+{
+    return (const char *)fn(va);
+}
+
 } /* namespace native */

@@ -1,10 +1,11 @@
 /* battle/tick.cpp — верхний уровень боевого AI (FUN_0044bdd0, тик).
  *
  * Фаза 5.1b: порт тела порциями по диапазонам 1.3b. Этот чанк — R1
- * (`0x44bdf9..0x44bec1`, B1..B6 после пролога) и R2 (`0x44bec2..0x44bfb7`,
- * B7..B15); все листья — нативные `native::…`, один детур на функцию
- * (инвариант 5) — H1 `0x44bdf5` с возвратом в нативный эпилог `0x44d074`
- * (там же H2/capture, поэтому трассировка тика и захват продолжают работать).
+ * (`0x44bdf9..0x44bec1`, B1..B6 после пролога), R2 (`0x44bec2..0x44bfb7`,
+ * B7..B15) и R3 (`0x44bfb8..0x44c09c`, B16..B22); все листья — нативные
+ * `native::…`, один детур на функцию (инвариант 5) — H1 `0x44bdf5` с возвратом
+ * в нативный эпилог `0x44d074` (там же H2/capture, поэтому трассировка тика и
+ * захват продолжают работать).
  *
  * Кадр: `frame` = ESP на входе H1 = S−0x158 (SEH-пролог/эпилог остаются
  * нативными). `frame+0x15c` = param_1, `+0x160` = param_2 (слот-local),
@@ -83,16 +84,31 @@ static int b0_gate_44_jp(float a, float b)
     return !(a == b);               /* 0x44bebd/0x44bec0, 0x44beca, 0x44bed7 */
 }
 
-/* --- R1/R2: B0..B15 ---------------------------------------------------- */
+/* --- R1/R2/R3: B0..B22 -------------------------------------------------- *
+ * Цепочка player-флагов (B16..B18): player_get(unit,1) → 42da60(player,1) →
+ * 435d50; три идентичных прогона, различаются только пост-тестом. */
+static void *b0_player_flag_chain(void *unit)
+{
+    void *player = native::player_get(unit, 1);          /* 0x44bfbf */
+    void *flag = native::player_flag_get(player, 1);     /* 0x44bfc4 */
+    return native::player_flags(flag);                   /* 0x44bfcb */
+}
+
 static int b0_body_r1_r2(void *unit_, unsigned char *frame)
 {
     unsigned char *unit = (unsigned char *)unit_;
+    /* EBP в нативе сдвигается `ADD EBP,0x18` в cursor-блоках и НЕ
+     * восстанавливается (снимает только эпилогный POP EBP). Адресация после
+     * сдвига идёт через unit_x (= EBP); сейчас — 0x44c035 (R3), далее
+     * 0x44c197/0x44c9a7/0x44ce7c (R4/R14/R20). */
+    unsigned char *unit_x = unit;
     unsigned char snap_buf[0x20];   /* B2: снимок 0x20 Б (натив: [esp] после sub 0x20) */
     unsigned char msg_dst[0x40];    /* B15: копия msg-объекта (натив: esp после sub 0x3c) */
     float *out = (float *)(frame + 0x20);   /* B6: out-тройка 45c6f0 (= frame+0x20) */
     float phase;
     void *res;
     void *head;
+    void *flags_obj;
     int count;
 
     __try {
@@ -233,19 +249,82 @@ b15:
     goto b16;                                           /* fall-through 0x44bfb8 */
 
 b22:
-    /* 0x44c08b — B22 (R3): общий вход ветки state != 3 и провала B14.
-     * TODO(5.1b-2) UNPORTED: R3 (`0x44c08b..0x44c09c`).
-     * Возврат 0 = AL пути `xor al,al` @0x44d072. */
+    /* 0x44c08b..0x44c09c — B22 (R3): общий вход ветки `state != 3` и провала
+     * B14. `442570(unit,0)`; `[result] == 3` → B31 (R5), иначе fall → R4. */
+    res = native::game_state_get(unit, 0);              /* 0x44c08f */
+    if (*(const int *)res == 3) {                       /* 0x44c094/0x44c097 */
+        goto b31;                                       /* je 0x44c1ed → R5 */
+    }
+    goto b23;                                           /* fall 0x44c09d → R4 */
+
+b23:
+    /* 0x44c09d — TODO(5.1b-2) UNPORTED: R4 (`0x44c09d..0x44c183`) — клон
+     * ветки state!=3. Возврат 0 = путь `xor al,al` @0x44d072. */
+    return 0;
+
+b31:
+    /* 0x44c1ed — TODO(5.1b-2) UNPORTED: R5 (`0x44c184..0x44c229`, B30/B31). */
     return 0;
 
 b16:
-    /* 0x44bfb8 — R3 (цепочка player-флагов).
-     * TODO(5.1b-2) UNPORTED: R3 (`0x44bfb8..0x44c09c`). */
-    return 0;
+    /* B16 (0x44bfb8..0x44bfd3) — цепочка ×1, NULL-гейт → B20. */
+    flags_obj = b0_player_flag_chain(unit);             /* 0x44bfb8..0x44bfcb */
+    if (flags_obj == NULL) {
+        goto b20;                                       /* 0x44bfd2 je 0x44c017 */
+    }
+
+    /* B17 (0x44bfd4..0x44bff0) — цепочка ×2, `TESTB $2,(%eax)`: взятый бит →
+     * B19 (448c30), иначе — B18. */
+    flags_obj = b0_player_flag_chain(unit);             /* 0x44bfd4..0x44bfe7 */
+    if ((*(const unsigned char *)flags_obj & 0x2) != 0) {
+        goto b19;                                       /* 0x44bfef jne 0x44c00e */
+    }
+
+    /* B18 (0x44bff1..0x44c00d) — цепочка ×3, `TESTB $4,(%eax)`: бит снят →
+     * B20, иначе fall → B19. */
+    flags_obj = b0_player_flag_chain(unit);             /* 0x44bff1..0x44c004 */
+    if ((*(const unsigned char *)flags_obj & 0x4) == 0) {
+        goto b20;                                       /* 0x44c00c je 0x44c017 */
+    }
+
+b19:
+    /* B19 (0x44c00e..0x44c016) — cursor/mode update с аргументом 0x40. */
+    native::cursor_mode_update(unit, 0x40);             /* 0x44c00e..0x44c012 */
 
 b20:
-    /* 0x44c017 — R3 (msg-гейт `[unit+0x34]`).
-     * TODO(5.1b-2) UNPORTED: R3. */
+    /* B20 (0x44c017..0x44c021) — msg-флаг `unit+0x34`: 0 → join `0x44cee6`. */
+    if (*(const unsigned char *)(unit_x + 0x34) == 0) {  /* 0x44c017..0x44c01c */
+        goto b135_join;                                 /* je 0x44cee6 */
+    }
+
+    /* B21 (0x44c022..0x44c08a) — GUI-блок A (в disasm4 «cursor-block A»:
+     * имя ошибочно, 0x4ec064 = OutputDebugStringA, не LoadCursorFromFileA):
+     * ctor строки из литерала 0x4eee1c (объект `frame+0x10`, натив `[esp+0x14]`
+     * при esp=frame−4), 413060(dst=`frame+0x40`, unit+0x18, объект) → c_str →
+     * запись в debug-вывод, затем два dtor'а. Байты `[esp+0x160]` при
+     * esp=frame−0xc — SEH-scope-state в нативном слоте trylevel `frame+0x154`
+     * (как B15), значения 1→2→1→0. */
+    {
+        void *str_a = frame + 0x10;
+        void *str_d = frame + 0x40;
+        void *str_r;
+
+        native::string_ctor(str_a, native::literal(0x4eee1c));  /* 0x44c022..0x44c02b */
+        unit_x += 0x18;                                 /* 0x44c035 ADD EBP,0x18 */
+        frame[0x154] = 1;                               /* 0x44c03e */
+        str_r = native::string_format(str_d, unit_x, str_a); /* 0x44c046 */
+        frame[0x154] = 2;                               /* 0x44c050 */
+        native::output_debug_string_a(native::string_c_str(str_r)); /* 0x44c058..0x44c05e */
+        frame[0x154] = 1;                               /* 0x44c068 */
+        native::string_dtor(str_d);                     /* 0x44c070 */
+        frame[0x154] = 0;                               /* 0x44c07c */
+        native::string_dtor(str_a);                     /* 0x44c081 */
+    }
+    goto b135_join;                                     /* 0x44c086 jmp 0x44cee6 */
+
+b135_join:
+    /* 0x44cee6 — TODO(5.1b-2) UNPORTED: join R21 (входы B20 JZ, B21 jmp).
+     * Возврат 0 = путь `xor al,al` @0x44d072. */
     return 0;
 
     } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -255,12 +334,12 @@ b20:
 
 /* Точка входа порта (ABI натива: ECX = unit, 3 стек-аргумента, RET 0xc).
  * Тело — под B0_BODY_COMPLETE: пока оно неполное, функция возвращает 0 и
- * детур разоружён (b0_port_enabled). Чанк R1/R2 остаётся скомпилированным и
+ * детур разоружён (b0_port_enabled). Чанк R1..R3 остаётся скомпилированным и
  * типизированным — `(void)&` ниже, чтобы /W3 не снял его как неиспользуемый. */
 int b0_battle_ai_dispatch(void *unit, unsigned char *frame)
 {
 #if B0_BODY_COMPLETE
-    return b0_body_r1_r2(unit, frame);      /* TODO(5.1b-2): R3..R23 */
+    return b0_body_r1_r2(unit, frame);      /* TODO(5.1b-2): R4..R23 */
 #else
     /* UNPORTED: тело неполное — единственный вход детура остаётся пустым. */
     (void)&b0_body_r1_r2;
