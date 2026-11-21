@@ -216,7 +216,10 @@ struct CapNode {
     int pos_addr;                   /* LDPos* (ключ map1, identity-гейт) */
     int nbr[9][2];
 };
-struct PathLeaf { bool null; int w[5]; int addr; };
+/* v6: native gate inputs captured in the cb40 return trampoline:
+ * [0]=out_metric, [1]=final_threshold, [2]=min L[0x10], [3]=max L[0x18]. */
+struct GateVals { unsigned v[4]; bool present; };
+struct PathLeaf { bool null; int w[5]; int addr; GateVals gate; };
 
 /* v3: значение узла map2 (PathState*) — раньше реплика ставила NULL и шла
  * «свободным путём» для всех занятых ключей. */
@@ -486,9 +489,22 @@ static void read_leaves(Call &c, const JVal &res) {
         if (ptr != NULL && ptr->t != JVal::ARR) {
             ptr = NULL;
         }
+        /* v6: gate stream is optional (v1..v5 captures have no such key). */
+        const JVal *garr = jhas(leaf, "gate") ? &jget(leaf, "gate", "res.leaf") : NULL;
+        if (garr != NULL && garr->t != JVal::ARR) {
+            garr = NULL;
+        }
         for (size_t i = 0; i < lp.a.size(); i++) {
             PathLeaf pl;
             memset(&pl, 0, sizeof(pl));
+            if (garr != NULL && i < garr->a.size() &&
+                (*garr).a[i].t == JVal::ARR) {
+                const JVal &ge = garr->a[i];
+                for (size_t k = 0; k < 4 && k < ge.a.size(); k++) {
+                    pl.gate.v[k] = (unsigned)(int)jnum(ge.a[k], "res.leaf.gate");
+                }
+                pl.gate.present = true;
+            }
             pl.null = jisnull(lp.a[i]);
             if (!pl.null) {
                 if (lp.a[i].t != JVal::ARR) {
@@ -1201,6 +1217,9 @@ static PathState *rp_make_occ_ps(const OccVal &v)
 #define RP_GATE_MAX 17072
 static int g_gate_rec[RP_GATE_MAX][60];
 static int g_gi = 0;
+/* v6: number of native-vs-port gate comparisons attempted / skipped because
+ * the capture has no `res.leaf.gate` key (old v1..v5 captures). */
+static int g_gate_compared = 0, g_gate_skipped = 0;
 
 extern "C" int replay_gate_index(void) { return g_gi; }
 extern "C" int replay_call_seq(void) { return (g_cur != NULL) ? g_cur->seq : -1; }
@@ -2182,7 +2201,7 @@ static void replay_dump_div(const Call &c, Rep *r)
     if (i < (size_t)g_gi) {
         const int *g = g_gate_rec[i];
         fprintf(stderr, "GATE seq=%d idx=%u out_bits=0x%x min_slot_bits=0x%x "
-                        "maxp_bits=0x%x minp_bits=0x%x maxp_bits=0x%x "
+                        "maxp_bits=0x%x minp_bits=0x%x max_pair_bits=0x%x "
                         "thr_bits=0x%x reason=%d res=%d best_min=0x%x "
                         "best_max=0x%x best_key=%d chain=%d p3=0x%x p7=%d "
                         "spec_out=0x%x spec_in_out=0x%x spec_in_min=0x%x "
@@ -2190,6 +2209,30 @@ static void replay_dump_div(const Call &c, Rep *r)
                 c.seq, (unsigned)i, g[44], g[45], g[46], g[47], g[48], g[49],
                 g[50], g[51], g[52], g[53], g[54], g[55], g[56], g[57],
                 g[58], g[59], g[11], g[12]);
+    }
+    /* v6: native gate inputs (captured at cb40 return) vs the port's record.
+     * g[44]=out_metric, g[49]=thr, g[45]=min_slot(L[0x10]), g[48]=max_pair(L[0x18]). */
+    if (nat != NULL && nat->gate.present) {
+        if (i < (size_t)g_gi) {
+            const int *g = g_gate_rec[i];
+            fprintf(stderr, "GATECMP seq=%d idx=%u native[out=0x%x thr=0x%x "
+                            "min=0x%x max=0x%x] port[out=0x%x thr=0x%x "
+                            "min_slot=0x%x max_pair=0x%x] reason=%d\n",
+                    c.seq, (unsigned)i,
+                    nat->gate.v[0], nat->gate.v[1], nat->gate.v[2], nat->gate.v[3],
+                    (unsigned)g[44], (unsigned)g[49], (unsigned)g[45],
+                    (unsigned)g[48], g[50]);
+        } else {
+            fprintf(stderr, "GATECMP seq=%d idx=%u native[out=0x%x thr=0x%x "
+                            "min=0x%x max=0x%x] port=NO_RECORD\n",
+                    c.seq, (unsigned)i,
+                    nat->gate.v[0], nat->gate.v[1], nat->gate.v[2], nat->gate.v[3]);
+        }
+        g_gate_compared++;
+    } else {
+        g_gate_skipped++;
+        fprintf(stderr, "GATECMP seq=%d idx=%u native=NO_GATE (old capture)\n",
+                c.seq, (unsigned)i);
     }
 }
 
@@ -2487,6 +2530,9 @@ int main(int argc, char **argv) {
                    res_calls, res_equal, first_res_seq,
                    first_res_seq < 0 ? "" : first_res_detail.c_str());
         }
+        /* v6: tolerant gate compare counters (old captures have no leaf.gate). */
+        printf("GATE: compared=%d skipped=%d\n",
+               g_gate_compared, g_gate_skipped);
         if (chained) {
             /* survived = число цепных вызовов, совпавших подряд до первого
              * расхождения (0, если первый же вызов разошёлся). */

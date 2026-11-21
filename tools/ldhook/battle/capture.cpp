@@ -29,12 +29,13 @@
 #define CAP_MAX_LEAF    32768      /* предохранитель потока листьев */
 #define CAP_MAX_ITER    65536      /* предохранитель iter_seq (H6-латч) */
 #define CAP_WORDS       5          /* dword'ы возвращённого cb40-объекта */
+#define CAP_GATE_WORDS  4          /* v6: out, thr, min(L[0x10]), max(L[0x18]) */
 #define CAP_AI_WORDS    32         /* сырой скалярный блок BattleAI +0x00..+0x7f */
 #define CAP_PS_WORDS    22         /* PathState 0x58 / 4 (значение узла map2) */
 #define CAP_MAX_GRID_CELLS 200000  /* потолок статической сетки (v5) */
 #define CAP_MAX_TREE_DELTA 50000   /* потолок дельт world+0x104 за вызов */
 #define CAP_MAX_CELL_DELTA 20000   /* потолок дельт ячеек за вызов */
-#define CAP_VERSION     5          /* версия cap/res; v1..v4 — старые захваты */
+#define CAP_VERSION     6          /* версия cap/res; v1..v5 — старые захваты */
 
 /* v3: значение узла map2 (PathState*) — раньше реплика ставила NULL и всегда
  * шла «свободным путём». w[] — сырые dword'ы PathState; ptr[] — 11 указателей
@@ -82,6 +83,15 @@ static int      *g_pptr = NULL;      /* указатель, возвращённ
 static int      *g_heur = NULL;
 static int      *g_tout = NULL;
 static int      *g_tms = NULL;          /* v5: timeGetTime на каждом c5a0 */
+static int      *g_gate = NULL;         /* v6: CAP_GATE_WORDS на каждый cb40-leaf */
+static int      *g_cap_a1 = NULL, *g_cap_a2 = NULL;  /* v6: стек-арги cb40 на входе */
+/* v6: слоты финального гейта cb40, прочитанные в ret-трамплине из его
+ * (already unwound, not yet overwritten) frame: L[0x10]=мин, L[0x2c],
+ * L[0x14], L[0x18]=макс-пара. Вынесены в globals, чтобы C++-helper не портил
+ * регистры/ESP трамплина. */
+static unsigned int g_gate_l10 = 0, g_gate_l2c = 0;
+static unsigned int g_gate_l14 = 0, g_gate_l18 = 0;
+static unsigned int g_cb40_ret = 0;     /* EAX на входе в ret-трамплин (результат cb40) */
 
 /* v5: статическая сетка — один снимок на бой. Массивы выделяются в init. */
 static int *g_gkey = NULL, *g_gstatus = NULL, *g_gmin = NULL;
@@ -147,6 +157,7 @@ void battle_capture_init(void)
     g_heur = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
     g_tout = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
     g_tms = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
+    g_gate = (int *)malloc((size_t)CAP_MAX_LEAF * CAP_GATE_WORDS * sizeof(int));
     g_gkey = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
     g_gstatus = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
     g_gmin = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
@@ -167,13 +178,14 @@ void battle_capture_init(void)
     g_cd_val = (int *)malloc((size_t)CAP_MAX_CELL_DELTA * 11 * sizeof(int));
     g_prev_rows = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
     if (!g_nodes || !g_occ || !g_occ_nodes || !g_iter || !g_path || !g_pptr ||
-        !g_heur || !g_tout || !g_tms || !g_gkey || !g_gstatus || !g_gmin ||
+        !g_heur || !g_tout || !g_tms || !g_gate || !g_gkey || !g_gstatus || !g_gmin ||
         !g_gmax || !g_gnext || !g_gchain || !g_grows ||
         !g_gw0 || !g_gw1 || !g_gw2 || !g_gw3 || !g_gw4 ||
         !g_tree_prev || !g_td_idx || !g_td_val ||
         !g_prev_fields || !g_cd_idx || !g_cd_val || !g_prev_rows) {
         free(g_nodes); free(g_occ); free(g_occ_nodes); free(g_iter);
         free(g_path); free(g_pptr); free(g_heur); free(g_tout); free(g_tms);
+        free(g_gate);
         free(g_gkey); free(g_gstatus); free(g_gmin); free(g_gmax);
         free(g_gnext); free(g_gchain); free(g_grows);
         free(g_gw0); free(g_gw1); free(g_gw2); free(g_gw3); free(g_gw4);
@@ -400,6 +412,22 @@ static void cap_write_ints(FILE *f, const int *arr, int n)
     fputc('[', f);
     for (i = 0; i < n; i++) {
         fprintf(f, "%s%d", i ? "," : "", arr[i]);
+    }
+    fputc(']', f);
+}
+
+/* v6: входы финального гейта для каждого cb40-leaf — [out,thr,min,max] (биты). */
+static void cap_write_gate(FILE *f)
+{
+    int i, k, n = g_path_n / CAP_WORDS;
+    fputc('[', f);
+    for (i = 0; i < n; i++) {
+        fprintf(f, "%s[", i ? "," : "");
+        for (k = 0; k < CAP_GATE_WORDS; k++) {
+            fprintf(f, "%s%u", k ? "," : "",
+                    (unsigned int)g_gate[i * CAP_GATE_WORDS + k]);
+        }
+        fputc(']', f);
     }
     fputc(']', f);
 }
@@ -954,6 +982,24 @@ void battle_capture_leaf(int kind, int value, const int *words)
             g_leaf_overflow = 1;
             return;
         }
+        /* v6: входы финального гейта этого cb40-вызова, сырые биты:
+         * [0]=out_metric (spec+0x10, prologue arg1), [1]=final_threshold
+         * (BattleAI+0x8), [2]=мин L[0x10], [3]=макс L[0x18]. */
+        {
+            int *gv = &g_gate[leaf_index * CAP_GATE_WORDS];
+            gv[0] = 0; gv[1] = 0;
+            gv[2] = (int)g_gate_l10;
+            gv[3] = (int)g_gate_l18;
+            __try {
+                if (g_cap_a1 != NULL) {
+                    gv[0] = *(const int *)((const unsigned char *)g_cap_a1 + 0x10);
+                }
+                if (g_this != NULL) {
+                    gv[1] = *(const int *)((const unsigned char *)g_this + 0x8);
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+            }
+        }
         if (value == 0 || words == NULL) {
             g_pptr[leaf_index] = 0;             /* NULL-маркер */
             g_path[g_path_n++] = 0x7fffffff;
@@ -1033,6 +1079,8 @@ void battle_capture_e0a0_exit(void *node)
     /* Поток листьев нативных калlee (перепроецируется харнессом). */
     fputs(",\"leaf\":{\"path\":", g_file);
     cap_write_path(g_file);
+    fputs(",\"gate\":", g_file);
+    cap_write_gate(g_file);
     fputs(",\"ptr\":", g_file);
     cap_write_ints(g_file, g_pptr, g_path_n / CAP_WORDS);
     fputs(",\"heur\":", g_file);
@@ -1080,6 +1128,12 @@ void __declspec(naked) cap_fn_cb40_hook(void)
     __asm {
         mov eax, dword ptr [esp]       /* настоящий адрес возврата */
         mov dword ptr [g_ret_cb40], eax
+        /* v6: [esp+4]=arg1=spec (PathState*), [esp+8]=arg2=pos (не читается
+         * cb40). spec+0x10 = out_metric — слот финального гейта. */
+        mov eax, dword ptr [esp+4]
+        mov dword ptr [g_cap_a1], eax
+        mov eax, dword ptr [esp+8]
+        mov dword ptr [g_cap_a2], eax
         mov dword ptr [esp], offset cap_ret_cb40
         sub esp, 0x3c                  /* украденные байты пролога cb40 */
         push ebx
@@ -1123,6 +1177,20 @@ void __declspec(naked) cap_fn_timeout_hook(void)
 void __declspec(naked) cap_ret_cb40(void)
 {
     __asm {
+        /* v6: cb40 уже выполнил `pop edi/esi/ebp/ebx; add esp,0x3c; ret 8`.
+         * его кадр ещё не перезаписан: L[0x10] (операнд финального FCOMPS),
+         * L[0x2c], L[0x14], L[0x18] лежат по отрицательным смещениям от
+         * текущего ESP (см. разбор 0x45cba0/0x45cc18/0x45cd57 в game_dis). */
+        mov dword ptr [g_cb40_ret], eax  /* сохранить результат cb40 до чтения кадровых слотов */
+        mov eax, dword ptr [esp-48h]
+        mov dword ptr [g_gate_l10], eax
+        mov eax, dword ptr [esp-44h]
+        mov dword ptr [g_gate_l14], eax
+        mov eax, dword ptr [esp-40h]
+        mov dword ptr [g_gate_l18], eax
+        mov eax, dword ptr [esp-2ch]
+        mov dword ptr [g_gate_l2c], eax
+        mov eax, dword ptr [g_cb40_ret]
         push eax
         push ecx
         push edx
