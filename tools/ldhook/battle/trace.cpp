@@ -629,20 +629,34 @@ __declspec(naked) void h7_visit_hook(void)
 /*                 (movl $0,0xc0(%esp)) + `E8 0B 23 01 00`             */
 /*                 (call 0x45eee0); продолжение 0x44cbd5.               */
 /*                                                                     */
-/* ESP-арифметика: на входе хука ESP = S (сайт стоит после `push ecx`   */
-/* @0x44cbc2, поэтому S = ESP сайта); украденный `movl` адресует        */
-/* [S+0xc0] — воспроизводим дословно, поэтому ESP при нём тот же S.     */
-/* 45eee0 — thiscall RET 4 (0x45f382/0x45f413/0x45f425), т.е. после     */
-/* возврата ESP снова S — как в native на 0x44cbd5. pushfd/pushad идут   */
-/* ПОСЛЕ call (флаги post-call — ровно те, что увидит 0x44cbd5), их     */
-/* снятие возвращает ESP = S при jmp; EAX = код 45eee0 (popad сохраняет */
-/* его, т.к. pushad сделан уже с кодом в EAX).                          */
+/* v9: обёртка capture 45eee0 (battle_capture_eee0_enter/exit) вокруг  */
+/* вызова 0x45eee0 с сохранением всех регистров и флагов.               */
 /* ------------------------------------------------------------------ */
 __declspec(naked) void h3_code_hook(void)
 {
     __asm {
         mov dword ptr [esp + 0xc0], 0     /* украденная инструкция 1 */
+        push eax
+        push edx
+        push ecx
+        push dword ptr [esp + 12]         /* arg2: rec ([esp] на входе) */
+        push ecx                          /* arg1: BattleAI* self */
+        call battle_capture_eee0_enter
+        add esp, 8
+        pop ecx
+        pop edx
+        pop eax
         call dword ptr [g_h3_callee]      /* украденная инструкция 2 (0x45eee0) */
+        push eax
+        push edx
+        push ecx
+        push esi                          /* arg1: BattleAI* self */
+        push eax                          /* arg0: return code EAX */
+        call battle_capture_eee0_exit
+        add esp, 8
+        pop ecx
+        pop edx
+        pop eax
         pushfd                            /* ESP = S-4; флаги post-call */
         pushad                            /* ESP = S-36 */
         push esi                          /* arg2: &unit+0x138 (BattleAI) */

@@ -68,6 +68,9 @@ void s6_copy_fields(int dst, int src_, unsigned int mask);
 void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
                                void *arg2, void *arg3);
 
+/* ---- move.cpp: тик юнит-AI FUN_0045eee0 (s6_unit_ai_tick, Фаза 4) ---- */
+int s6_unit_ai_tick(BattleAI *self, void *rec_arg);       /* FUN_0045eee0 — порт 4.1 */
+
 /* ---- tick.cpp: trace-каркас боевого тика (LDHOOK_BATTLE_TRACE) ---- */
 void battle_trace_init(void);
 void battle_trace_tick(long tick_no, void *target, int search_code,

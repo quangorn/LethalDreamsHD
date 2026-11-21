@@ -17,6 +17,10 @@
 #include "native.h"
 #include "trace.h"
 
+#ifdef BATTLE_REPLAY
+extern "C" unsigned long replay_timer_restart_ms(void);
+#endif
+
 /* --- 4.2: детур FUN_0045eee0 и диспетчер e0a0 ---------------------------- */
 
 volatile LONG g_s7_tick_on = 0;      /* 1 = порт s6_unit_ai_tick, 0 = трамплин */
@@ -41,7 +45,7 @@ static int s6_e0a0_dispatch(BattleAI *self, int filter, void *cmp_pos, int arg3,
 }
 
 /* cdecl-обёртка порта для накед-хука: (this_, rec) → код 0..4. */
-static int s6_unit_ai_tick(BattleAI *self, void *rec_arg);   /* порт 4.1 */
+int s6_unit_ai_tick(BattleAI *self, void *rec_arg);    /* порт 4.1 */
 
 static int s7_tick_run(BattleAI *self, void *rec_arg)
 {
@@ -140,7 +144,11 @@ static const double s6_tr_milli = 0.001;          /* 0x4ecd08 */
 
 static void s6_timer_restart(BattleAI *self)
 {
+#ifdef BATTLE_REPLAY
+    int ms = (int)replay_timer_restart_ms();/* @0x45c574 — не двигает курсор leaves_timer */
+#else
     int ms = (int)s6_time_ms();                    /* @0x45c574 call *0x4ec27c */
+#endif
 
     __asm {
         fild    dword ptr [ms]                     /* @0x45c580 fildl 0x4(%esp) — знаковое */
@@ -171,7 +179,7 @@ static void s6_timer_restart(BattleAI *self)
  * (int, один стек-аргумент, `ret $4`), возврат = код 0..4 как в EAX эпилогов
  * 0x45f382/0x45f413/0x45f425. Тело — под harness-__try (§8.1 п.9, паттерн
  * s6_ai_update). Детур и wiring — `install_tick_hook` (ldhook.cpp, 4.2). */
-static int s6_unit_ai_tick(BattleAI *self, void *rec_arg)
+int s6_unit_ai_tick(BattleAI *self, void *rec_arg)
 {
     int l[34];                       /* F−0x18..F+0x6c: index 0 = слот F−0x18 (temp B9) */
     unsigned char *ctx;

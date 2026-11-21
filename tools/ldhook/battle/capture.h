@@ -30,6 +30,12 @@
  * cb40-вызова (цепочка self→[0]→+4→+0x120, native @0x45c42b..0x45c430), и
  * `scale_ok` — 1, если значение снято. Харнесс подаёт его world-масштабу
  * перед каждым cb40-вызовом порта; при отсутствии ключа масштаб статический.
+ *
+ * v9 добавляет пару записей `eee0_cap`/`eee0_res` на каждый вызов FUN_0045eee0
+ * (`s6_unit_ai_tick`, хук H3 @0x44cbc5/0x44cbd0): входные 7 dword `rec+0x00..0x18`,
+ * pre-call поля `self+0x28/+0x2c/+0x30/+0x34/+0x38/+0x68/+0x6c` и `ctx_flags`,
+ * а также на выходе — EAX, `self+0x2c` (grid-якорь `FUN_00458050`, +0x14),
+ * `+0x30/+0x34/+0x38` и снапшоты `map1_after`/`occ_after`/`ai_words_after`.
  */
 #ifndef BATTLE_CAPTURE_H
 #define BATTLE_CAPTURE_H
@@ -55,6 +61,10 @@ void battle_capture_e0a0_enter(void *this_, int filter, void *cmp,
                                void *timeout_bits, void *out_code);
 void battle_capture_latch(void *cand);
 void battle_capture_e0a0_exit(void *node);
+
+/* v9: Per-call захват FUN_0045eee0 (s6_unit_ai_tick) через H3 (@0x44cbc5). */
+void battle_capture_eee0_enter(void *self, void *rec);
+void battle_capture_eee0_exit(int code, void *self);
 
 /* Регистрация результата листа; value — EAX оригинала, words — 5 dword
  * возвращённого объекта (только для CAP_LEAF_PATH, value != 0). */

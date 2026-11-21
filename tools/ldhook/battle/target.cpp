@@ -365,6 +365,9 @@ __declspec(naked) void s5_tail_hook(void)
  * вызове — env в рантайме не меняется. */
 int s6_port_enabled(void)
 {
+#ifdef BATTLE_REPLAY
+    return 1;
+#else
     static int on = -1;
 
     if (on < 0) {
@@ -379,6 +382,7 @@ int s6_port_enabled(void)
         }
     }
     return on;
+#endif
 }
 
 volatile LONG g_site6_calls = 0;

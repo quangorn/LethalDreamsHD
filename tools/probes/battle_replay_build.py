@@ -20,6 +20,7 @@ SOURCES = [paths.win_path(s) for s in (
     os.path.join(_ROOT, "tools", "ldhook", "battle", "grid.cpp"),
     os.path.join(_ROOT, "tools", "ldhook", "battle", "path.cpp"),
     os.path.join(_ROOT, "tools", "ldhook", "battle", "target.cpp"),
+    os.path.join(_ROOT, "tools", "ldhook", "battle", "move.cpp"),
 )]
 VSWHERE = paths.win_path(os.path.join(
     os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),

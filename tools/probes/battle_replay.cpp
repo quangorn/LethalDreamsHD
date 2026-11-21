@@ -277,6 +277,50 @@ struct Call {
     std::vector<int> port_heur, port_timeout;
     JVal res;
     bool has_res;
+    /* v9: per-call FUN_0045eee0 (s6_unit_ai_tick) fields */
+    bool is_eee0;
+    int eee0_rec_addr, eee0_rec_ok, eee0_rec_w[7];
+    int eee0_sub_ok, eee0_sub_w[4];
+    int eee0_s68, eee0_s6c, eee0_s28, eee0_s2c;
+    int eee0_anchor[2], eee0_s30, eee0_s38;
+    unsigned eee0_s34, eee0_ctx_flags, eee0_world_134;
+    int eee0_ctx_present, eee0_grid_ok, eee0_grid_w[8];
+    int eee0_ret;
+    int eee0_s28_after, eee0_s2c_after, eee0_s30_after, eee0_s38_after;
+  unsigned eee0_s34_after, eee0_ctx_flags_after;
+    int eee0_anchor_addr, eee0_anchor_pos[2], eee0_anchor_f14;
+    bool eee0_has_b9, eee0_b9_null;
+    int eee0_b9_w[5], eee0_b9_addr;
+    unsigned eee0_b9_scale;
+    int eee0_b9_scale_ok, eee0_b9_gate[4];
+    std::vector<int> eee0_b9_chain;
+    std::vector<int> eee0_tree_delta;
+    std::vector<std::vector<int> > eee0_cell_delta;
+    std::vector<int> eee0_row_delta;
+    std::vector<unsigned int> eee0_timer_restart; /* v9: cap.ai.timer_bits per nested e0a0 */
+    Call() : is_eee0(false), eee0_rec_addr(0), eee0_rec_ok(0),
+             eee0_sub_ok(0), eee0_s68(0), eee0_s6c(0), eee0_s28(0),
+             eee0_s2c(0), eee0_s30(-1), eee0_s38(-1), eee0_s34(0),
+             eee0_ctx_flags(0), eee0_world_134(0), eee0_ctx_present(0),
+             eee0_grid_ok(0), eee0_ret(0), eee0_s28_after(0),
+             eee0_s2c_after(0), eee0_s30_after(-1), eee0_s38_after(-1),
+             eee0_s34_after(0), eee0_ctx_flags_after(0), eee0_anchor_addr(0),
+             eee0_anchor_f14(0), eee0_has_b9(false), eee0_b9_null(true),
+             eee0_b9_addr(0), eee0_b9_scale(0), eee0_b9_scale_ok(0) {
+        memset(eee0_rec_w, 0, sizeof(eee0_rec_w));
+        memset(eee0_sub_w, 0, sizeof(eee0_sub_w));
+        eee0_anchor[0] = eee0_anchor[1] = -1;
+        memset(rect, 0, sizeof(rect));
+        memset(eee0_grid_w, 0, sizeof(eee0_grid_w));
+        eee0_anchor_pos[0] = eee0_anchor_pos[1] = -1;
+        memset(eee0_b9_w, 0, sizeof(eee0_b9_w));
+        memset(eee0_b9_gate, 0, sizeof(eee0_b9_gate));
+        version = 9;
+        has_ai_words = false;
+        w110 = 0;
+        tree_overflow = false;
+        cell_overflow = false;
+    }
 };
 
 /* --------------------- v5: реконструкция статической сетки -------------- */
@@ -305,7 +349,7 @@ struct RebuiltGrid {
 static RebuiltGrid *g_grid = NULL;
 static int g_grid_error = 0;
 /* Синтетические объекты для внешних чтений эвристики. */
-static unsigned char g_worldbuf[0x130]; /* world[0x110], world[0x120] */
+static unsigned char g_worldbuf[0x140]; /* world[0x110], world[0x120], world[0x134] */
 static unsigned char g_obj3buf[0x100];
 static unsigned char g_obj4buf[0x100];
 static unsigned char g_obj2buf[0x248];  /* +0x228 = &g_obj3buf; порт читает
@@ -330,6 +374,99 @@ static void read_pos(const JVal &v, int *xy, const char *where) {
 }
 
 static void read_leaves(Call &c, const JVal &res);
+
+/* v9: чтение per-call записей FUN_0045eee0 (`eee0_cap` / `eee0_res`). */
+static void read_eee0(Call &c, const JVal &v, bool is_res) {
+    c.is_eee0 = true;
+    c.has_res = is_res;
+    c.res = v;
+    c.version = (int)jint_opt(v, "v", 9);
+    c.has_ai_words = false;
+    if (!is_res) {
+        c.w110 = (int)jint_opt(jget(v, "ai", "eee0_cap"), "w110", 0);
+        const JVal &rec = jget(v, "rec", "eee0_cap");
+        c.eee0_rec_addr = (int)jint_opt(rec, "addr", 0);
+        c.eee0_rec_ok = (int)jint_opt(rec, "ok", 0);
+        const JVal &rw = jarr(rec, "w", "eee0_cap.rec");
+        for (size_t i = 0; i < 7 && i < rw.a.size(); i++) {
+            c.eee0_rec_w[i] = (int)jnum(rw.a[i], "eee0_cap.rec.w");
+        }
+        c.eee0_sub_ok = (int)jint_opt(rec, "sub_ok", 0);
+        const JVal &rs = jarr(rec, "sub", "eee0_cap.rec");
+        for (size_t i = 0; i < 4 && i < rs.a.size(); i++) {
+            c.eee0_sub_w[i] = (int)jnum(rs.a[i], "eee0_cap.rec.sub");
+        }
+        const JVal &ai = jget(v, "ai", "eee0_cap");
+        c.eee0_s68 = (int)jint(ai, "s68", "eee0_cap.ai");
+        c.eee0_s6c = (int)jint(ai, "s6c", "eee0_cap.ai");
+        c.eee0_s28 = (int)jint(ai, "s28", "eee0_cap.ai");
+        c.eee0_s2c = (int)jint(ai, "s2c", "eee0_cap.ai");
+        read_pos(jget(ai, "anchor", "eee0_cap.ai"), c.eee0_anchor, "eee0_cap.ai.anchor");
+        c.eee0_s30 = (int)jint(ai, "s30", "eee0_cap.ai");
+        c.eee0_s34 = (unsigned)jint(ai, "s34", "eee0_cap.ai");
+        c.eee0_s38 = (int)jint(ai, "s38", "eee0_cap.ai");
+        c.eee0_ctx_present = (int)jint(ai, "ctx_present", "eee0_cap.ai");
+        c.eee0_ctx_flags = (unsigned)jint(ai, "ctx_flags", "eee0_cap.ai");
+        c.ctx_flags = (unsigned)c.eee0_ctx_flags;
+        c.eee0_world_134 = (int)jint_opt(ai, "world_134", 0);
+        c.eee0_grid_ok = (int)jint_opt(ai, "grid_ok", 0);
+        const JVal &gw = jarr(ai, "grid", "eee0_cap.ai");
+        for (size_t i = 0; i < 8 && i < gw.a.size(); i++) {
+            c.eee0_grid_w[i] = (int)jnum(gw.a[i], "eee0_cap.ai.grid");
+        }
+    } else {
+        c.eee0_ret = (int)jint(v, "ret", "eee0_res");
+        const JVal &ai = jget(v, "ai", "eee0_res");
+        c.eee0_s28_after = (int)jint(ai, "s28", "eee0_res.ai");
+        c.eee0_s2c_after = (int)jint(ai, "s2c", "eee0_res.ai");
+        c.eee0_s30_after = (int)jint(ai, "s30", "eee0_res.ai");
+        c.eee0_s34_after = (unsigned)jint(ai, "s34", "eee0_res.ai");
+        c.eee0_s38_after = (int)jint(ai, "s38", "eee0_res.ai");
+        c.eee0_ctx_flags_after = (unsigned)jint_opt(ai, "ctx_flags", 0);
+        const JVal &anc = jget(v, "anchor", "eee0_res");
+        c.eee0_anchor_addr = (int)jint_opt(anc, "addr", 0);
+        read_pos(jget(anc, "pos", "eee0_res.anchor"), c.eee0_anchor_pos,
+                 "eee0_res.anchor.pos");
+        c.eee0_anchor_f14 = (int)jint_opt(anc, "f14", 0);
+        if (jhas(v, "b9_leaf") && !jisnull(jget(v, "b9_leaf", "eee0_res"))) {
+            const JVal &b9 = jget(v, "b9_leaf", "eee0_res");
+            PathLeaf pl;
+            memset(&pl, 0, sizeof(pl));
+            pl.null = (jint_opt(b9, "null", 1) != 0);
+            if (!pl.null) {
+                const JVal &w = jarr(b9, "w", "eee0_res.b9_leaf");
+                for (size_t k = 0; k < 5 && k < w.a.size(); k++) {
+                    pl.w[k] = (int)jnum(w.a[k], "eee0_res.b9_leaf.w");
+                }
+                pl.addr = (int)jint_opt(b9, "ptr", 0);
+            }
+            c.leaves_path.push_back(pl);
+            c.leaves_scale.push_back((unsigned)jint_opt(b9, "scale", 0));
+            c.leaves_scale_ok.push_back((int)jint_opt(b9, "scale_ok", 0));
+            std::vector<int> ch;
+            if (jhas(b9, "chain")) {
+                const JVal &ca = jget(b9, "chain", "eee0_res.b9_leaf");
+                for (size_t k = 0; k < ca.a.size(); k++) {
+                    ch.push_back((int)jnum(ca.a[k], "eee0_res.b9_leaf.chain"));
+                }
+            }
+            c.leaves_chain.push_back(ch);
+            c.eee0_has_b9 = true;
+            c.eee0_b9_null = pl.null;
+            for (int k = 0; k < 5; k++) c.eee0_b9_w[k] = pl.w[k];
+            c.eee0_b9_addr = pl.addr;
+            c.eee0_b9_scale = c.leaves_scale.back();
+            c.eee0_b9_scale_ok = c.leaves_scale_ok.back();
+            if (jhas(b9, "gate")) {
+                const JVal &ga = jget(b9, "gate", "eee0_res.b9_leaf");
+                for (size_t k = 0; k < 4 && k < ga.a.size(); k++) {
+                    c.eee0_b9_gate[k] = (int)jnum(ga.a[k], "eee0_res.b9_leaf.gate");
+                }
+            }
+            c.eee0_b9_chain = ch;
+        }
+    }
+}
 
 static void read_call(Call &c, const JVal &cap, const JVal *res) {
     const JVal &args = jget(cap, "args", "cap");
@@ -485,6 +622,105 @@ static void read_call(Call &c, const JVal &cap, const JVal *res) {
     if (res != NULL) {
         c.res = *res;
         read_leaves(c, *res);
+    }
+}
+
+static void read_eee0_state(Call &c, const JVal &cap) {
+    const JVal &ai = jget(cap, "ai", "eee0_cap");
+    c.timer_bits = 0;
+    c.final_bits = (unsigned)jint_opt(ai, "ctx_flags", 0);
+    c.dist_bits = 0;
+    c.yrad = 3;
+    c.xrad = 3;
+    for (int i = 0; i < 4; i++) c.rect[i] = 0;
+    c.world_scale_bits = (g_grid && !g_grid_error) ? g_grid->wscale : 0;
+    c.has_ai_words = false;
+    /* v9: eee0_cap carries the same raw BattleAI block as e0a0 cap. Use it
+     * for the scalar fields the port reads, so rep_build/rep_rebind start
+     * from the native state instead of zero defaults. */
+    if (c.version >= 3 && jhas(cap, "ai_words")) {
+        const JVal &aw = jarr(cap, "ai_words", "eee0_cap");
+        if (aw.a.size() == RP_AI_WORDS) {
+            for (size_t i = 0; i < aw.a.size(); i++) {
+                c.ai_words[i] = (unsigned int)(int)jnum(aw.a[i], "eee0_cap.ai_words");
+            }
+            c.has_ai_words = true;
+            c.timer_bits = c.ai_words[1];
+            c.final_bits = c.ai_words[2];
+            c.dist_bits = c.ai_words[3];
+            c.yrad = (int)c.ai_words[4];
+            c.xrad = (int)c.ai_words[5];
+            for (int i = 0; i < 4; i++) c.rect[i] = (int)c.ai_words[6 + i];
+            c.trk = (int)(c.ai_words[12] & 0xffu);
+            c.bd2 = c.ai_words[13];
+            c.ai_code = (int)c.ai_words[14];
+        }
+    }
+    const JVal &m1 = jarr(cap, "map1", "eee0_cap");
+    for (size_t i = 0; i < m1.a.size(); i++) {
+        const JVal &e = m1.a[i];
+        CapNode n;
+        memset(&n, 0, sizeof(n));
+        read_pos(jget(e, "pos", "cap.map1"), &n.x, "cap.map1.pos");
+        n.filter = (int)jint(e, "filter", "cap.map1");
+        n.g = (int)jint(e, "g", "cap.map1");
+        n.d2 = (int)jint(e, "d2", "cap.map1");
+        n.h10k = (int)jint(e, "h10k", "cap.map1");
+        n.cost = (int)jint(e, "cost", "cap.map1");
+        read_pos(jget(e, "parent", "cap.map1"), &n.px, "cap.map1.parent");
+        n.occ_key = (int)jint(e, "occ_key", "cap.map1");
+        n.pos_addr = (int)jint_opt(e, "pos_addr", 0);
+        const JVal &nb = jarr(e, "nbr", "cap.map1");
+        for (int k = 0; k < 9 && k < (int)nb.a.size(); k++) {
+            read_pos(nb.a[k], n.nbr[k], "cap.map1.nbr");
+        }
+        c.map1.push_back(n);
+    }
+    const JVal &occ = jarr(cap, "occ", "eee0_cap");
+    for (size_t i = 0; i < occ.a.size(); i++) {
+        c.occ.push_back((int)jnum(occ.a[i], "cap.occ"));
+    }
+    if (jhas(cap, "occ_nodes")) {
+        const JVal &ons = jarr(cap, "occ_nodes", "cap");
+        for (size_t i = 0; i < ons.a.size(); i++) {
+            const JVal &o = ons.a[i];
+            OccVal v;
+            int key = (int)jint(o, "key", "cap.occ_nodes");
+            const JVal &val = jget(o, "value", "cap.occ_nodes");
+            if (!jisnull(val)) {
+                const JVal &w = jarr(val, "w", "cap.occ_nodes.value");
+                const JVal &pt = jarr(val, "ptr", "cap.occ_nodes.value");
+                const JVal &po = jarr(val, "pos", "cap.occ_nodes.value");
+                const JVal &pa = jarr(val, "parent", "cap.occ_nodes.value");
+                const JVal &nb = jarr(val, "nbr", "cap.occ_nodes.value.nbr");
+                v.has = true;
+                v.value_addr = (int)jint(val, "value_addr", "cap.occ_nodes.value");
+                v.pos_addr = (int)jint(val, "pos_addr", "cap.occ_nodes.value");
+                for (size_t k = 0; k < w.a.size(); k++) {
+                    v.w[k] = (unsigned int)(int)jnum(w.a[k], "cap.occ_nodes.value.w");
+                }
+                for (size_t k = 0; k < pt.a.size(); k++) {
+                    v.ptr[k] = (int)jnum(pt.a[k], "cap.occ_nodes.value.ptr");
+                }
+                for (int k = 0; k < 2; k++) {
+                    v.pos[k] = (int)jnum(po.a[k], "cap.occ_nodes.value.pos");
+                    v.parent[k] = (int)jnum(pa.a[k], "cap.occ_nodes.value.parent");
+                }
+                for (size_t k = 0; k < nb.a.size(); k++) {
+                    read_pos(nb.a[k], v.nbr[k], "cap.occ_nodes.value.nbr");
+                }
+            }
+            c.occ_vals[key] = v;
+        }
+    }
+    if (c.version >= 3 && jhas(cap, "ai_words")) {
+        const JVal &aw = jarr(cap, "ai_words", "cap");
+        if (aw.a.size() == RP_AI_WORDS) {
+            for (size_t i = 0; i < aw.a.size(); i++) {
+                c.ai_words[i] = (unsigned int)(int)jnum(aw.a[i], "cap.ai_words");
+            }
+            c.has_ai_words = true;
+        }
     }
 }
 
@@ -896,7 +1132,8 @@ static std::string reg_branch_for(const AStateNode &n, int seq) {
 }
 
 static std::string diff_after(const AState &nat, const AState &port, int seq,
-                              int *p_ai_diff = NULL, bool *p_ai_compared = NULL) {
+                              int *p_ai_diff = NULL, bool *p_ai_compared = NULL,
+                              bool ai_words_too = true) {
     if (p_ai_diff) *p_ai_diff = 0;
     if (p_ai_compared) *p_ai_compared = false;
     std::map<std::string, const AStateNode *> an, bn;
@@ -969,14 +1206,14 @@ static std::string diff_after(const AState &nat, const AState &port, int seq,
             s += b;
         }
     }
-    if (nat.has_ai && port.has_ai) {
+    if (ai_words_too && nat.has_ai && port.has_ai) {
         /* Слоты-указатели BattleAI (+0x00 game_ctx, +0x2c anchor, +0x6c/0x70/
          * 0x74/0x78 map-поля, +0x7c) в реплике адреса харнеса — их сравнение
          * бессмысленно. */
-        static const int ptr_words[7] = {0, 11, 27, 28, 29, 30, 31};
+        static const int ptr_words[8] = {0, 10, 11, 27, 28, 29, 30, 31};
         for (int i = 0; i < RP_AI_WORDS; i++) {
             bool skip = false;
-            for (int k = 0; k < 7; k++) if (ptr_words[k] == i) skip = true;
+            for (int k = 0; k < 8; k++) if (ptr_words[k] == i) skip = true;
             if (skip || nat.ai[i] == port.ai[i]) continue;
             ai_diff++;
             if (ai_diff <= 16) {
@@ -1008,7 +1245,7 @@ extern "C" {
     int g_replay_override = 1;
     int g_replay_leaf_underflow = 0;
     static Call *g_cur = NULL;
-    static size_t g_pi = 0, g_hi = 0, g_ti = 0, g_ms_i = 0;
+    static size_t g_pi = 0, g_hi = 0, g_ti = 0, g_ms_i = 0, g_ms_ri = 0;
     static std::vector<int *> g_fake_path;
     /* Identity: нативный LDPos* — ключ map1 и операнд гейта cur->pos==cmp
      * (@0x45e137). Ключ карты — реальный адрес из захвата; объект(ы) харнеса,
@@ -1258,7 +1495,7 @@ static int *rp_pos_obj(int addr, int x, int y)
                                          : pos_key_coord(x, y);
     std::map<unsigned long long, int *>::const_iterator it = g_pos_obj.find(key);
     if (it != g_pos_obj.end()) return it->second;
-    int *obj = (int *)calloc(8, sizeof(int));
+    int *obj = (int *)calloc(16, sizeof(int));
     obj[3] = x; obj[4] = y;
     /* Слова +0x00/+0x04/+0x08 и level +0x1c: носитель — grid-клетка этих
      * координат (spec->pos, path.cpp), поэтому снимаются с захваченной ячейки.
@@ -1487,6 +1724,22 @@ static void rep_build(Rep *r, const Call &c) {
             g_pos_obj.find(key);
         ai->anchor = (it == g_pos_obj.end())
                      ? &r->anchorPos : (LDPos *)(void *)it->second;
+    }
+    if (c.is_eee0) {
+        if (c.eee0_grid_ok) {
+            int *gobj = rp_pos_obj(c.eee0_s28, c.eee0_grid_w[3], c.eee0_grid_w[4]);
+            for (int k = 0; k < 8; k++) {
+                if (k != 7) gobj[k] = c.eee0_grid_w[k];
+            }
+            if (gobj[7] == 0) {
+                gobj[7] = (g_grid && !g_grid_error)
+                          ? (int)(size_t)&g_grid->levels[g_grid->leaf] : 0;
+            }
+            *(int *)((unsigned char *)ai + 0x28) = (int)(size_t)gobj;
+        }
+        *(unsigned int *)(g_worldbuf + 0x134) = (unsigned int)c.eee0_world_134;
+    } else {
+        memset(g_worldbuf + 0x134, 0, sizeof(unsigned int));
     }
     rep_rebuild_m1(r);
     ai->cand_head = &r->m1head;
@@ -1834,6 +2087,25 @@ extern "C" unsigned long replay_timeout_ms(void)
     return (unsigned long)(unsigned int)c->leaves_timer[g_ms_i++];
 }
 
+extern "C" unsigned long replay_timer_restart_ms(void)
+{
+    const Call *c = rep_cur();
+    if (c != NULL && g_ms_ri < c->eee0_timer_restart.size()) {
+        unsigned int bits = c->eee0_timer_restart[g_ms_ri++];
+        float sec;
+        memcpy(&sec, &bits, sizeof(sec));
+        /* cap stores this+0x04 as float seconds; s6_timer_restart expects
+         * milliseconds and converts back with *0.001. */
+        return (unsigned long)(sec * 1000.0f + 0.5f);
+    }
+    if (c == NULL || c->leaves_timer.empty()) {
+        return 0UL;
+    }
+    size_t idx = (g_ms_i < c->leaves_timer.size())
+                 ? g_ms_i : c->leaves_timer.size() - 1;
+    return (unsigned long)(unsigned int)c->leaves_timer[idx];
+}
+
 extern "C" unsigned int replay_world_vt(void)
 {
     /* c690 читает *(int*)(game_ctx) — это ctx_flags текущего вызова (225/233…),
@@ -1957,6 +2229,27 @@ TreeNode *lower_bound(void *map, unsigned int key, void *hint) {
 TreeNode *lower_bound_slots(void *map, int *out, int *key) {
     RepMap2 *m;
     TreeNode *found;
+    if (g_rep != NULL &&
+        map == (void *)((unsigned char *)g_rep->aiBuf + 0x68)) {
+        found = &g_rep->m1head;
+        for (size_t i = 0; i < g_rep->m1nodes.size(); i++) {
+            unsigned ek = (unsigned)g_rep->m1nodes[i]->key;
+            if (ek == (unsigned)*key) {
+                found = g_rep->m1nodes[i];
+                break;
+            }
+            if (ek > (unsigned)*key) {
+                break;
+            }
+        }
+        if (replay_trace_level() >= 2) {
+            fprintf(stderr, "lb1: key=%d size=%u found=%s val=%p\n", *key,
+                    (unsigned)g_rep->m1nodes.size(),
+                    found == &g_rep->m1head ? "head" : "node", found->value);
+        }
+        *out = (int)(size_t)found;
+        return found;
+    }
     if (g_rep != NULL &&
         map == (void *)((unsigned char *)g_rep->aiBuf + 0x74)) {
         m = &g_rep->m2;
@@ -2094,7 +2387,130 @@ int vcall0(void *receiver, unsigned int off)
     return 0;
 }
 int vcall1(void *receiver, unsigned int off, int arg) {
-    (void)receiver; (void)off; (void)arg; return 0;
+    if (off == 0x38 && arg != 0) {
+        ((int *)arg)[0] = 0;
+        ((int *)arg)[1] = 0;
+        ((int *)arg)[2] = 0;
+    }
+    if (replay_trace_level() >= 2) {
+        fprintf(stderr, "vcall1: receiver=%p off=0x%x arg=%d\n",
+                receiver, off, arg);
+    }
+    (void)receiver;
+    return 0;
+}
+void search_params_update(void *ai) {
+    if (replay_trace_level() >= 2) {
+        fprintf(stderr, "search_params_update: ai=%p\n", ai);
+    }
+    const Call *c = rep_cur();
+    if (c != NULL && g_rep != NULL && ai == (void *)g_rep->aiBuf) {
+        BattleAI *self = (BattleAI *)ai;
+        memcpy(&self->final_threshold, &c->final_bits, 4);
+        memcpy(&self->dist_threshold, &c->dist_bits, 4);
+        self->y_radius = c->yrad;
+        self->x_radius = c->xrad;
+        self->canvas_rect.left = c->rect[0];
+        self->canvas_rect.top = c->rect[1];
+        self->canvas_rect.right = c->rect[2];
+        self->canvas_rect.bottom = c->rect[3];
+    }
+}
+void *grid_anchor(void *grid, int a1, int a2, int a3, int a4, int *flag_slot,
+                  void *world)
+{
+    if (replay_trace_level() >= 2) {
+        fprintf(stderr, "grid_anchor: grid=%p a1=%d a2=%d a3=%d a4=%d world=%p\n",
+                grid, a1, a2, a3, a4, world);
+    }
+    if (flag_slot != NULL) {
+        *flag_slot = 0;
+    }
+    const Call *c = rep_cur();
+    if (c != NULL && c->is_eee0 &&
+        (c->eee0_anchor_addr != 0 || c->eee0_anchor_pos[0] >= 0)) {
+        unsigned long long key = (c->eee0_anchor_addr != 0)
+            ? pos_key_addr(c->eee0_anchor_addr)
+            : pos_key_coord(c->eee0_anchor_pos[0], c->eee0_anchor_pos[1]);
+        /* Native 458050 returns a grid cell (GridCell*), and 45cb40 treats
+         * it as such: path_search reads +0x20 key_rec / +0x28 chain_next.
+         * Use the replay grid cell so those fields are real. */
+        GridCell *cell = grid_cell_at(c->eee0_anchor_pos[0],
+                                      c->eee0_anchor_pos[1]);
+        if (cell != NULL) {
+            g_pos_obj[key] = (int *)(void *)cell;
+            g_obj_key[(int *)(void *)cell] = key;
+            if (flag_slot != NULL) {
+                *flag_slot = (*flag_slot & ~0xff) | 1;
+            }
+            return cell;
+        }
+        int *obj = rp_pos_obj(c->eee0_anchor_addr, c->eee0_anchor_pos[0],
+                              c->eee0_anchor_pos[1]);
+        if (c->eee0_has_b9 && !c->eee0_b9_null &&
+            c->eee0_b9_w[3] == ((LDPos *)(void *)obj)->x &&
+            c->eee0_b9_w[4] == ((LDPos *)(void *)obj)->y) {
+            for (int k = 0; k < 5; k++) ((int *)obj)[k] = c->eee0_b9_w[k];
+        }
+        ((LDPos *)(void *)obj)->f14 = c->eee0_anchor_f14;
+        g_pos_obj[key] = obj;
+        g_obj_key[obj] = key;
+        if (flag_slot != NULL) {
+            *flag_slot = (*flag_slot & ~0xff) | 1;
+        }
+        return obj;
+    }
+    return NULL;
+}
+void band_free(void *band) {
+    if (replay_trace_level() >= 2) {
+        fprintf(stderr, "band_free: band=%p\n", band);
+    }
+}
+void native_45af10(void *band) {
+    if (replay_trace_level() >= 2) {
+        fprintf(stderr, "native_45af10: band=%p\n", band);
+    }
+}
+void clear_maps(void *ai) {
+    if (replay_trace_level() >= 2) {
+        fprintf(stderr, "clear_maps: ai=%p\n", ai);
+    }
+    if (g_rep != NULL && ai == (void *)g_rep->aiBuf) {
+        g_rep->m1nodes.clear();
+        g_rep->m1keys.clear();
+        rep_rebuild_m1(g_rep);
+        g_rep->m2.nodes.clear();
+        rep_rebuild_m2(g_rep);
+        BattleAI *self = (BattleAI *)(void *)g_rep->aiBuf;
+        self->cand_head = &g_rep->m1head;
+        self->reserved_70 = 0;
+        self->map2 = (void *)&g_rep->m2;
+        self->occ_head = &g_rep->m2.head;
+        *(int *)((unsigned char *)g_rep->aiBuf + 0x7c) = 0;
+    }
+}
+int set_rect_empty(void *rect) {
+    if (replay_trace_level() >= 2) {
+        fprintf(stderr, "set_rect_empty: rect=%p\n", rect);
+    }
+    if (rect != NULL) {
+        ((int *)rect)[0] = 0;
+        ((int *)rect)[1] = 0;
+        ((int *)rect)[2] = 0;
+        ((int *)rect)[3] = 0;
+    }
+    return 1;
+}
+void band_rebuild(void *ai, void *node, int bits) {
+    if (replay_trace_level() >= 2) {
+        fprintf(stderr, "band_rebuild: ai=%p node=%p bits=0x%x\n", ai, node, bits);
+    }
+}
+void *target_search(void *ai, int filter, void *cmp_pos, int arg3, int *out_code)
+{
+    return s6_target_search(ai, (void *)(size_t)filter, cmp_pos,
+                            (void *)(size_t)arg3, out_code);
 }
 long av_count(void) { return 0; }
 int av_filter(void) { return EXCEPTION_EXECUTE_HANDLER; }
@@ -2408,7 +2824,10 @@ int main(int argc, char **argv) {
     int rc = 0, npos = 0;
     bool chained = false, leaf_replay = false;
     std::map<int, Call *> caps;
+    std::map<int, Call *> eee0_caps;
     std::vector<Call *> calls;
+    std::vector<Call *> eee0_calls;
+    Call *cur_eee0 = NULL;
     char err[512];
 
     for (int i = 1; i < argc; i++) {
@@ -2462,13 +2881,57 @@ int main(int argc, char **argv) {
                 continue;
             }
             int seq = (int)jint(v, "seq", "record");
-            if (kind == "cap") {
+            if (kind == "eee0_cap") {
+                Call *c = new Call;
+                c->cap = v;
+                c->seq = seq;
+                c->tick = (int)jint_opt(v, "tick", -1);
+                c->unit = (int)jint_opt(v, "unit", -1);
+                read_eee0(*c, v, false);
+                read_eee0_state(*c, v);
+                eee0_caps[seq] = c;
+                eee0_calls.push_back(c);
+                cur_eee0 = c;
+            } else if (kind == "eee0_res") {
+                Call *c = (eee0_caps.count(seq) && eee0_caps[seq]->is_eee0)
+                          ? eee0_caps[seq]
+                          : ((cur_eee0 != NULL && (cur_eee0->seq == seq || cur_eee0->seq + 1 == seq))
+                                 ? cur_eee0 : NULL);
+                if (c == NULL || !c->is_eee0) {
+                    throw std::runtime_error("eee0_res without eee0_cap");
+                }
+                read_eee0(*c, v, true);
+                cur_eee0 = NULL;
+            } else if (kind == "cap") {
                 if (caps.count(seq)) throw std::runtime_error("duplicate cap seq");
                 Call *c = new Call;
                 c->cap = v;
                 read_call(*c, v, NULL);
                 caps[seq] = c;
                 calls.push_back(c);
+                if (cur_eee0 != NULL) {
+                    /* v9: nested e0a0 calls mutate the shared grid; carry
+                     * their deltas and world gate into the enclosing tick. */
+                    cur_eee0->tree_delta.insert(cur_eee0->tree_delta.end(),
+                                                c->tree_delta.begin(),
+                                                c->tree_delta.end());
+                    cur_eee0->cell_delta.insert(cur_eee0->cell_delta.end(),
+                                                c->cell_delta.begin(),
+                                                c->cell_delta.end());
+                    cur_eee0->row_delta.insert(cur_eee0->row_delta.end(),
+                                               c->row_delta.begin(),
+                                               c->row_delta.end());
+                    cur_eee0->eee0_timer_restart.push_back(c->timer_bits);
+                    /* B8 search_params_update is a native call that reads
+                     * world/grid state; use the values captured at the first
+                     * nested e0a0 entry as its result. */
+                    cur_eee0->final_bits = c->final_bits;
+                    cur_eee0->dist_bits = c->dist_bits;
+                    cur_eee0->yrad = c->yrad;
+                    cur_eee0->xrad = c->xrad;
+                    for (int k = 0; k < 4; k++) cur_eee0->rect[k] = c->rect[k];
+                    cur_eee0->w110 = c->w110;
+                }
             } else if (kind == "res") {
                 if (!caps.count(seq)) throw std::runtime_error("res without cap");
                 Call *c = caps[seq];
@@ -2476,6 +2939,29 @@ int main(int argc, char **argv) {
                 c->has_res = true;
                 c->res = v;
                 read_leaves(*c, v);
+                if (cur_eee0 != NULL && !c->is_eee0) {
+                    cur_eee0->leaves_path.insert(cur_eee0->leaves_path.end(),
+                                                 c->leaves_path.begin(),
+                                                 c->leaves_path.end());
+                    cur_eee0->leaves_heur.insert(cur_eee0->leaves_heur.end(),
+                                                 c->leaves_heur.begin(),
+                                                 c->leaves_heur.end());
+                    cur_eee0->leaves_timeout.insert(cur_eee0->leaves_timeout.end(),
+                                                    c->leaves_timeout.begin(),
+                                                    c->leaves_timeout.end());
+                    cur_eee0->leaves_timer.insert(cur_eee0->leaves_timer.end(),
+                                                  c->leaves_timer.begin(),
+                                                  c->leaves_timer.end());
+                    cur_eee0->leaves_scale.insert(cur_eee0->leaves_scale.end(),
+                                                  c->leaves_scale.begin(),
+                                                  c->leaves_scale.end());
+                    cur_eee0->leaves_scale_ok.insert(cur_eee0->leaves_scale_ok.end(),
+                                                     c->leaves_scale_ok.begin(),
+                                                     c->leaves_scale_ok.end());
+                    cur_eee0->leaves_chain.insert(cur_eee0->leaves_chain.end(),
+                                                  c->leaves_chain.begin(),
+                                                  c->leaves_chain.end());
+                }
             } else if (kind == "error") {
                 throw std::runtime_error("capture contains error record");
             }
@@ -2493,6 +2979,211 @@ int main(int argc, char **argv) {
                         "a v5 capture or --leaf-replay\n");
         fclose(fout);
         return 2;
+    }
+
+    /* v9: per-call replay FUN_0045eee0 (s6_unit_ai_tick) */
+    if (!eee0_calls.empty()) {
+        int eee0_calls_n = 0, eee0_equal_n = 0, eee0_first_div_seq = -1;
+        std::string eee0_first_div;
+        int div_dump = replay_div_dump_on();
+        Rep *r_eee0 = chained ? new Rep : NULL;
+        for (size_t i = 0; i < eee0_calls.size(); i++) {
+            Call *c = eee0_calls[i];
+            if (!c->has_res) {
+                if (i + 1 == eee0_calls.size()) {
+                    fprintf(stderr, "WARN: trailing eee0_cap seq=%d without eee0_res ignored\n",
+                            c->seq);
+                    break;
+                }
+                fprintf(stderr, "ERROR: eee0_cap seq=%d has no eee0_res record\n", c->seq);
+                if (rc == 0) rc = 2;
+                break;
+            }
+            if (!chained) r_eee0 = new Rep;
+            try {
+                if (!leaf_replay && g_grid != NULL && !g_grid_error) {
+                    for (size_t d = 0; d < c->cell_delta.size(); d++) {
+                        replay_apply_cell_delta(g_grid, c->cell_delta[d]);
+                    }
+                    for (size_t d = 0; d < c->row_delta.size(); d++) {
+                        int idx = c->row_delta[d].first;
+                        if (idx >= 0 && idx < (int)g_grid->n) {
+                            g_grid->rowdata[idx] = c->row_delta[d].second;
+                        }
+                    }
+                    for (size_t d = 0; d < c->tree_delta.size(); d++) {
+                        int idx = c->tree_delta[d].first;
+                        if (idx >= 0 && idx < (int)g_grid->cell_keys.size()) {
+                            g_grid->tree[(unsigned int)g_grid->cell_keys[idx]] =
+                                c->tree_delta[d].second;
+                        }
+                    }
+                }
+                if (chained && i > 0) {
+                    rep_rebind(r_eee0, *c);
+                    if (c->eee0_grid_ok) {
+                        int *gobj = rp_pos_obj(c->eee0_s28, c->eee0_grid_w[3],
+                                               c->eee0_grid_w[4]);
+                        for (int k = 0; k < 8; k++) {
+                            if (k != 7) gobj[k] = c->eee0_grid_w[k];
+                        }
+                        if (gobj[7] == 0) {
+                            gobj[7] = (int)(size_t)&g_grid->levels[g_grid->leaf];
+                        }
+                        *(int *)((unsigned char *)r_eee0->aiBuf + 0x28) = (int)(size_t)gobj;
+                    }
+                    if (c->eee0_anchor_addr != 0 || c->eee0_anchor[0] >= 0) {
+                        unsigned long long akey =
+                            (c->eee0_anchor_addr != 0)
+                            ? pos_key_addr(c->eee0_anchor_addr)
+                            : pos_key_coord(c->eee0_anchor[0], c->eee0_anchor[1]);
+                        int *aobj = rp_pos_obj(c->eee0_anchor_addr, c->eee0_anchor[0],
+                                               c->eee0_anchor[1]);
+                        g_pos_obj[akey] = aobj;
+                        g_obj_key[aobj] = akey;
+                    }
+                } else {
+                    rep_build(r_eee0, *c);
+                }
+                BattleAI *ai = (BattleAI *)(void *)r_eee0->aiBuf;
+                ai->tracking = (unsigned char)c->eee0_s30;
+                ai->distance_threshold = (unsigned int)c->eee0_s34;
+                *(int *)((unsigned char *)ai + 0x38) = c->eee0_s38;
+                /* B7 falls back to world[0x134] for the grid root. Point it at
+                 * the synthetic grid object built from eee0_cap.ai.grid. */
+                if (c->eee0_grid_ok) {
+                    *(unsigned int *)(g_worldbuf + 0x134) =
+                        *(unsigned int *)(r_eee0->aiBuf + 0x28);
+                } else {
+                    *(unsigned int *)(g_worldbuf + 0x134) = 0;
+                }
+
+                int sub_buf[4];
+                int rec_buf[7];
+                for (int k = 0; k < 4; k++) sub_buf[k] = c->eee0_sub_w[k];
+                for (int k = 0; k < 7; k++) rec_buf[k] = c->eee0_rec_w[k];
+                rec_buf[1] = (int)(size_t)(void *)g_worldbuf;  /* native world ptr -> synthetic */
+                rec_buf[2] = (g_grid != NULL && !g_grid_error)
+                    ? (int)(size_t)(void *)&g_grid->levels[0] : 0; /* grid level */
+                rec_buf[3] = (int)(size_t)sub_buf;
+
+                g_rep = r_eee0;
+                g_cur = c;
+                if (!chained) g_reg_events.clear();
+                g_exit_node[0] = -1; g_exit_node[1] = -1;
+                g_exit_code = -1; g_exit_iters = -1;
+                g_have_exit = false;
+                g_pi = 0; g_gi = 0; g_hi = 0; g_ti = 0; g_ms_i = 0; g_ms_ri = 0;
+                g_iter_seq.clear();
+                g_replay_leaf_underflow = 0;
+                g_reg_overflow = 0;
+
+                int port_ret = s6_unit_ai_tick(ai, (void *)rec_buf);
+                int port_s38 = *(const int *)((const unsigned char *)ai + 0x38);
+                int port_s2c = (int)(size_t)ai->anchor;
+                int port_s30 = (int)ai->tracking;
+                unsigned int port_s34 = ai->distance_threshold;
+                int port_ax = -1, port_ay = -1;
+                if (ai->anchor != NULL) {
+                    port_ax = ai->anchor->x;
+                    port_ay = ai->anchor->y;
+                }
+
+                std::string div_why;
+                if (port_ret != c->eee0_ret) {
+                    char b[128];
+                    _snprintf_s(b, sizeof(b), _TRUNCATE,
+                                "ret native=%d port=%d", c->eee0_ret, port_ret);
+                    div_why += b;
+                }
+                if (port_s38 != c->eee0_s38_after) {
+                    char b[128];
+                    _snprintf_s(b, sizeof(b), _TRUNCATE,
+                                " %ss38 native=%d port=%d", div_why.empty() ? "" : ";",
+                                c->eee0_s38_after, port_s38);
+                    div_why += b;
+                }
+                if (port_ax != c->eee0_anchor_pos[0] ||
+                    port_ay != c->eee0_anchor_pos[1]) {
+                    char b[192];
+                    _snprintf_s(b, sizeof(b), _TRUNCATE,
+                                " %ss2c native=%d(%d,%d) port=%d(%d,%d)",
+                                div_why.empty() ? "" : ";",
+                                c->eee0_s2c_after, c->eee0_anchor_pos[0],
+                                c->eee0_anchor_pos[1], port_s2c, port_ax, port_ay);
+                    div_why += b;
+                }
+                if (port_s30 != c->eee0_s30_after) {
+                    char b[128];
+                    _snprintf_s(b, sizeof(b), _TRUNCATE,
+                                " %ss30 native=%d port=%d", div_why.empty() ? "" : ";",
+                                c->eee0_s30_after, port_s30);
+                    div_why += b;
+                }
+                if (port_s34 != c->eee0_s34_after) {
+                    char b[128];
+                    _snprintf_s(b, sizeof(b), _TRUNCATE,
+                                " %ss34 native=%u port=%u", div_why.empty() ? "" : ";",
+                                c->eee0_s34_after, port_s34);
+                    div_why += b;
+                }
+                AState nat_st, port_st;
+                after_from_res(c->res, nat_st);
+                after_from_rep(r_eee0, port_st);
+                /* Replay LDPos carriers are synthetic; compare map1 by
+                 * coordinates, not by the native pos_addr identity. */
+                for (size_t k = 0; k < nat_st.map1.size(); k++) nat_st.map1[k].pos_addr = 0;
+                for (size_t k = 0; k < port_st.map1.size(); k++) port_st.map1[k].pos_addr = 0;
+                std::string st_diff = diff_after(nat_st, port_st, c->seq, NULL, NULL, false);
+                if (!st_diff.empty()) {
+                    div_why += st_diff;
+                }
+
+                eee0_calls_n++;
+                if (div_why.empty()) {
+                    eee0_equal_n++;
+                } else {
+                    if (eee0_first_div_seq < 0) {
+                        eee0_first_div_seq = c->seq;
+                        eee0_first_div = div_why;
+                    }
+                    if (div_dump) {
+                        fprintf(stderr, "EEE0_DIV seq=%d ret=%d/%d s38=%d/%d "
+                                        "s2c=%d/%d(%d,%d)/(%d,%d) s30=%d/%d s34=%u/%u "
+                                        "m1=%u/%u occ=%u/%u%s\n",
+                                c->seq, c->eee0_ret, port_ret,
+                                c->eee0_s38_after, port_s38,
+                                c->eee0_s2c_after, port_s2c,
+                                c->eee0_anchor_pos[0], c->eee0_anchor_pos[1],
+                                port_ax, port_ay,
+                                c->eee0_s30_after, port_s30,
+                                c->eee0_s34_after, port_s34,
+                                (unsigned)nat_st.map1.size(),
+                                (unsigned)port_st.map1.size(),
+                                (unsigned)nat_st.occ.size(),
+                                (unsigned)port_st.occ.size(),
+                                div_why.c_str());
+                    }
+                    if (rc == 0) rc = 1;
+                }
+            } catch (const std::exception &e) {
+                fprintf(stderr, "ERROR: eee0 replay seq=%d failed: %s\n", c->seq, e.what());
+                if (rc == 0) rc = 2;
+            }
+            g_rep = NULL;
+            g_cur = NULL;
+            if (!chained) {
+                delete r_eee0;
+                r_eee0 = NULL;
+            }
+        }
+        if (chained && r_eee0 != NULL) {
+            delete r_eee0;
+            r_eee0 = NULL;
+        }
+        printf("EEE0: calls=%d equal=%d first_div_seq=%d %s\n",
+               eee0_calls_n, eee0_equal_n, eee0_first_div_seq,
+               eee0_first_div.empty() ? "" : eee0_first_div.c_str());
     }
 
     {

@@ -35,7 +35,7 @@
 #define CAP_MAX_GRID_CELLS 200000  /* потолок статической сетки (v5) */
 #define CAP_MAX_TREE_DELTA 50000   /* потолок дельт world+0x104 за вызов */
 #define CAP_MAX_CELL_DELTA 20000   /* потолок дельт ячеек за вызов */
-#define CAP_VERSION     8          /* версия cap/res; v1..v7 — старые захваты */
+#define CAP_VERSION     9          /* версия cap/res; v1..v8 — старые захваты */
 #define CAP_CHAIN_MAX   8          /* v8: узлов цепочки c3a0 на один cb40-вызов */
 #define CAP_CHAIN_WORDS 7          /* idx,min,max,key,next,chain,status */
 
@@ -70,7 +70,8 @@ typedef struct {
 static int   g_enabled = 0;
 static FILE *g_file = NULL;
 static int   g_max_calls = CAP_MAX_CALLS;
-static int   g_seq = 0;            /* monotonic счётчик захваченных вызовов */
+static int   g_seq = 0;            /* monotonic счётчик захваченных вызовов e0a0 */
+static int   g_eee0_seq = 0;       /* v9: независимый счётчик вызовов 45eee0 */
 static int   g_closed = 0;
 
 /* Буферы, выделяются один раз в init (без повторных больших malloc в хуке). */
@@ -133,6 +134,18 @@ static int       g_iter_n = 0, g_node_n = 0, g_occ_n = 0;
 static int       g_path_n = 0, g_heur_n = 0, g_tout_n = 0;
 static int       g_leaf_overflow = 0;
 static int       g_map_trap = 0;
+
+/* v9: состояние per-call захвата FUN_0045eee0 (s6_unit_ai_tick). */
+static int       g_in_eee0 = 0;
+static int       g_cur_eee0_seq = 0;
+static int       g_eee0_b9_valid = 0;
+static int       g_eee0_b9_null = 0;
+static int       g_eee0_b9_w[CAP_WORDS] = {0, 0, 0, 0, 0};
+static int       g_eee0_b9_addr = 0;
+static unsigned int g_eee0_b9_scale = 0;
+static int       g_eee0_b9_scale_ok = 0;
+static int       g_eee0_b9_gate[CAP_GATE_WORDS] = {0, 0, 0, 0};
+static int       g_eee0_b9_chain[1 + CAP_CHAIN_MAX * CAP_CHAIN_WORDS];
 
 /* Адреса оригинальных листьев (устанавливаются из install_capture_sites). */
 static void *g_fn_cb40 = NULL;
@@ -1002,6 +1015,21 @@ void battle_capture_e0a0_enter(void *this_, int filter, void *cmp,
     if (!g_enabled || g_closed) {
         return;
     }
+    if (g_in_eee0 && !g_eee0_b9_valid && g_path_n == CAP_WORDS &&
+        g_path[0] != 0x7fffffff) {
+        int k, cnt = g_chain_leaf[0];
+        for (k = 0; k < CAP_WORDS; k++) g_eee0_b9_w[k] = g_path[k];
+        g_eee0_b9_addr = g_pptr[0];
+        g_eee0_b9_null = 0;
+        g_eee0_b9_scale = g_cb40_scale;
+        g_eee0_b9_scale_ok = g_cb40_scale_ok;
+        for (k = 0; k < CAP_GATE_WORDS; k++) g_eee0_b9_gate[k] = g_gate[k];
+        g_eee0_b9_chain[0] = (cnt >= 0 && cnt <= CAP_CHAIN_MAX) ? cnt : 0;
+        for (k = 0; k < g_eee0_b9_chain[0] * CAP_CHAIN_WORDS; k++) {
+            g_eee0_b9_chain[1 + k] = g_chain_leaf[1 + k];
+        }
+        g_eee0_b9_valid = 1;
+    }
     if (g_seq >= g_max_calls) {
         g_closed = 1;
         fclose(g_file);
@@ -1093,6 +1121,147 @@ void battle_capture_e0a0_enter(void *this_, int filter, void *cmp,
     }
 }
 
+void battle_capture_eee0_enter(void *self, void *rec)
+{
+    BattleAI *ai = (BattleAI *)self;
+    unsigned char *r = (unsigned char *)rec;
+    int rec_w[7] = {0, 0, 0, 0, 0, 0, 0};
+    int sub_w[4] = {0, 0, 0, 0};
+    int grid_w[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    int ctx_w[7] = {0, 0, 0, 0, 0, 0, 0};
+    int s68 = 0, s6c = 0, s28 = 0, s2c = 0, s30 = -1, s38 = -1;
+    unsigned int s34 = 0xFFFFFFFFu, ctx_flags = 0;
+    int ctx_present = 0, rec_ok = 0, sub_ok = 0, grid_ok = 0;
+    int world_134 = 0;
+    cap_pos anchor = { -1, -1 };
+
+    if (!g_enabled || g_closed) {
+        return;
+    }
+    if (g_seq >= g_max_calls) {
+        g_closed = 1;
+        fclose(g_file);
+        g_file = NULL;
+        ld_info("battle_capture: reached max=%d — file closed", g_max_calls);
+        return;
+    }
+
+    g_in_eee0 = 1;
+    g_cur_eee0_seq = ++g_eee0_seq;
+    g_eee0_b9_valid = 0;
+    g_eee0_b9_null = 0;
+    g_eee0_b9_addr = 0;
+    g_iter_n = 0;
+    g_path_n = 0; g_heur_n = 0; g_tout_n = 0;
+    g_leaf_overflow = 0;
+
+    if (rec != NULL) {
+        __try {
+            int k;
+            for (k = 0; k < 7; k++) rec_w[k] = *(const int *)(r + k * 4);
+            rec_ok = 1;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            rec_ok = 0;
+        }
+        if (rec_ok) {
+            __try {
+                const unsigned char *sub = *(const unsigned char *const *)(r + 0x0c);
+                if (sub != NULL) {
+                    int k;
+                    for (k = 0; k < 4; k++) sub_w[k] = *(const int *)(sub + k * 4);
+                    sub_ok = 1;
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+            }
+        }
+    }
+    if (ai != NULL) {
+        __try {
+            s68 = (int)(size_t)ai->map1;
+            s6c = (int)(size_t)ai->cand_head;
+            s28 = *(const int *)((const unsigned char *)ai + 0x28);
+            s2c = (int)(size_t)ai->anchor;
+            s30 = (int)ai->tracking;
+            s34 = ai->distance_threshold;
+            s38 = *(const int *)((const unsigned char *)ai + 0x38);
+            cap_read_pos(ai->anchor, &anchor);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+        __try {
+            void *w0 = ai->game_ctx;
+            if (w0 != NULL) {
+                ctx_present = 1;
+                ctx_flags = *(const unsigned int *)w0;
+                for (int k = 0; k < 7; k++) ctx_w[k] = *(const int *)((const unsigned char *)w0 + k * 4);
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+        if (rec_ok && rec_w[4] == 0) {
+            __try {
+                const unsigned char *world =
+                    (const unsigned char *)*(const void *const *)(r + 0x04);
+                if (world != NULL) {
+                    world_134 = *(const int *)(world + 0x134);
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+            }
+        }
+        if (rec_ok) {
+            __try {
+                int gptr = (rec_w[4] != 0) ? rec_w[4] : world_134;
+                if (gptr != 0) {
+                    int k;
+                    for (k = 0; k < 8; k++) grid_w[k] = *(const int *)((const unsigned char *)(size_t)gptr + k * 4);
+                    grid_ok = 1;
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+            }
+        }
+    }
+
+    cap_read_map1(ai);
+    cap_read_occ(ai);
+    cap_read_ai_words(ai);
+
+    fprintf(g_file, "{\"v\":%d,\"kind\":\"eee0_cap\",\"seq\":%d,\"tick\":%d,"
+            "\"unit\":%d,\"fn\":\"eee0\",\"rec\":{\"addr\":%d,\"ok\":%d,"
+            "\"w\":[%d,%d,%d,%d,%d,%d,%d],\"sub_ok\":%d,"
+            "\"sub\":[%d,%d,%d,%d]},"
+            "\"ai\":{\"s68\":%d,\"s6c\":%d,\"s28\":%d,\"s2c\":%d,"
+            "\"anchor\":[%d,%d],\"s30\":%d,\"s34\":%u,\"s38\":%d,"
+            "\"ctx_present\":%d,\"ctx_flags\":%u,\"world_134\":%d,\"w110\":%d,"
+            "\"ctx\":[%d,%d,%d,%d,%d,%d,%d],"
+            "\"grid_ok\":%d,\"grid\":[%d,%d,%d,%d,%d,%d,%d,%d]},"
+            "\"trap\":%d,\"map1\":",
+            CAP_VERSION, g_cur_eee0_seq, g_tick, g_unit,
+            (int)(size_t)rec, rec_ok,
+            rec_w[0], rec_w[1], rec_w[2], rec_w[3], rec_w[4], rec_w[5], rec_w[6],
+            sub_ok, sub_w[0], sub_w[1], sub_w[2], sub_w[3],
+            s68, s6c, s28, s2c, anchor.x, anchor.y, s30, s34, s38,
+            ctx_present, ctx_flags, world_134, cap_world110(ai),
+            ctx_w[0], ctx_w[1], ctx_w[2], ctx_w[3], ctx_w[4], ctx_w[5], ctx_w[6],
+            grid_ok, grid_w[0], grid_w[1], grid_w[2], grid_w[3],
+            grid_w[4], grid_w[5], grid_w[6], grid_w[7],
+            g_map_trap);
+    cap_write_map1(g_file);
+    fputs(",\"occ\":", g_file);
+    cap_write_ints(g_file, g_occ, g_occ_n);
+    fputs(",\"occ_nodes\":", g_file);
+    cap_write_occ_nodes(g_file);
+    fputs(",\"ai_words\":", g_file);
+    cap_write_ai_words(g_file);
+    fputs("}\n", g_file);
+
+    {
+        static volatile LONG dbg = 0;
+        if (ld_rate(&dbg, 3, 50)) {
+            ld_info("battle_capture: eee0_cap seq=%d tick=%d unit=%d "
+                    "map1=%d occ=%d", g_cur_eee0_seq, g_tick, g_unit,
+                    g_node_n, g_occ_n);
+        }
+    }
+}
+
 void battle_capture_latch(void *cand)
 {
     if (!g_enabled || g_closed) {
@@ -1102,6 +1271,107 @@ void battle_capture_latch(void *cand)
         return;
     }
     cap_read_cand_pos(cand, &g_iter[g_iter_n++]);   /* NULL → (-1,-1) → null */
+}
+
+void battle_capture_eee0_exit(int code, void *self)
+{
+    BattleAI *ai = (BattleAI *)self;
+    unsigned char *self_ptr = (unsigned char *)self;
+    int s28 = 0, s2c = 0, s30 = -1, s38 = -1;
+    unsigned int s34 = 0xFFFFFFFFu, ctx_flags = 0;
+    int anchor_addr = 0, anchor_f14 = 0;
+    cap_pos anchor = { -1, -1 };
+    int i, k;
+
+    if (!g_enabled || g_closed) {
+        g_in_eee0 = 0;
+        return;
+    }
+    if (!g_eee0_b9_valid && g_path_n == CAP_WORDS && g_path[0] != 0x7fffffff) {
+        int cnt = g_chain_leaf[0];
+        for (k = 0; k < CAP_WORDS; k++) g_eee0_b9_w[k] = g_path[k];
+        g_eee0_b9_addr = g_pptr[0];
+        g_eee0_b9_null = 0;
+        g_eee0_b9_scale = g_cb40_scale;
+        g_eee0_b9_scale_ok = g_cb40_scale_ok;
+        for (k = 0; k < CAP_GATE_WORDS; k++) g_eee0_b9_gate[k] = g_gate[k];
+        g_eee0_b9_chain[0] = (cnt >= 0 && cnt <= CAP_CHAIN_MAX) ? cnt : 0;
+        for (k = 0; k < g_eee0_b9_chain[0] * CAP_CHAIN_WORDS; k++) {
+            g_eee0_b9_chain[1 + k] = g_chain_leaf[1 + k];
+        }
+        g_eee0_b9_valid = 1;
+    }
+    g_in_eee0 = 0;
+
+    if (ai == NULL) {
+        return;
+    }
+    __try {
+        s28 = *(const int *)(self_ptr + 0x28);
+        s2c = (int)(size_t)ai->anchor;
+        s30 = (int)ai->tracking;
+        s34 = ai->distance_threshold;
+        s38 = *(const int *)(self_ptr + 0x38);
+        if (ai->game_ctx != NULL) {
+            ctx_flags = *(const unsigned int *)ai->game_ctx;
+        }
+        if (ai->anchor != NULL) {
+            anchor_addr = (int)(size_t)ai->anchor;
+            memcpy(&anchor_f14, (const unsigned char *)ai->anchor + 0x14, sizeof(int));
+        }
+        cap_read_pos(ai->anchor, &anchor);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+
+    cap_read_map1(ai);
+    cap_read_occ(ai);
+    cap_read_ai_words(ai);
+
+    fprintf(g_file, "{\"v\":%d,\"kind\":\"eee0_res\",\"seq\":%d,\"tick\":%d,"
+            "\"unit\":%d,\"fn\":\"eee0\",\"ret\":%d,"
+            "\"ai\":{\"s28\":%d,\"s2c\":%d,\"s30\":%d,\"s34\":%u,\"s38\":%d,"
+            "\"ctx_flags\":%u},"
+            "\"anchor\":{\"addr\":%d,\"pos\":[%d,%d],\"f14\":%d},"
+            "\"map1_after\":",
+            CAP_VERSION, g_cur_eee0_seq, g_tick, g_unit, code,
+            s28, s2c, s30, s34, s38, ctx_flags,
+            anchor_addr, anchor.x, anchor.y, anchor_f14);
+    cap_write_map1(g_file);
+    fputs(",\"occ_after\":", g_file);
+    cap_write_ints(g_file, g_occ, g_occ_n);
+    fputs(",\"occ_nodes_after\":", g_file);
+    cap_write_occ_nodes(g_file);
+    fputs(",\"ai_words_after\":", g_file);
+    cap_write_ai_words(g_file);
+    if (g_eee0_b9_valid) {
+        int cnt = g_eee0_b9_chain[0];
+        fputs(",\"b9_leaf\":{\"null\":0,\"w\":", g_file);
+        cap_write_ints(g_file, g_eee0_b9_w, CAP_WORDS);
+        fprintf(g_file, ",\"ptr\":%d,\"scale\":%u,\"scale_ok\":%d,\"gate\":",
+                g_eee0_b9_addr, g_eee0_b9_scale, g_eee0_b9_scale_ok);
+        cap_write_ints(g_file, g_eee0_b9_gate, CAP_GATE_WORDS);
+        fputs(",\"chain\":[", g_file);
+        fprintf(g_file, "%d", cnt);
+        for (i = 0; i < cnt; i++) {
+            const int *e = &g_eee0_b9_chain[1 + i * CAP_CHAIN_WORDS];
+            for (k = 0; k < CAP_CHAIN_WORDS; k++) {
+                fprintf(g_file, ",%d", e[k]);
+            }
+        }
+        fputs("]}", g_file);
+    } else {
+        fputs(",\"b9_leaf\":null", g_file);
+    }
+    fprintf(g_file, ",\"trap\":%d}\n", g_map_trap);
+
+    {
+        static volatile LONG dbg = 0;
+        if (ld_rate(&dbg, 3, 50)) {
+            ld_info("battle_capture: eee0_res seq=%d tick=%d unit=%d ret=%d "
+                    "map1=%d occ=%d b9=%d", g_cur_eee0_seq, g_tick, g_unit, code,
+                    g_node_n, g_occ_n, g_eee0_b9_valid);
+        }
+    }
 }
 
 void battle_capture_leaf(int kind, int value, const int *words)
