@@ -112,3 +112,6 @@
 16. **«`[ESP+0x160]` в R7/R16 — param_2, „clobbers bit3"» — неверно.** В блоке с `ADD EBP,0x18`
     ESP = frame−0xc, поэтому `0x160(%esp)` = **`frame+0x154`** (SEH trylevel), а не param_2
     (`frame+0x160`). param_2 пишется только B4 (`orl $8`) и читается на B80 (`0x44cb07`).
+17. **«Sentinel B102 = −9990.0f» — неверно.** Байты `0xc61c4000` = **−10000.0f**
+    (−9990.0f = `0xc61c1800`). Ошибка в `battle_ai_disasm4.md` (R16) и `battle_ai_disasm6_structure.md`;
+    значение уходит в per-tick запись `45eee0` — R17 читать из листинга/R16, не из старых карт.
