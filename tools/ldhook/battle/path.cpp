@@ -521,6 +521,8 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
                         ecx = (int)((unsigned short)ebp << 16)
                             | (int)(unsigned short)edi;       /* @0x45cbfc..0x45cc05: ключ строится В ecx */
                         LS(0x38) = ecx;                       /* @0x45cc07 */
+                        LS(0x14) = 0xcb18967f;                /* @0x45cc18: −1e7 посев L[0x14] (`MOV 0x1C(ESP)` при Y−8) */
+                        LS(0x18) = 0x4b18967f;                /* @0x45cc20: +1e7 посев L[0x18] (`MOV 0x20(ESP)` при Y−8) */
                         native::lower_bound_slots(&self->map2, &LS(0x44), &LS(0x38));  /* @0x45cc10/&L[0x44], @0x45cc0b/&L[0x38], CALL 0x434bc0 */
                         ecx = (int)(INT_PTR)&self->map2;      /* @0x434bc0 PUSH ECX / POP ECX @0x434c13/0x434c2a:
                                                                * ecx возвращает посев @0x45cc15 (lea 0x74(%esi)) */
