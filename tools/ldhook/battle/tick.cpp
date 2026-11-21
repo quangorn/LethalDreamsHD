@@ -12,7 +12,9 @@
  * B67..B71, тело band-loop C: `45b150` vs 3.0f, log-блок G, `45b3e0`,
  * back-edge `0x44c66d` → B46) и R11 (`0x44c67e..0x44c74c`, B72..B81: log-блок
  * H + общий cursor-tail B73/B74, pos-слот из `45c6f0` B75/B76, flags-join
- * B77..B81); все листья — нативные
+ * B77..B81), R12 (`0x44c74d..0x44c82b`, B82..B84: PathFinder-init на
+ * `frame+0xcc`, grid-record `frame+0x88`, `458050` anchor, log при NULL);
+ * все листья — нативные
  * `native::…`, один детур на функцию (инвариант 5) — H1 `0x44bdf5` с возвратом
  * в нативный эпилог `0x44d074` (там же H2/capture, поэтому трассировка тика и
  * захват продолжают работать).
@@ -25,7 +27,7 @@
  * EDI/EBX не восстанавливает (их снимает нативный эпилог).
  *
  * Детур разоружён, пока тело неполное: `b0_port_enabled()` = LDHOOK_SITE5=1
- * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R11 — явные UNPORTED-
+ * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R12 — явные UNPORTED-
  * заглушки с адресом блока-цели; они возвращают 0 (= `xor al,al` @0x44d072).
  */
 #include <stdlib.h>
@@ -147,6 +149,9 @@ static int b0_body_r1_r2(void *unit_, unsigned char *frame)
     float world_triple[3];          /* R11 B78: тройка под vtable+0x38 (натив: [esp] после sub 0xc) */
     void *tail_str;                 /* R11 B73: EAX = строка из 413060 (вход 49ad70) */
     int edi;                        /* R11 B77: `XOR EDI,EDI` (модель регистра, читают R12/R14) */
+    void *grid_tree;                /* R12 B82: [[unit+0xe0]+0x44]+0x238 (две независимые deref) */
+    void *grid_recv;                /* R12 B82: вторая deref = ECX приёмника 458050 */
+    void *anchor;                   /* R12 B82: возврат 458050 (слот record+0x10) */
 
     __try {
 
@@ -668,10 +673,90 @@ b81:
     /* B81 (0x44c744..0x44c74c) — `TEST BL,0x8`: бит снят → B102 (R16,
      * sentinel-тройка −9990.0f); иначе fall → B82 (R12, grid-anchor 458050). */
     if ((ebx & 0x8u) == 0) {
-        /* TODO(5.1b-11) UNPORTED: B102 R16 `0x44cb07`. Возврат 0 = `xor al,al`. */
+        /* TODO(5.1b-12) UNPORTED: B102 R16 `0x44cb07` — sentinel −9990.0f.
+         * Возврат 0 = путь `xor al,al` @0x44d072. */
         return 0;
     }
-    /* TODO(5.1b-11) UNPORTED: B82 R12 `0x44c74d` — grid-anchor (458050). */
+
+/* --- R12: grid-req + `458050` anchor + log при NULL (`0x44c74d..0x44c82b`) *
+ * EBP на входе НЕ сдвинут: B81 достижим только из R11 (B77 join → B78 →
+ * B79/B80), а все `ADD EBP,0x18` (B21/B30/B41/B58/B62/B65/B69/B72) уходят в
+ * `0x44cee6` или `0x44c6b6`/`0x44c6cb` — ни один не возвращается в flags-join.
+ * Поэтому `[EBP+…]` R12 = `unit_x == unit`. EDI = 0 (B77) и в R12 читается
+ * только как 0: `[frame+0x90/+0x94/+0x98] = EDI` и `CMP EAX,EDI` (anchor != 0).
+ * ESP на входе R12 = frame (B81 не трогает стек; 458050 снимает свои 0x18). */
+    /* B82 (0x44c74d..0x44c7ef) — PathFinder-init по `frame+0xcc` (тот же
+     * объект, что приёмник 45e1d0 в R14 и dtor 45e5e0 в R16), затем grid-
+     * record `frame+0x88`: {+0 tag=0xeb, +4 unit, +8 tree, +0xc 0, +0x10 anchor}.
+     * tree = `[[unit+0xe0]+0x44]+0x238`, читается ДВАЖДЫ независимо: первый
+     * результат — record+8, второй — ECX приёмника `458050`. */
+    native::pathfinder_init(frame + 0xcc);              /* 0x44c74d..0x44c754 */
+    grid_tree = *(void **)(unit_x + 0xe0);              /* 0x44c759 */
+    *(unsigned int *)(frame + 0x90) = 0;                /* 0x44c75f (EDI=0) */
+    *(unsigned int *)(frame + 0x94) = 0;                /* 0x44c766 (EDI=0) */
+    *(unsigned int *)(frame + 0x98) = 0;                /* 0x44c76d (EDI=0) */
+    *(unsigned int *)(frame + 0x88) = 0xeb;             /* 0x44c774 */
+    *(void **)(frame + 0x8c) = unit_x;                  /* 0x44c77f */
+    grid_tree = *(void **)((unsigned char *)grid_tree + 0x44);   /* 0x44c786 */
+    grid_tree = *(void **)((unsigned char *)grid_tree + 0x238);  /* 0x44c789 */
+    *(void **)(frame + 0x90) = grid_tree;               /* 0x44c794 (esp=frame-4 → rec+8) */
+    {
+        /* Вторая независимая deref того же выражения → ECX 458050. */
+        void *p = *(void **)(unit_x + 0xe0);            /* 0x44c7bc */
+
+        p = *(void **)((unsigned char *)p + 0x44);      /* 0x44c7c2 */
+        grid_recv = *(void **)((unsigned char *)p + 0x238);  /* 0x44c7c5 */
+    }
+    /* `458050` ABI (листинг 0x458050..0x4581f4): `RET 0x18` (6 аргументов),
+     * ECX = tree. arg1..arg4 — 16-Б temp: [frame+0x2c..0x38] (pos-тройка из
+     * B5/B76 + слот `frame+0x38` = `[unit+0x74]` либо 0 из B75) — это dword'ы
+     * 0..3 блока (callee: arg4 → `[+0x238]`, т.е. указатель); arg5 = `&frame+0x3f`
+     * — байт-флаг (callee `MOVB $1/$0,(%eax)` @0x4580fd/0x458161); arg6 = unit
+     * (callee → `449160`, `0x4580e3`). Слот `frame+0x1c = &блока` (0x44c7d6) —
+     * мёртвая запись, порт передаёт аргументы явно (как B34/B78). */
+    *(unsigned int *)(frame + 0x154) = 0x12;            /* 0x44c7cb (trylevel) */
+    anchor = native::grid_anchor(grid_recv,
+                                *(const int *)(frame + 0x2c),
+                                *(const int *)(frame + 0x30),
+                                *(const int *)(frame + 0x34),
+                                *(const int *)(frame + 0x38),
+                                (int *)(frame + 0x3f),
+                                unit_x);                /* 0x44c7da */
+    *(void **)(frame + 0x98) = anchor;                  /* 0x44c7e1 (и при NULL) */
+    if (anchor != NULL) {
+        goto b88_r14;                                   /* 0x44c7ea jne 0x44c878 */
+    }
+
+    /* B83 (0x44c7f0..0x44c80b) — anchor == NULL: log-assert (литерал 0x51cc50,
+     * код 0xa), затем vtable+0x40 БЕЗ push: `call` кладёт retaddr, поэтому
+     * callee читает свой [esp+4] = верх ESP вызывающего = frame = слот
+     * сохранённого EDI пролога (та же модель, что B15/B24/B35). NULL → join. */
+    native::log_assert(unit_x, native::literal(0x51cc50), 0xa); /* 0x44c7f0..0x44c7f7 */
+    if (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL) {
+        goto b100_join;                                 /* 0x44c806 je 0x44cad2 */
+    }
+
+    /* B84 (0x44c80c..0x44c82b) — flags-цепочка (`push 1` → vtable+0x40 →
+     * 42da60 → 435d50 = b0_player_flag_chain); NULL → join, иначе fall → B85. */
+    flags_obj = b0_player_flag_chain(unit_x);           /* 0x44c80c..0x44c81f */
+    if (flags_obj == NULL) {
+        goto b100_join;                                 /* 0x44c826 je 0x44cad2 */
+    }
+    goto b85_r13;                                       /* fall 0x44c82c → R13 */
+
+b85_r13:
+    /* 0x44c82c — TODO(5.1b-12) UNPORTED: R13 B85 (flags-tail anchor-NULL пути).
+     * Возврат 0 = путь `xor al,al` @0x44d072. */
+    return 0;
+
+b88_r14:
+    /* 0x44c878 — TODO(5.1b-12) UNPORTED: R14 B88 (core-A: 45e1d0 + запись
+     * unit+0xa4..0xac). Возврат 0 = путь `xor al,al` @0x44d072. */
+    return 0;
+
+b100_join:
+    /* 0x44cad2 — TODO(5.1b-12) UNPORTED: R16 B100 (dtor 45e5e0 по frame+0xcc,
+     * dword trylevel −1, `JMP 0x44d072`). Возврат 0 = AL=0. */
     return 0;
 
 b74_cursor_tail:

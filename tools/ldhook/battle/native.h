@@ -41,6 +41,14 @@ void *target_search(void *ai, int filter, void *cmp_pos, int arg3, int *out_code
  * (инвентарь §5: порт — 4.1d только вызов); сайт @0x45f10c. */
 void *grid_anchor(void *grid, int a1, int a2, int a3, int a4, int *flag_slot, void *world);
 
+/* FUN_0045f430 (0x45f430..0x45f4e2) — ctor/reset объекта PathFinder:
+ * __thiscall, ECX = this, 0 стек-аргументов (`ret` @0x45f4e2); тело (SEH)
+ * зовёт 45c260 по +0x3c, 47ab80 ×2 (+0x68/+0x74) и 45c330 по +0x0. Сайт
+ * R12 B82 — `&frame+0xcc` (0x44c74d); тот же объект — приёмник 45e1d0
+ * (0x44c8b6, R14) и dtor 45e5e0 (0x44cad2, R16), размер ≤0x88 Б.
+ * Тело не портировано. */
+void pathfinder_init(void *pf);
+
 /* IAT 0x4ec268 — SetRectEmpty(rect) (`call *0x4ec268` @0x45c34c в FUN_0045c330;
  * вызов через IAT-слот — `mov eax,[addr]` перед call). 1 аргумент, возврат BOOL
  * в EAX (в порту не читается). */

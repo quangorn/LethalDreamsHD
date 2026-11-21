@@ -397,6 +397,33 @@ void *grid_anchor(void *grid, int a1, int a2, int a3, int a4, int *flag_slot,
     return res;
 }
 
+/* FUN_0045f430 (0x45f430..0x45f4e2) — ctor/reset объекта PathFinder.
+ * __thiscall, ECX = this, 0 стек-аргументов (`ret` @0x45f4e2; пролог SEH
+ * 0x45f430..0x45f448, тело — 45c260 по +0x3c, 47ab80 ×2 по +0x68/+0x74,
+ * 45c330 по +0x0). sites: R12 B82 @0x44c74d (`lea 0xcc(%esp),%ecx`);
+ * объект — приёмник 45e1d0 @0x44c8b6 (R14) и dtor 45e5e0 @0x44cad2 (R16).
+ * Стек восстанавливается сохранением esp. */
+void pathfinder_init(void *pf)
+{
+    void *addr = fn(0x45f430);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, pf
+            mov eax, addr
+            call eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
 /* IAT 0x4ec268 — SetRectEmpty(rect), форма site @0x45c34c (`call *0x4ec268`,
  * байты FF 15 68 C2 4E 00 — вызов через IAT-слот, поэтому `MOV EAX,[addr]`
  * перед CALL). В FUN_0045c330 аргумент — `&this+0x18` (`LEA EAX,[ESI+0x18]`
