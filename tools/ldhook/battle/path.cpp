@@ -12,6 +12,7 @@
 #include <windows.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <intrin.h>
 
 #include "../ldhook_internal.h"
@@ -22,8 +23,23 @@
 extern "C" int g_replay_override;
 extern "C" void *replay_path_next(void);
 extern "C" void *replay_note_path_res(void *result);
-#endif
+/* Входы финального гейта cb40 (0x45cd3e..0x45cd73) на каждом вызове:
+ * spec_in/spec_out = 22 dword PathState (раскладка structs.h), gate = 16 dword
+ * (поля гейта + агрегат цепочки tree_search). Харнесс кладёт запись в поток,
+ * параллельный leaf.path, и печатает её на первом расхождении. */
+extern "C" void replay_note_gate_state(const int *spec_in, const int *spec_out,
+                                       const int *gate);
 
+static int g_gate[16];          /* поля гейта текущего cb40-вызова */
+static int g_chain[6];          /* агрегат последнего tree_search:
+                                 * 0 = best->min_metric bits, 1 = best->max_metric
+                                 * bits, 2 = best->key, 3 = число узлов цепочки,
+                                 * 4 = p3 (guard гейта c3a0), 5 = p7 (делитель) */
+extern "C" int replay_gate_index(void);   /* число cb40-вызовов порта к текущему */
+extern "C" int replay_call_seq(void);     /* seq текущего вызова харнесса */
+extern "C" int replay_cell_index(void *cell);
+extern "C" int replay_tree_status(int key);
+#endif
 /* In-order successor по std::_Tree (порт FUN_0047f800, без вызова). */
 TreeNode *s6_tree_next(TreeNode *node)
 {
@@ -147,6 +163,25 @@ static volatile LONG g_pfs_dbg = 0;
 #define PFS_R_RECUR   5
 #define PFS_R_GATE    6
 #define PFS_R_OK      7
+
+#ifdef BATTLE_REPLAY
+/* Выход cb40: снять поля, от которых зависит финальный гейт (0x45cd3e..0x45cd73)
+ * — out_metric (spec+0x10, store c3a0 @0x45c43d), min/max-пары слотов
+ * L[0x10]/L[0x2c] и L[0x14]/L[0x18], порог final_threshold (+0x8), исход. */
+#define GATE_EXIT(reason, res) do {                                       \
+    g_gate[0] = *(const int *)&spec->out_metric;                          \
+    g_gate[1] = LS(0x10); g_gate[2] = LS(0x2c);                           \
+    g_gate[3] = LS(0x14); g_gate[4] = LS(0x18);                           \
+    memcpy(&g_gate[5], &self->final_threshold, sizeof(int));              \
+    g_gate[6] = (reason); g_gate[7] = (res);                              \
+    g_gate[8] = g_chain[0]; g_gate[9] = g_chain[1];                       \
+    g_gate[10] = g_chain[2]; g_gate[11] = g_chain[3];                     \
+    g_gate[12] = g_chain[4]; g_gate[13] = g_chain[5];                     \
+    g_gate[14] = LS(0x40); g_gate[15] = LS(0x28);                         \
+} while (0)
+#else
+#define GATE_EXIT(reason, res) do { } while (0)
+#endif
 
 static void s6_pfs_diag(int reason)
 {
@@ -278,11 +313,19 @@ GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
 {
     GridCell *cur;
     GridCell *best = NULL;
+#ifdef BATTLE_REPLAY
+    int n_walked = 0;               /* число узлов цепочки, прочитанных циклом */
+#endif
 
     InterlockedIncrement(&g_ts_calls);
     (void)p2;                          /* 0x45c3a0 p2 не читает */
     /* p4: store @0x45c43d (FSTPS [EDX]) и numerator гейта @0x45c45a ([ESP+0x20]
      * при ESP=A−16) — p4 читается, слот p4 = адрес store/numerator. */
+
+#ifdef BATTLE_REPLAY
+    g_chain[0] = g_chain[1] = g_chain[2] = g_chain[3] = 0;
+    g_chain[4] = p3; g_chain[5] = p7;
+#endif
 
     if (p1 == NULL) {                  /* 0x45c3a6/0x45c3aa → 0x45c479: XOR EAX,EAX */
         InterlockedIncrement(&g_ts_null);
@@ -304,6 +347,9 @@ GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
 
         ctx = (unsigned char *)self->game_ctx;                         /* 0x45c3e5 */
         world = *(void **)(ctx + 0x04);                                /* 0x45c3e7 */
+#ifdef BATTLE_REPLAY
+        n_walked++;
+#endif
         status = native::tree_lookup(world, (unsigned int)cur->key_rec->key);  /* 0x45c3eb */
 
         if (status == 1) {                 /* 0x45c3f8: EDI = cur — кандидат принят */
@@ -356,6 +402,12 @@ GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
     if (best == NULL) {
         InterlockedIncrement(&g_ts_null);
     }
+#ifdef BATTLE_REPLAY
+    g_chain[3] = n_walked;
+    g_chain[0] = (best != NULL) ? *(const int *)&best->min_metric : 0;
+    g_chain[1] = (best != NULL) ? *(const int *)&best->max_metric : 0;
+    g_chain[2] = (best != NULL) ? best->key_rec->key : 0;
+#endif
     return best;
 }
 
@@ -442,6 +494,7 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
     InterlockedIncrement(&g_pfs_calls);
     if (LS(0x40) == 0) {
         s6_pfs_diag(PFS_R_FIRST);
+        GATE_EXIT(PFS_R_FIRST, 0);
         return NULL;                              /* @0x45cb8f JE 0x45cd75 */
     }
     LS(0x2c) = *(const int *)&spec->min_sentinel; /* @0x45cb9a */
@@ -456,11 +509,13 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
         if (ebp <= ecx + self->x_radius) {        /* @0x45cbc0 JG → пропуск внешнего */
             LS(0x24) = -self->x_radius;           /* @0x45cbca (min_slot, запись до чтения @0x45cd1f) */
             ebx = LS(0x3c);                       /* pos->x (ebx @0x45cb4f, перечитывание @0x45ccce) */
-            edi = ebx - self->y_radius;           /* @0x45cbd0..0x45cbd5 */
-            LS(0x30) = edi;                       /* @0x45cbdb */
-            if (edi <= ebx + self->y_radius) {    /* @0x45cbdf JG → пропуск внутреннего */
+            for (;;) {                            /* внешний цикл (ebp — outer-счётчик); вход @0x45cbd0
+                                                   * (капа @0x45cd34 JLE → 0x45cbd0: каждый виток заново
+                                                   * сеет edi (@0x45cbd0) и L[0x1c] (@0x45cbe9)) */
+                edi = ebx - self->y_radius;       /* @0x45cbd0..0x45cbd5 */
+                LS(0x30) = edi;                   /* @0x45cbdb */
+                if (edi <= ebx + self->y_radius) {    /* @0x45cbdf JG → пропуск внутреннего */
                 LS(0x1c) = -self->y_radius;       /* @0x45cbe9 (loop_base, запись до чтения @0x45cc86) */
-                for (;;) {                        /* внешний цикл (ebp — outer-счётчик) */
                     for (;;) {                    /* внутренний цикл (edi — inner-счётчик) */
                         if (!(ecx == ebp && ebx == edi)) {   /* @0x45cbf0/0x45cbf4 центр */
                         LS(0x38) = (int)((unsigned short)ebp << 16)
@@ -471,22 +526,23 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
                             GridCell *node2;
                             int p7;
 
-                            if (edi < 0) { s6_pfs_diag(PFS_R_SIGN); return NULL; }  /* @0x45cc3f JL */
-                            if (ebp < 0) { s6_pfs_diag(PFS_R_SIGN); return NULL; }  /* @0x45cc47 JL */
+                            if (edi < 0) { s6_pfs_diag(PFS_R_SIGN); GATE_EXIT(PFS_R_SIGN, 0); return NULL; }  /* @0x45cc3f JL */
+                            if (ebp < 0) { s6_pfs_diag(PFS_R_SIGN); GATE_EXIT(PFS_R_SIGN, 0); return NULL; }  /* @0x45cc47 JL */
                             grid = (GridLevel *)(INT_PTR)
                                 *(const int *)((const unsigned char *)self->game_ctx + 8);  /* @0x45cc3c */
                             /* FCOMPP ST0=size_x (FILD @0x45cc51) vs ST1=edi (FILD @0x45cc4d):
                              * маска 0x41 (C3|C0) → выход, когда size_x <= edi. */
-                            if (!(grid->size_x > LS(0x30))) { s6_pfs_diag(PFS_R_BOUND); return NULL; }  /* @0x45cc4d..0x45cc5b */
-                            if (!(grid->size_y > LS(0x34))) { s6_pfs_diag(PFS_R_BOUND); return NULL; }  /* @0x45cc61..0x45cc6f */
+                            if (!(grid->size_x > LS(0x30))) { s6_pfs_diag(PFS_R_BOUND); GATE_EXIT(PFS_R_BOUND, 0); return NULL; }  /* @0x45cc4d..0x45cc5b */
+                            if (!(grid->size_y > LS(0x34))) { s6_pfs_diag(PFS_R_BOUND); GATE_EXIT(PFS_R_BOUND, 0); return NULL; }  /* @0x45cc61..0x45cc6f */
                             node2 = s6_grid_lookup(grid, edi, ebp);  /* @0x45cc77: x=inner, y=outer */
-                            if (node2 == NULL) { s6_pfs_diag(PFS_R_GRID); return NULL; }  /* @0x45cc80 */
+                            if (node2 == NULL) { s6_pfs_diag(PFS_R_GRID); GATE_EXIT(PFS_R_GRID, 0); return NULL; }  /* @0x45cc80 */
                             p7 = s6_imax(s6_iabs(LS(0x1c)), s6_iabs(LS(0x24)));  /* @0x45cc86..0x45cca2 */
                             if (s6_path_tree_search(self, node2, (int)(INT_PTR)spec->pos,
                                                     (int)(INT_PTR)&spec->out_metric,
                                                     (float *)&LS(0x48), &LS(0x14), &LS(0x18),
                                                     p7) == NULL) {      /* @0x45ccc1 */
                                 s6_pfs_diag(PFS_R_RECUR);
+                                GATE_EXIT(PFS_R_RECUR, 0);
                                 return NULL;                          /* @0x45ccce JE 0x45cd75 */
                             }
                             ebx = LS(0x3c);                           /* @0x45ccce перечитывание pos->x */
@@ -531,10 +587,12 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
 
         if (!(outv < minv) || (self->final_threshold + outv <= minv)) {
             s6_pfs_diag(PFS_R_OK);
+            GATE_EXIT(PFS_R_OK, 1);
             return (void *)(INT_PTR)LS(0x40);
         }
     }
     s6_pfs_diag(PFS_R_GATE);
+    GATE_EXIT(PFS_R_GATE, 0);
     return NULL;                          /* @0x45cd75: XOR EAX,EAX */
 
 #undef LS
@@ -547,7 +605,14 @@ void *s6_path_search(BattleAI *self, PathState *spec)
         return replay_path_next();        /* A/B харнесса: результат из захвата */
     }
     {
-        void *r = s6_path_search_body(self, spec);
+        int spec_in[22], spec_out[22];   /* PathState = 0x58 = 22 dword (structs.h) */
+        void *r;
+
+        memset(g_gate, 0, sizeof(g_gate));        /* слоты на каждый вызов */
+        memcpy(spec_in, spec, sizeof(spec_in));   /* состояние cb40 на входе */
+        r = s6_path_search_body(self, spec);
+        memcpy(spec_out, spec, sizeof(spec_out)); /* состояние на выходе */
+        replay_note_gate_state(spec_in, spec_out, g_gate);
         r = replay_note_path_res(r);      /* v5: cb40-результат + identity-носитель */
         return r;
     }

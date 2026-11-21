@@ -298,7 +298,10 @@ static int g_grid_error = 0;
 static unsigned char g_worldbuf[0x130]; /* world[0x110], world[0x120] */
 static unsigned char g_obj3buf[0x100];
 static unsigned char g_obj4buf[0x100];
-static unsigned char g_obj2buf[0x100];  /* +0x228 = &g_obj3buf */
+static unsigned char g_obj2buf[0x248];  /* +0x228 = &g_obj3buf; порт читает
+                                          * [obj2+0x244] и [obj2+0x228] — буфер
+                                          * обязан покрывать оба чтения, иначе
+                                          * obj3 зависит от раскладки статики */
 static int g_last_grid_x = -1, g_last_grid_y = -1;
 static int g_reg_overflow = 0;      /* resource guard в harness stub */
 
@@ -1188,6 +1191,33 @@ static PathState *rp_make_occ_ps(const OccVal &v)
     return &rn->ps;
 }
 
+/* v5: состояния финального гейта cb40 на каждый вызов порта: spec_in[22]
+ * (PathState на входе), spec_out[22] (на выходе), gate[16] — out_metric, L[0x10],
+ * L[0x2c], L[0x14], L[0x18], thr, reason, res, best_min, best_max, best_key,
+ * chain, p3, p7, L[0x40], &out. Хранилище СТАТИЧЕСКОЕ: харнесс чувствителен к
+ * адресам объектов (identity-карты), любая аллокация в прогоне меняет порядок
+ * map1 и расхождение, поэтому запись не должна ничего аллоцировать.
+ * Индекс = номер cb40-вызова порта (параллельно port_path). */
+#define RP_GATE_MAX 17072
+static int g_gate_rec[RP_GATE_MAX][60];
+static int g_gi = 0;
+
+extern "C" int replay_gate_index(void) { return g_gi; }
+extern "C" int replay_call_seq(void) { return (g_cur != NULL) ? g_cur->seq : -1; }
+extern "C" int replay_cell_index(void *cell)
+{
+    if (g_grid == NULL || g_grid_error || cell == NULL) return -1;
+    long d = ((unsigned char *)cell - (unsigned char *)g_grid->cells);
+    if (d < 0 || d >= (long long)sizeof(GridCell) * g_grid->n) return -1;
+    return (int)(d / sizeof(GridCell));
+}
+extern "C" int replay_tree_status(int key)
+{
+    if (g_grid == NULL || g_grid_error) return -99;
+    std::map<unsigned int, int>::const_iterator it = g_grid->tree.find((unsigned)key);
+    return (it == g_grid->tree.end()) ? 0 : it->second;
+}
+
 static void rep_build(Rep *r, const Call &c) {
     BattleAI *ai = (BattleAI *)(void *)r->aiBuf;
     TreeNode *nil = rep_nil(r);
@@ -1362,6 +1392,7 @@ static void rep_build(Rep *r, const Call &c) {
     g_have_exit = false;
     g_replay_leaf_underflow = 0;      /* флаг — на вызов, не на прогон */
     g_reg_overflow = 0;
+    g_gi = 0;                          /* gate-записи — на вызов */
 }
 
 /* Chained mode: реплика НЕ пересобирается из cap. Сохраняем map1/map2, все
@@ -1603,6 +1634,20 @@ extern "C" void *replay_note_path_res(void *result)
     return result;
 }
 
+/* v5: запись состояния гейта cb40 (входы 0x45cd3e..0x45cd73) на каждый вызов порта.
+ * spec_in = PathState на входе, spec_out = PathState на выходе, gate = 16 dword
+ * (out_metric, L[0x10], L[0x2c], L[0x14], L[0x18], thr, reason, res, chain-агрегат).
+ * Индекс записи = индекс port_path (вызов note_state предшествует note_path_res). */
+extern "C" void replay_note_gate_state(const int *spec_in, const int *spec_out,
+                                       const int *gate)
+{
+    if (g_gi >= RP_GATE_MAX) return;
+    memcpy(g_gate_rec[g_gi], spec_in, 22 * sizeof(int));
+    memcpy(g_gate_rec[g_gi] + 22, spec_out, 22 * sizeof(int));
+    memcpy(g_gate_rec[g_gi] + 44, gate, 16 * sizeof(int));
+    g_gi++;
+}
+
 extern "C" void replay_note_heur(int value)
 {
     const Call *c = rep_cur();
@@ -1781,7 +1826,8 @@ int tree_lookup(void *world, unsigned int key)
     (void)world;   /* synthetic world; name-keyed table from capture */
     if (g_grid == NULL || g_grid_error) return 0;
     std::map<unsigned int, int>::const_iterator it = g_grid->tree.find(key);
-    return (it == g_grid->tree.end()) ? 0 : it->second;
+    int r = (it == g_grid->tree.end()) ? 0 : it->second;
+    return r;
 }
 void register_occupied_slot(void *ai, LDObject *obj) {
     Rep *r = (Rep *)ai;
@@ -2058,6 +2104,14 @@ static void write_res_port(FILE *f, const Call &c, Rep *r) {
     for (size_t i = 0; i < c.port_timeout.size(); i++) {
         fprintf(f, "%s%d", i ? "," : "", c.port_timeout[i]);
     }
+    fputs("],\"gate\":[", f);
+    for (int i = 0; i < g_gi; i++) {
+        fprintf(f, "%s[", i ? "," : "");
+        for (int k = 0; k < 60; k++) {
+            fprintf(f, "%s%d", k ? "," : "", g_gate_rec[i][k]);
+        }
+        fputc(']', f);
+    }
     fputs("]},\"leaf_mode\":", f);
     fputs(g_replay_override ? "\"replay\"" : "\"real\"", f);
     fprintf(f, ",\"leaf_used\":[%u,%u,%u],\"leaf_cap\":[%u,%u,%u]"
@@ -2120,6 +2174,23 @@ static void replay_dump_div(const Call &c, Rep *r)
             (unsigned)r->m1nodes.size(), (unsigned)zero, (unsigned)coord,
             g_fill_cell, g_fill_leaf, g_fill_stub,
             g_replay_leaf_underflow, g_reg_overflow);
+    /* Состояние финального гейта порта на этом вызове cb40 (запись индекса i
+     * совпадает с индексом port_path): spec[+0x10]=out_metric, +0x28/-1e7,
+     * +0x2c/+1e7; gate[] = out_metric, L[0x10], L[0x2c], L[0x14], L[0x18],
+     * thr, reason, res, best_min_bits, best_max_bits, best_key, n_chain,
+     * p3, p7, L[0x40], &out. */
+    if (i < (size_t)g_gi) {
+        const int *g = g_gate_rec[i];
+        fprintf(stderr, "GATE seq=%d idx=%u out_bits=0x%x min_slot_bits=0x%x "
+                        "maxp_bits=0x%x minp_bits=0x%x maxp_bits=0x%x "
+                        "thr_bits=0x%x reason=%d res=%d best_min=0x%x "
+                        "best_max=0x%x best_key=%d chain=%d p3=0x%x p7=%d "
+                        "spec_out=0x%x spec_in_out=0x%x spec_in_min=0x%x "
+                        "spec_in_max=0x%x\n",
+                c.seq, (unsigned)i, g[44], g[45], g[46], g[47], g[48], g[49],
+                g[50], g[51], g[52], g[53], g[54], g[55], g[56], g[57],
+                g[58], g[59], g[11], g[12]);
+    }
 }
 
 /* --------------------------------- main --------------------------------- */
