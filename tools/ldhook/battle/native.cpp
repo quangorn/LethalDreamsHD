@@ -1316,6 +1316,44 @@ void band_interp_gate(void *band, float p2, int p3, float p4, float *out_f)
     }
 }
 
+/* FUN_0045b3e0 — предикат ленты (thiscall: ecx = лента, 3 стек-аргумента по
+ * 4 Б, `ret $0xc`; результат AL = 0/1). Тело: гейт длины ленты
+ * (`([+0x24]−[+0x20])/0x18` >= 2), 456b20-интерполяция соседних узлов и две
+ * x87-границы (`0x4ec37c`, `0x4ef4b8`). site 0x44c554 (B63). */
+int band_target_moved(void *band, float p1, int p2, float p3)
+{
+    void *addr = fn(0x45b3e0);
+    int i1;
+    int i3;
+    int res = 0;
+
+    if (addr == NULL) {
+        return 0;
+    }
+    /* push float в inline asm неоднозначен по размеру операнда — биты
+     * переносятся dword'ами (сайт тоже копирует triple как dword'ы). */
+    memcpy(&i1, &p1, sizeof(i1));
+    memcpy(&i3, &p3, sizeof(i3));
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, band
+            push i3                        /* arg3: [ebp+0x10] */
+            push p2                        /* arg2: [ebp+0xc] (телом не читается) */
+            push i1                        /* arg1: [ebp+0x8] */
+            mov eax, addr
+            call eax
+            mov res, eax                   /* AL = 0/1, читается до сброса esp */
+            mov esp, esi                   /* RET 0xc снял аргументы */
+            popad
+        }
+    } __except (native::av_filter()) {
+        res = 0;
+    }
+    return res;
+}
+
 /* Игровой строковый литерал по VA (base + RVA), см. native.h. */
 const char *literal(unsigned int va)
 {

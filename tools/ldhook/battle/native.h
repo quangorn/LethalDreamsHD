@@ -244,6 +244,21 @@ int pos3_equal(const void *a, const void *b);
  * Возврат в ST(0) → *out_f (fstp). sites: 0x44c4cb (B60), 0x44c5e0 (B67). */
 void band_interp_gate(void *band, float p2, int p3, float p4, float *out_f);
 
+/* --- Фаза 5.1b-8: листья R9 (FUN_0044bdd0, `0x44c4dd..0x44c5b0`) --- */
+
+/* FUN_0045b3e0 (0x45b3e0..0x45b52d) — предикат ленты «цель сдвинулась/удалена»,
+ * возврат AL (1/0), тело на x87. __thiscall: ECX = лента (site 0x44c554:
+ * ECX = результат 45c370 → &band; тело читает `[+0x20]`/`[+0x24]` — тот же
+ * layout, что 45af50). 3 стек-аргумента по 4 Б, `RET $0xc` (@0x45b524/0x45b52d):
+ * arg1 float `[ebp+0x8]` (тело @0x45b4db `fsubs 0x18(%esp)` при esp=e−0x14),
+ * arg2 undefined4 (телом НЕ читается: читаются только слоты e+4 и e+0xc),
+ * arg3 float `[ebp+0x10]` (@0x45b4e3 `fsubs 0x20(%esp)`). На сайте B63 на стек
+ * положена triple result+4..0xc dword'ами (`sub $0xc` @0x44c534, без `add esp`
+ * после вызова — аргументы снимает callee). Возврат: AL=1 @0x45b51e, AL=0
+ * (`xor al,al`) @0x45b527; вызывающий тестирует `%al` (@0x44c559).
+ * sites: 0x44c554 (B63), 0x44c65d (B70, R10). */
+int band_target_moved(void *band, float p1, int p2, float p3);
+
 /* Игровая куча (п. 2.2): путь аллокации игровых структур — только через эти
  * обёртки; malloc/free из .pyd запрещены (план, «Риски»). Оба — cdecl с одним
  * аргументом, очистка вызывающим (листинг 0x4cfa11: вызывающий ADD ESP,4
