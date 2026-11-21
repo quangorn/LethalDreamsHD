@@ -1247,6 +1247,75 @@ void output_debug_string_a(const char *s)
     }
 }
 
+/* --- Фаза 5.1b-7: листья R8 (FUN_0044bdd0, `0x44c3ed..0x44c4dc`) --- */
+
+/* FUN_00403e80 — равенство двух float-троек (thiscall: ecx = a, стек-арг b,
+ * `ret $0x4`; EAX = 0/1). Тело: 3 × `FLD [a+i]; FCOMPS [b+i]; TEST AH,0x44;
+ * JP → 0` (JP взят ⟺ NOT(a==b), unordered = «не равно»). site 0x44c423. */
+int pos3_equal(const void *a, const void *b)
+{
+    void *addr = fn(0x403e80);
+    int res = 0;
+
+    if (addr == NULL) {
+        return 0;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, a
+            push b
+            mov eax, addr
+            call eax
+            mov res, eax                   /* AL = 0/1, читается до сброса esp */
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+        res = 0;
+    }
+    return res;
+}
+
+/* FUN_0045b150 — float-гейт ленты (thiscall: ecx = лента, 3 стек-аргумента
+ * по 4 Б, `ret $0xc`, результат ST(0)). На сайте B60 аргументы — triple
+ * result+4..+0xc, скопированный на стек dword'ами; поэтому arg2 передаётся
+ * как int-биты (телом не читается), arg1/arg3 — float. site 0x44c4cb. */
+void band_interp_gate(void *band, float p2, int p3, float p4, float *out_f)
+{
+    void *addr = fn(0x45b150);
+    int i2;
+    int i4;
+
+    if (addr == NULL) {
+        *out_f = 0.0f;
+        return;
+    }
+    /* push float в inline asm неоднозначен по размеру операнда — биты
+     * переносятся dword'ами (сайт тоже копирует triple как dword'ы). */
+    memcpy(&i2, &p2, sizeof(i2));
+    memcpy(&i4, &p4, sizeof(i4));
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, band
+            push i4                        /* arg3: [ebp+0x10] */
+            push p3                        /* arg2: [ebp+0xc] */
+            push i2                        /* arg1: [ebp+0x8] */
+            mov eax, addr
+            call eax
+            mov edx, out_f
+            fstp dword ptr [edx]           /* ST(0) → float */
+            mov esp, esi                   /* RET 0xc снял аргументы */
+            popad
+        }
+    } __except (native::av_filter()) {
+        *out_f = 0.0f;
+    }
+}
+
 /* Игровой строковый литерал по VA (base + RVA), см. native.h. */
 const char *literal(unsigned int va)
 {

@@ -222,6 +222,28 @@ void output_debug_string_a(const char *s);
  * номер VA, разрешение адреса — здесь (инвариант 3, без «голых» указателей). */
 const char *literal(unsigned int va);
 
+/* --- Фаза 5.1b-7: листья R8 (FUN_0044bdd0, `0x44c3ed..0x44c4dc`) --- */
+
+/* FUN_00403e80 (0x403e80..0x403eb5) — равенство двух float-троек: три пары
+ * `FLDS [ECX+i]; FCOMPS [EDX+i]; FNSTSW AX; TEST AH,0x44; JP → 0`. `JP(0x44)`
+ * взят ⟺ NOT(a==b) (unordered считается «не равно», решение 1.6), поэтому 1 —
+ * только при почленном равенстве всех трёх пар (упорядоченно). __thiscall:
+ * ECX = a, 1 stack-аргумент `b` (`mov 0x4(%esp),%edx` @0x403e82), `ret $0x4`
+ * (@0x403eae/0x403eb3); возврат EAX = 0/1, вызывающий тестирует AL.
+ * site: 0x44c423 (ECX = EAX = out-тройка 45c6f0, stack = result+4).
+ * Тело известно целиком (53 Б, без каллов) — кандидат на чистый C++-порт. */
+int pos3_equal(const void *a, const void *b);
+
+/* FUN_0045b150 (0x45b150..0x45b3d8) — листовой float-гейт ленты
+ * (интерполяция позиции; тело 651 Б не портировано, единственный callee —
+ * 456b20). ABI по телу: пролог 0x45b150..0x45b15b; `RET $0xc` @0x45b3d8;
+ * результат — ST(0) (`FLDS 0x10(%esp)` @0x45b3ce перед ret). __thiscall:
+ * ECX = лента (45c370 → &band; тело читает [+0x20]/[+0x24]), 3 stack-
+ * аргумента по 4 Б: arg1 float `[ebp+0x8]`, arg2 undefined4 (телом не
+ * читается; layout = triple result+4..+0xc), arg3 float `[ebp+0x10]`.
+ * Возврат в ST(0) → *out_f (fstp). sites: 0x44c4cb (B60), 0x44c5e0 (B67). */
+void band_interp_gate(void *band, float p2, int p3, float p4, float *out_f);
+
 /* Игровая куча (п. 2.2): путь аллокации игровых структур — только через эти
  * обёртки; malloc/free из .pyd запрещены (план, «Риски»). Оба — cdecl с одним
  * аргументом, очистка вызывающим (листинг 0x4cfa11: вызывающий ADD ESP,4

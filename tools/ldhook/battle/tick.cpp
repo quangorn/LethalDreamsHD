@@ -4,9 +4,10 @@
  * (`0x44bdf9..0x44bec1`, B1..B6 после пролога), R2 (`0x44bec2..0x44bfb7`,
  * B7..B15), R3 (`0x44bfb8..0x44c09c`, B16..B22), R4 (`0x44c09d..0x44c183`,
  * B23..B29), R5 (`0x44c184..0x44c229`, B30..B33), R6 (`0x44c22a..0x44c306`,
- * B34..B40, grid-probe + log + цепочки) и R7 (`0x44c307..0x44c3ec`,
- * B41..B54, вход band-loop: string-блок C, ctx bit3, `45c730` cursor);
- * все листья — нативные
+ * B34..B40, grid-probe + log + цепочки), R7 (`0x44c307..0x44c3ec`,
+ * B41..B54, вход band-loop: string-блок C, ctx bit3, `45c730` cursor) и
+ * R8 (`0x44c3ed..0x44c4dc`, B55..B60, тело band-loop A: count-гейты,
+ * `403e80` equality, `45b150`); все листья — нативные
  * `native::…`, один детур на функцию (инвариант 5) — H1 `0x44bdf5` с возвратом
  * в нативный эпилог `0x44d074` (там же H2/capture, поэтому трассировка тика и
  * захват продолжают работать).
@@ -19,7 +20,7 @@
  * EDI/EBX не восстанавливает (их снимает нативный эпилог).
  *
  * Детур разоружён, пока тело неполное: `b0_port_enabled()` = LDHOOK_SITE5=1
- * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R6 — явные UNPORTED-
+ * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R8 — явные UNPORTED-
  * заглушки с адресом блока-цели; они возвращают 0 (= `xor al,al` @0x44d072).
  */
 #include <stdlib.h>
@@ -29,7 +30,7 @@
 #include "battle.h"
 #include "native.h"
 
-/* B0_BODY_COMPLETE — 0: портирован только R1..R7, тело неполное (дальше —
+/* B0_BODY_COMPLETE — 0: портирован только R1..R8, тело неполное (дальше —
  * UNPORTED-выходы), поэтому детур обязан быть разоружён. Определяется в 1
  * тем чанком, который доводит тело до единственного RET `0x44d08c`. */
 #ifndef B0_BODY_COMPLETE
@@ -59,7 +60,7 @@ int b0_env_on(void)
 int b0_port_enabled(void)
 {
 #if !B0_BODY_COMPLETE
-    /* UNPORTED: R8..R23 не портированы — детур не встаёт. */
+    /* UNPORTED: R9..R23 не портированы — детур не встаёт. */
     return 0;
 #else
     return b0_env_on();
@@ -136,6 +137,8 @@ static int b0_body_r1_r2(void *unit_, unsigned char *frame)
     unsigned int ebx;               /* R7 B49: значение EBX из R1 B5 (`[frame+0x160] & 8`) */
     float pos_triple[3];            /* B34: тройка позиции игрока (натив: [esp] после sub 0xc) */
     float cur_triple[3];            /* B34: тройка из result+4..0xc (второй grid_query) */
+    float band_triple[3];           /* R8 B60: тройка из result+4..0xc (натив: [esp] после sub 0xc) */
+    float gate;                     /* R8 B60: ST(0) 45b150 (float-гейт ленты) */
 
     __try {
 
@@ -604,9 +607,115 @@ b77_join:
     /* 0x44c715 (B77, R11): flags-join (EBX re-load, world-notify/grid). */
     return 0;
 
-b55:
-    /* 0x44c3ed (B55, R8): тело band-loop — UNPORTED. */
+b74_cursor_tail:
+    /* 0x44c6cb..0x44c6ec (B74, R11) — хвост cursor-блока: два dtor'а строк
+     * (`frame+0x20`, затем `frame+0x10`), между ними dword trylevel = -1,
+     * затем `JMP 0x44d061` (out-guard, AL=0). Тело видно целиком; хвост
+     * реализован (а не заглушён), чтобы путь B58 не терял строки. */
+    native::string_dtor(frame + 0x20);                  /* 0x44c6cb..0x44c6cf */
+    *(unsigned int *)(frame + 0x154) = 0xffffffffu;     /* 0x44c6d8 (dword) */
+    native::string_dtor(frame + 0x10);                  /* 0x44c6e3 */
+    goto b0_exit_44d061;                                /* 0x44c6e8 jmp 0x44d061 */
+
+b0_exit_44d061:
+    /* 0x44d061..0x44d072 — out-guard param_3 = 0, затем `XOR AL,AL`. */
+    {
+        void *p3 = *(void **)(frame + 0x164);
+
+        if (p3 != NULL) {
+            *(int *)p3 = 0;                             /* 0x44d06c */
+        }
+    }
+    return 0;                                           /* 0x44d072 xor al,al */
+
+/* --- R9/R10: выходы R8 (UNPORTED, точные адреса) ---------------------- *
+ * Логика этих блоков не изобретается: заглушки возвращают 0 (путь
+ * `xor al,al` @0x44d072 / out-guard @0x44d061). */
+b61_r9:
+    /* 0x44c4dd (B61, R9): msg-гейт `unit+0x34` → exit 0x44d061, иначе
+     * log-block E. Вход — fall B60 (45b150 ≤ 4.0f или равенство). */
     return 0;
+
+b63_r9:
+    /* 0x44c525 (B63, R9): повторная тройка + 45c370/45b3e0. Вход — B60 `jp`
+     * (45b150 > 4.0f или unordered). */
+    return 0;
+
+b67_r10:
+    /* 0x44c5b1 (B67, R10): triple + 45c370/45b150 против [0x4eede8] = 3.0f.
+     * Вход — B59 `jne` (код `unit+0x170` ≠ 1). */
+    return 0;
+
+b55:
+    /* B55 (0x44c3ed..0x44c407) — band-loop тело A: курсор ленты должен
+     * указывать на pos-поле result (`[result+0x14]`, адресное поле).
+     * unit_x на входе НЕ сдвинут: единственный вход — fall B54 (0x44c3ed),
+     * где `ADD EBP,0x18` не исполнялся (сдвиги B21 @0x44c035 и B30 @0x44c197
+     * уходят `jmp 0x44cee6`, B41 — `jmp 0x44c6b6`), т.е. unit_x == unit.
+     * `push 0; CALL 442570` → EDI = result. */
+    res = native::game_state_get(unit, 0);              /* 0x44c3ed..0x44c3f1 */
+    if (native::band_cursor(unit + 0x138) !=
+        *(void *const *)((const unsigned char *)res + 0x14)) {
+        goto b77_join;                                  /* 0x44c402 jne 0x44c715 */
+    }
+
+    /* B56 (0x44c408..0x44c42b) — позиция ctx → out-тройка `frame+0x20`,
+     * затем 403e80(out, result+4). Натив: первый push (&result+4) остаётся
+     * на стеке до `ret $0x4` самого 403e80 (ECX = EAX = out). AL=0
+     * (позиция не совпала) → B59. */
+    res = native::game_state_get(unit, 0);              /* 0x44c408..0x44c40c */
+    native::ctx_pos_get(unit + 0x138, out);             /* 0x44c41a..0x44c41c */
+    if (!native::pos3_equal(out, (const unsigned char *)res + 4)) {
+        goto b59;                                       /* 0x44c42a je 0x44c489 */
+    }
+
+    /* B57 (0x44c42c..0x44c436) — msg-гейт `unit+0x34`: 0 → выход 0x44d061. */
+    if (*(const unsigned char *)(unit + 0x34) == 0) {
+        goto b0_exit_44d061;                            /* 0x44c431 je 0x44d061 */
+    }
+
+    /* B58 (0x44c437..0x44c488) — cursor-блок D (литерал 0x4eed5c): ctor
+     * строки A `frame+0x10`; `ADD EBP,0x18` (без отката — путь уходит в
+     * хвост B74); dword trylevel = 8 (0x44c453); 413060 (dst `frame+0x20`,
+     * arg2 = unit_x, arg3 = A); trylevel 9; c_str → OutputDebugStringA;
+     * trylevel 8; `JMP 0x44c6cb`. */
+    {
+        void *str_a = frame + 0x10;
+        void *str_r;
+
+        native::string_ctor(str_a, native::literal(0x4eed5c)); /* 0x44c437..0x44c440 */
+        unit_x += 0x18;                                 /* 0x44c44a ADD EBP,0x18 */
+        *(unsigned int *)(frame + 0x154) = 8;           /* 0x44c453 (dword) */
+        str_r = native::string_format(frame + 0x20, unit_x, str_a); /* 0x44c45e */
+        frame[0x154] = 9;                               /* 0x44c468 */
+        native::output_debug_string_a(native::string_c_str(str_r)); /* 0x44c470..0x44c476 */
+        frame[0x154] = 8;                               /* 0x44c47c */
+    }
+    goto b74_cursor_tail;                               /* 0x44c484 jmp 0x44c6cb */
+
+b59:
+    /* B59 (0x44c489..0x44c49b) — код `unit+0x170` против 1; EDI := 1
+     * (живёт до R9 B66). ≠1 → B67 (R10). unit_x здесь не сдвинут. */
+    if (*(const int *)(unit + 0x170) != 1) {
+        goto b67_r10;                                   /* 0x44c496 jne 0x44c5b1 */
+    }
+
+    /* B60 (0x44c49c..0x44c4dc) — triple = result+4..+0xc на стек; указатель
+     * на него — `frame+0x1c` (0x44c4c0); 45c370 → лента, 45b150 (ECX = лента,
+     * arg1..arg3 = triple, `RET $0xc`) → ST0; сравнение с `[0x4eceb0]` = 4.0f
+     * (0x40800000, bit-exact): `TEST AH,0x41; JP` ⟺ value > 4.0f или
+     * unordered → B63 (R9); иначе fall → B61 (R9). */
+    res = native::game_state_get(unit, 0);              /* 0x44c49c..0x44c4a0 */
+    memcpy(band_triple, (const unsigned char *)res + 4, 12); /* 0x44c4a5..0x44c4bb */
+    *(void **)(frame + 0x1c) = band_triple;             /* 0x44c4c0 mov %esp,0x28(%esp) */
+    head = native::band_head(unit + 0x138);             /* 0x44c4be..0x44c4c4 */
+    native::band_interp_gate(head, band_triple[0],
+                             b0_float_bits(band_triple[1]), band_triple[2],
+                             &gate);                    /* 0x44c4c9..0x44c4cb */
+    if (b0_gate_41_jp(gate, 4.0f)) {
+        goto b63_r9;                                    /* 0x44c4db jp 0x44c525 */
+    }
+    goto b61_r9;                                        /* fall 0x44c4dd → R9 */
 
 
 b16:
@@ -677,12 +786,12 @@ b135_join:
 
 /* Точка входа порта (ABI натива: ECX = unit, 3 стек-аргумента, RET 0xc).
  * Тело — под B0_BODY_COMPLETE: пока оно неполное, функция возвращает 0 и
- * детур разоружён (b0_port_enabled). Тело R1..R7 остаётся скомпилированным и
+ * детур разоружён (b0_port_enabled). Тело R1..R8 остаётся скомпилированным и
  * типизированным — `(void)&` ниже, чтобы /W3 не снял его как неиспользуемый. */
 int b0_battle_ai_dispatch(void *unit, unsigned char *frame)
 {
 #if B0_BODY_COMPLETE
-    return b0_body_r1_r2(unit, frame);      /* TODO(5.1b-2): R8..R23 */
+    return b0_body_r1_r2(unit, frame);      /* TODO(5.1b-2): R9..R23 */
 #else
     /* UNPORTED: тело неполное — единственный вход детура остаётся пустым. */
     (void)&b0_body_r1_r2;
