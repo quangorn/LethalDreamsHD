@@ -178,6 +178,8 @@ PRISTINE 2967, HD_PACK 1379, ALLOWED 728, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0
   (`battle_replay_diff.py` rc 0 на capture v8), живой A/B — санитарный, решение 3.7 — `docs/PLAN_BATTLE_AI_CPP.md`.
 - `[P]` Остаток Фазы 3 (решение 3.8): на части вызовов порт уходит в runaway цикла `e0a0`; листья
   расходятся с первого такого вызова; открытый дефект, Фаза 4 не блокируется.
+- `[P]` Фаза 4: `45eee0` = `s6_unit_ai_tick` (тик юнит-AI, не «движение»); trace — фиксированные
+  29 полей 1.7, решение и аргументы несут `code`/`out`, `c1/x1/y1`, `c2/x2/y2`, `trk/bd2` — `battle/move.cpp`, `battle/trace.cpp`.
 - `[U]` Цель порта боя (19.11.2026): читаемая C++-реализация боевой логики и поиска пути
   (слои `44bdd0` → `45eee0` → `e0a0` → `dd70`), нативные вызовы для GUI/плумбинга; fidelity-first,
   CPU = baseline. Фазы, границы и гейты — `docs/PLAN_BATTLE_AI_CPP.md`.
