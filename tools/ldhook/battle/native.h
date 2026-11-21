@@ -84,6 +84,69 @@ int grid_query(void *world, int arg1, int arg2, int arg3, int arg4);
  * (pos[0x10]) → pt_x, game-X (pos[0x0c]) → pt_y. Возврат — BOOL в EAX. */
 int pt_in_rect(const int *rect, int pt_x, int pt_y);
 
+/* --- Фаза 5.1b: листья R1/R2 (FUN_0044bdd0). Все — вызовы по VA/ABI
+ * листинга; номер строки — site-адрес в game_dis.txt. Обёртки снимают/-
+ * восстанавливают esp (pushad + сохранённый esp), поэтому `ret` / `ret n` /
+ * очистка вызывающим неразличимы для вызывающего порта. --- */
+
+/* FUN_00442570 — аксессор состояния игры. __thiscall, ECX = unit, 1 стек-
+ * аргумент (`ret $0x4` @0x4426f2), возврат EAX = result-объект
+ * (`+0x04..+0x0c` float-тройка, `+0x10` player, `+0x14` pos-cursor).
+ * sites: 0x44be0e, 0x44beac, 0x44bf0b, 0x44bf32. */
+void *game_state_get(void *unit, int flags);
+
+/* vtable `unit[+0x28]` — world-notify. ECX = unit, аргумент — 32-байтовая
+ * структура ПО ЗНАЧЕНИЮ: вызывающий делает `sub $0x20` и копирует снимок в
+ * [esp] (0x44be15..0x44be49), callee снимает 0x20 байт (иначе ESP на 0x44be58
+ * не восстанавливается). Возврат не читается. site: 0x44be55. */
+void world_notify_snapshot(void *unit, const void *snapshot32);
+
+/* FUN_0045c6f0 (0x45c6f0..0x45c71e) — позиция из ctx: 3 dword из
+ * `[ctx]+0xc`, либо нули при `[ctx]==0`. __thiscall, ECX = ctx (= unit+0x138),
+ * 1 стек-аргумент = out (`ret $0x4`), возврат EAX = out. site: 0x44bea1. */
+void *ctx_pos_get(void *ctx, float *out_f);
+
+/* FUN_0045c370 (0x45c370..0x45c382) — голова ленты `this+0x3c`: count != 0 ?
+ * &this[0x3c] : 0 (sign-mask `neg/sbb/and`). __thiscall, ECX = BattleAI,
+ * 0 стек-аргументов (`ret`). site: 0x44bee7/0x44bef2. */
+void *band_head(void *ai);
+
+/* FUN_0045af50 (0x45af50..0x45af70) — длина ленты = ([+0x24]−[+0x20])/0x18
+ * (magic-делитель, знаковое). __thiscall, ECX = band (= ai+0x3c), 0 стек-
+ * аргументов (`ret`). site: 0x44bef9. */
+int band_count(void *band);
+
+/* vtable `unit[+0x2c]` — float фазы. ECX = unit, 0 стек-аргументов; результат
+ * в ST(0), поэтому пишется в *out (fstp). site: 0x44bf1e. */
+void phase_time(void *unit, float *out_f);
+
+/* vtable `unit[+0x40]` — player-getter. ECX = unit, 1 стек-аргумент (idx).
+ * В нативе слот не всегда пушат (0x44bfb1: callee читает [esp+4] = слот
+ * сохранённого ESI, т.е. значение ESI на входе в 44bdd0) и callee может не
+ * снимать аргумент — обёртка восстанавливает esp, поэтому обе формы ABI
+ * дают одинаковый результат. sites: 0x44bf40 (arg = player), 0x44bfb1
+ * (arg = *(frame+4)). */
+void *player_get(void *unit, int arg);
+
+/* FUN_00439ae0 — сравнение string-объектов. __cdecl, 2 аргумента, очистка
+ * вызывающим (`add $0x8,%esp` @0x44bf49). Возврат — uint в EAX; вызывающий
+ * тестирует только AL (`test %al,%al`). site: 0x44bf44. */
+int string_obj_cmp(void *a, void *b);
+
+/* FUN_00446a80 — обновление таймера сообщения (`unit+0x54` = текущее время, сек).
+ * __thiscall, ECX = unit, аргумент — 0x3c-байтовая структура ПО ЗНАЧЕНИЮ
+ * (`ret $0x3c` @0x446aeb; вызывающий резервирует её `sub $0x3c` @0x44bf5d и
+ * callee снимает ровно столько же). site: 0x44bfa7. */
+void ai_time_update(void *unit, const void *msg60);
+
+/* FUN_004040a0 — ctor msg-объекта (0x34 Б): __thiscall, ECX = this, 0 стек-
+ * аргументов (`ret` @0x4040e6). site: 0x44bf58. */
+void msg_ctor(void *this_);
+
+/* FUN_004040f0 — копия msg-объекта (0x3c Б: +0x00..+0x38). __thiscall,
+ * ECX = dst, 1 стек-аргумент = src (`ret $0x4` @0x40415a). site: 0x44bfa0. */
+void msg_copy(void *dst, const void *src);
+
 /* Игровая куча (п. 2.2): путь аллокации игровых структур — только через эти
  * обёртки; malloc/free из .pyd запрещены (план, «Риски»). Оба — cdecl с одним
  * аргументом, очистка вызывающим (листинг 0x4cfa11: вызывающий ADD ESP,4

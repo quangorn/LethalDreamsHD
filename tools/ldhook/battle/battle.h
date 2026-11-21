@@ -71,7 +71,16 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
 /* ---- move.cpp: тик юнит-AI FUN_0045eee0 (s6_unit_ai_tick, Фаза 4) ---- */
 int s6_unit_ai_tick(BattleAI *self, void *rec_arg);       /* FUN_0045eee0 — порт 4.1 */
 
-/* ---- tick.cpp: trace-каркас боевого тика (LDHOOK_BATTLE_TRACE) ---- */
+/* ---- tick.cpp: верхний уровень FUN_0044bdd0 (Фаза 5.1b) ---- */
+/* env-гейт LDHOOK_SITE5 (без учёта полноты тела — для установщика H1/H2). */
+int b0_env_on(void);
+/* Гейт порта: LDHOOK_SITE5=1 И полное тело (B0_BODY_COMPLETE). */
+int b0_port_enabled(void);
+/* Вход порта из H1 (0x44bdf5): unit = ECX, frame = ESP кадра (S−0x158),
+ * возврат — AL (0 на всех UNPORTED-путях R1/R2). */
+int b0_battle_ai_dispatch(void *unit, unsigned char *frame);
+
+/* ---- trace.cpp: trace-каркас боевого тика (LDHOOK_BATTLE_TRACE) ---- */
 void battle_trace_init(void);
 void battle_trace_tick(long tick_no, void *target, int search_code,
                        int move_x, int move_y,

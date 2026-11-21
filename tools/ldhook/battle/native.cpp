@@ -665,4 +665,292 @@ void deallocate(void *ptr)
     }
 }
 
+/* --- Фаза 5.1b: листья R1/R2 (FUN_0044bdd0) --- */
+
+/* FUN_00442570 — аксессор состояния игры (thiscall, ecx = unit, 1 стек-арг,
+ * `ret $0x4`). Возврат — result-объект. site 0x44be0e/0x44beac/0x44bf0b. */
+void *game_state_get(void *unit, int flags)
+{
+    void *addr = fn(0x442570);
+    void *res = NULL;
+
+    if (addr == NULL) {
+        return NULL;
+    }
+    __try {
+        __asm {
+            pushad                         /* esp «до аргументов», регистры в стеке */
+            mov esi, esp                   /* сохранённый esp */
+            mov ecx, unit
+            push flags                     /* site: `push $0x0` */
+            mov eax, addr
+            call eax
+            mov res, eax                   /* eax читается до восстановления esp */
+            mov esp, esi                   /* ret / ret n / очистка вызывающим — безразличны */
+            popad                          /* + регистры вызывающего */
+        }
+    } __except (native::av_filter()) {
+        res = NULL;
+    }
+    return res;
+}
+
+/* vtable unit[+0x28] — world-notify(&snapshot32). Аргумент — 32 Б по значению:
+ * `sub $0x20` + копия снимка в [esp] + `call *0x28(%edx)` (0x44be15..0x44be55),
+ * callee снимает 0x20. site 0x44be55. */
+void world_notify_snapshot(void *unit, const void *snapshot32)
+{
+    __try {
+        __asm {
+            pushad                         /* esp «до аргументов» */
+            mov ebx, esp                   /* сохранённый esp (esi/edi/ecx — копирование) */
+            mov ecx, unit
+            mov edx, [ecx]                 /* vtable = [receiver] */
+            mov eax, [edx + 0x28]          /* CALL *[vtable+0x28] */
+            sub esp, 0x20                  /* 32-байтовая структура по значению */
+            mov edi, esp
+            mov esi, snapshot32
+            mov ecx, 8
+            rep movsd                      /* 8 dword = 0x20 байт */
+            mov ecx, unit
+            call eax
+            mov esp, ebx                   /* callee снял 0x20 — esp = сохранённый */
+            popad
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
+/* FUN_0045c6f0 — позиция из ctx (3 dword), `ret $0x4`, возврат EAX = out. */
+void *ctx_pos_get(void *ctx, float *out_f)
+{
+    void *addr = fn(0x45c6f0);
+    void *res = NULL;
+
+    if (addr == NULL) {
+        return NULL;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, ctx
+            push out_f
+            mov eax, addr
+            call eax
+            mov res, eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+        res = NULL;
+    }
+    return res;
+}
+
+/* FUN_0045c370 — голова ленты `this+0x3c` (0 ? NULL : &this[0x3c]), `ret`. */
+void *band_head(void *ai)
+{
+    void *addr = fn(0x45c370);
+    void *res = NULL;
+
+    if (addr == NULL) {
+        return NULL;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, ai
+            mov eax, addr
+            call eax
+            mov res, eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+        res = NULL;
+    }
+    return res;
+}
+
+/* FUN_0045af50 — длина ленты ([+0x24]−[+0x20])/0x18, `ret`. */
+int band_count(void *band)
+{
+    void *addr = fn(0x45af50);
+    int res = 0;
+
+    if (addr == NULL) {
+        return 0;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, band
+            mov eax, addr
+            call eax
+            mov res, eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+        res = 0;
+    }
+    return res;
+}
+
+/* vtable unit[+0x2c] — float фазы в ST(0): callee оставляет ST(0), результат
+ * снимается `fstp` в *out. site 0x44bf1e. */
+void phase_time(void *unit, float *out_f)
+{
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, unit
+            mov edx, [ecx]                 /* vtable = [receiver] */
+            mov eax, [edx + 0x2c]          /* CALL *[vtable+0x2c] */
+            call eax
+            mov edx, out_f
+            fstp dword ptr [edx]           /* ST(0) → float */
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+        *out_f = 0.0f;
+    }
+}
+
+/* vtable unit[+0x40] — player-getter: ECX = unit, 1 стек-аргумент (в нативе
+ * слот может не сниматься callee'ом — esp восстанавливается из сохранённого).
+ * site 0x44bf40 / 0x44bfb1. */
+void *player_get(void *unit, int arg)
+{
+    void *res = NULL;
+
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, unit
+            mov edx, [ecx]                 /* vtable = [receiver] */
+            mov eax, [edx + 0x40]          /* CALL *[vtable+0x40] */
+            push arg
+            call eax
+            mov res, eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+        res = NULL;
+    }
+    return res;
+}
+
+/* FUN_00439ae0 — сравнение string-объектов (__cdecl, 2 аргумента, очистка
+ * вызывающим). site 0x44bf44. */
+int string_obj_cmp(void *a, void *b)
+{
+    void *addr = fn(0x439ae0);
+    int res = 0;
+
+    if (addr == NULL) {
+        return 0;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            push b                         /* arg2 — старший, первый push */
+            push a                         /* arg1 — младший, [esp+4] на входе */
+            mov eax, addr
+            call eax
+            mov res, eax                   /* eax читается до восстановления esp */
+            mov esp, esi                   /* cdecl: снимает вызывающий — не важно */
+            popad
+        }
+    } __except (native::av_filter()) {
+        res = 0;
+    }
+    return res;
+}
+
+/* FUN_00446a80 — таймер сообщения: ECX = unit, 0x3c-байтовая структура по
+ * значению (`ret $0x3c`), callee снимает ровно зарезервированные вызывающим
+ * `sub $0x3c`. site 0x44bfa7. */
+void ai_time_update(void *unit, const void *msg60)
+{
+    void *addr = fn(0x446a80);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad
+            mov ebx, esp                   /* сохранённый esp (esi/edi/ecx — копирование) */
+            mov ecx, unit
+            mov edx, msg60
+            sub esp, 0x3c                  /* 0x3c байт по значению */
+            mov edi, esp
+            mov esi, edx
+            mov ecx, 15
+            rep movsd                      /* 15 dword = 0x3c байт */
+            mov ecx, unit
+            mov eax, addr
+            call eax
+            mov esp, ebx                   /* callee снял 0x3c */
+            popad
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
+/* FUN_004040a0 — ctor msg-объекта (thiscall, ecx = this, `ret`). */
+void msg_ctor(void *this_)
+{
+    void *addr = fn(0x4040a0);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, this_
+            mov eax, addr
+            call eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
+/* FUN_004040f0 — копия msg-объекта (thiscall, ecx = dst, 1 стек-арг = src,
+ * `ret $0x4`). site 0x44bfa0. */
+void msg_copy(void *dst, const void *src)
+{
+    void *addr = fn(0x4040f0);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, dst
+            push src
+            mov eax, addr
+            call eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
 } /* namespace native */

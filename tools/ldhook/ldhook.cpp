@@ -659,7 +659,7 @@ static void install_capture_sites(void)
  * сайтов (эпилоги e0a0 и хвост 0x45e163), наблюдатели вызываются оттуда. */
 /* ------------------------------------------------------------------ */
 
-static void install_trace_sites(void)
+static int install_trace_sites(void)   /* 1 = H1 пропатчен (нужно детуру 5.1b) */
 {
     unsigned char *h1;
     unsigned char *h2;
@@ -667,28 +667,36 @@ static void install_trace_sites(void)
     unsigned char *h7;
     unsigned char *h6free;
 
-    if (!battle_trace_enabled() && !battle_capture_enabled()) {
+    if (!battle_trace_enabled() && !battle_capture_enabled() &&
+        !b0_env_on()) {
         ld_info("install_trace_sites: %s/%s off -> hooks NOT installed",
                 BATTLE_TRACE_ENV, BATTLE_CAPTURE_ENV);
-        return;
+        return 0;
     }
     h1 = find_in_text((const unsigned char *)H1_SIG, H1_SIG_LEN);
     h2 = find_in_text((const unsigned char *)H2_SIG, H2_SIG_LEN);
     h3 = find_in_text((const unsigned char *)H3_SIG, H3_SIG_LEN);
     h7 = find_in_text((const unsigned char *)H7_SIG, H7_SIG_LEN);
-    if (h1 == NULL || h2 == NULL || h3 == NULL || h7 == NULL ||
-        native::fn(0x45eee0) == NULL) {
+    if (h1 == NULL || h2 == NULL ||
+        (battle_trace_enabled() || battle_capture_enabled()) &&
+        (h3 == NULL || h7 == NULL || native::fn(0x45eee0) == NULL)) {
         ld_info("install_trace_sites: signature NOT found (h1=%p h2=%p h3=%p h7=%p)",
                 (void *)h1, (void *)h2, (void *)h3, (void *)h7);
-        return;
+        return 0;
     }
 
     g_h1_cont = (void *)(h1 + H1_SIG_LEN);
     g_h1_je = (void *)(h1 + 4 + (signed char)h1[3]);
     g_h2_cont = (void *)(h2 + 7);
-    g_h3_cont = (void *)(h3 + H3_SIG_LEN);     /* 0x44cbd5 */
+    /* H3/H7 — только при активной трассировке/захвате (при LDHOOK_SITE5=1 без
+     * них их сигнатуры не требуются и хуки не ставятся). */
+    if (h3 != NULL) {
+        g_h3_cont = (void *)(h3 + H3_SIG_LEN);     /* 0x44cbd5 */
+    }
     g_h3_callee = native::fn(0x45eee0);        /* FUN_0045eee0 (native) */
-    g_h7_cont = (void *)(h7 + H7_SIG_LEN);
+    if (h7 != NULL) {
+        g_h7_cont = (void *)(h7 + H7_SIG_LEN);
+    }
 
     /* H5/H6 (эпилоги e0a0 `83 C4 34 C2 10 00` и хвост 0x45e163) отдельных
      * детуров не получают (инвариант 5): в native-режиме их точки — уже
@@ -700,34 +708,85 @@ static void install_trace_sites(void)
     ld_info("install_trace_sites: h1=0x%08x h2=0x%08x h3=0x%08x h7=0x%08x je=0x%08x",
             (unsigned)h1, (unsigned)h2, (unsigned)h3, (unsigned)h7,
             (unsigned)g_h1_je);
-    ld_info("install_trace_sites: h5/h6 %s", h6free != NULL
-            ? "sites free -> values from s6_target_search (port mode)"
-            : "owned by site5 -> chained via s5_epi_hook/s5_tail_hook");
+    if (battle_trace_enabled() || battle_capture_enabled()) {
+        ld_info("install_trace_sites: h5/h6 %s", h6free != NULL
+                ? "sites free -> values from s6_target_search (port mode)"
+                : "owned by site5 -> chained via s5_epi_hook/s5_tail_hook");
+    }
 
+    /* H1/H2 ставятся всегда (в т.ч. при LDHOOK_SITE5=1 без trace/capture —
+     * детур 44bdd0 входит через H1 и выходит через H2); H3/H7 — только при
+     * активной трассировке/захвате. */
     if (!rel32_fits(h1, (void *)h1_tick_hook) ||
-        !rel32_fits(h2, (void *)h2_epilogue_hook) ||
-        !rel32_fits(h3, (void *)h3_code_hook) ||
-        !rel32_fits(h7, (void *)h7_visit_hook)) {
+        !rel32_fits(h2, (void *)h2_epilogue_hook)) {
         ld_info("install_trace_sites: E9 rel32 out of range");
-        return;
+        return 0;
     }
     if (!write_jmp(h1, (void *)h1_tick_hook, H1_SIG_LEN)) {
         ld_info("install_trace_sites: h1 write_jmp FAILED");
-        return;
+        return 0;
     }
     if (!write_jmp(h2, (void *)h2_epilogue_hook, 7)) {
         ld_info("install_trace_sites: h2 write_jmp FAILED");
+        return 0;
+    }
+    if (battle_trace_enabled() || battle_capture_enabled()) {
+        if (!rel32_fits(h3, (void *)h3_code_hook) ||
+            !rel32_fits(h7, (void *)h7_visit_hook)) {
+            ld_info("install_trace_sites: E9 rel32 out of range");
+            return 1;
+        }
+        if (!write_jmp(h3, (void *)h3_code_hook, H3_SIG_LEN)) {
+            ld_info("install_trace_sites: h3 write_jmp FAILED");
+            return 1;
+        }
+        if (!write_jmp(h7, (void *)h7_visit_hook, H7_SIG_LEN)) {
+            ld_info("install_trace_sites: h7 write_jmp FAILED");
+            return 1;
+        }
+        ld_info("install_trace_sites: hooks installed (trace ON)");
+        return 1;
+    }
+    ld_info("install_trace_sites: h1/h2 installed (trace/capture OFF, %s=1)", B0_ENV);
+    return 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* Phase 5.1b: detour FUN_0044bdd0 (тик боевого AI) — вход H1 (0x44bdf5), */
+/* выход в нативный эпилог 0x44d074 (там же H2/capture). Гейт —             */
+/* LDHOOK_SITE5 + полнота тела (B0_BODY_COMPLETE в battle/tick.cpp);        */
+/* при выключенном гейте единственный патч — H1 уходит в трассу, как и    */
+/* раньше. Тело R1/R2: b0_battle_ai_dispatch (battle/tick.cpp).            */
+/* ------------------------------------------------------------------ */
+static void install_tick_detour(int h1_ok)
+{
+    void *epi;
+
+    if (!b0_port_enabled()) {
+        ld_info("install_tick_detour: disabled (%s!=1 or body incomplete) -> "
+                "H1 stays on the native path", B0_ENV);
         return;
     }
-    if (!write_jmp(h3, (void *)h3_code_hook, H3_SIG_LEN)) {
-        ld_info("install_trace_sites: h3 write_jmp FAILED");
+    /* Тот же layout-гейт, что у site6/4.2: порт пишет поля Candidate/
+     * TreeNode и зовёт игровые leaf-обёртки — при несовпадении раскладки
+     * это порча структур. */
+    if (!ld_off_ok || !ld_off_ok2) {
+        ld_info("install_tick_detour: struct layout mismatch (LDObject/TreeNode) -> NOT installed");
         return;
     }
-    if (!write_jmp(h7, (void *)h7_visit_hook, H7_SIG_LEN)) {
-        ld_info("install_trace_sites: h7 write_jmp FAILED");
+    if (!h1_ok) {
+        ld_info("install_tick_detour: H1 not patched (install_trace_sites) -> NOT installed");
         return;
     }
-    ld_info("install_trace_sites: hooks installed (trace ON)");
+    epi = native::fn(B0_EPILOGUE_VA);          /* 0x44d074 */
+    if (epi == NULL) {
+        ld_info("install_tick_detour: no base -> NOT installed");
+        return;
+    }
+    g_b0_epi = epi;
+    g_b0_port_on = 1;                          /* H1 → b0_battle_ai_dispatch */
+    ld_info("install_tick_detour: %s=1 -> H1 b0_battle_ai_dispatch, epilogue=0x%08x",
+            B0_ENV, (unsigned)(size_t)epi);
 }
 
 /* Замена 7-байтного `call [IAT]; push eax` на `push imm32; nop; nop`. */
@@ -947,7 +1006,7 @@ extern "C" __declspec(dllexport) void initldhook(void)
             install_tick_hook();       /* 4.2: детур 45eee0 (тот же гейт site6) */
             s6_on = s6_on_site;
         }
-        install_trace_sites();
+        install_tick_detour(install_trace_sites());  /* 5.1b: detour 44bdd0 */
         if (!s6_on) {
             install_capture_sites();   /* только native e0a0 зовёт листья */
         }

@@ -558,7 +558,13 @@ void __cdecl battle_trace_code(int code, void *ai)
 /* v10: capture 44bdd0 — между battle_trace_tick_begin и popad; стек после
  * `add esp,4` == стек после popad (flush-слот pushfd ниже). S = [esp+12]+4,
  * unit = слот ECX pushad = [esp+28] (после push). EFLAGS/регистры не меняются:
- * popfd возвращает флаги, попавшие в pushad. */
+ * popfd возвращает флаги, попавшие в pushad.
+ *
+ * 5.1b: если g_b0_port_on (LDHOOK_SITE5=1 И полное тело), после того же
+ * пролога (tick_begin + capture) H1 уходит в b0_battle_ai_dispatch(unit,
+ * frame = S−0x158) и прыгает на нативный эпилог 0x44d074 (H2/capture
+ * отрабатывают). Флаги здесь не нужны: нативные `je`/`flds` не исполняются.
+ * Ветка выключенного порта — байт-в-байт прежняя. */
 /* ------------------------------------------------------------------ */
 __declspec(naked) void h1_tick_hook(void)
 {
@@ -574,6 +580,8 @@ __declspec(naked) void h1_tick_hook(void)
         push dword ptr [esp + 28]        /* arg0: unit (слот ECX pushad) */
         call battle_capture_bdd0_enter
         add esp, 8
+        cmp dword ptr [g_b0_port_on], 0  /* 5.1b: порт включён? */
+        jne h1_port_path
         popad
         mov ebp, ecx                 /* украденная инструкция 1 */
         popfd                        /* флаги для je */
@@ -588,6 +596,18 @@ __declspec(naked) void h1_tick_hook(void)
 
     h1_je_taken:
         jmp dword ptr [g_h1_je]
+
+    h1_port_path:
+        /* frame = ESP на входе H1 = S−0x158 (S = ESP на входе 44bdd0):
+         * frame+0x15c = param_1 (S+4), +0x164 = param_3, +0x14c = prev FS:[0]. */
+        mov edx, dword ptr [esp + 12]    /* сохранённый ESP (E-4) */
+        add edx, 4                       /* = E = frame */
+        push edx                         /* arg2: frame */
+        push dword ptr [esp + 28]        /* arg1: unit (слот ECX pushad) */
+        call b0_battle_ai_dispatch       /* cdecl, AL = результат */
+        add esp, 8                       /* снять 2 аргумента: ESP = E-0x24 */
+        add esp, 0x24                    /* отбросить pushfd+pushad: ESP = E = frame */
+        jmp dword ptr [g_b0_epi]         /* 0x44d074: AL = результат, кадр нативный */
     }
 }
 

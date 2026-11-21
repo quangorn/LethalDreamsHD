@@ -94,6 +94,13 @@ extern volatile LONG g_s7_tick_on;      /* 1 = порт s6_unit_ai_tick, 0 = т�
 extern void *g_s7_tick_cont;            /* продолжение 0x45eee5 (push esi) */
 void s7_tick_hook(void);                /* __declspec(naked) — battle/move.cpp */
 
+/* ---------------- 5.1b: detour 44bdd0 (тик боевого AI) ---------------- */
+/* H1 0x44bdf5 (10 Б) — вход порта; выход — нативный эпилог 0x44d074 (H2). */
+#define B0_ENV         "LDHOOK_SITE5"
+#define B0_EPILOGUE_VA 0x44d074u        /* нативный эпилог (H2/capture) */
+extern volatile LONG g_b0_port_on;      /* 1 = H1 уходит в b0_battle_ai_dispatch */
+extern void *g_b0_epi;                  /* 0x44d074 — нативный эпилог */
+
 extern volatile LONG g_site6_calls;
 extern volatile LONG g_site6_heavy;
 extern volatile LONG g_site6_max;
