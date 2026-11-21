@@ -1352,6 +1352,31 @@ void output_debug_string_a(const char *s)
     }
 }
 
+/* IAT 0x4ec264 — user32!LoadCursorFromFileA(name): __stdcall, 1 аргумент,
+ * callee снимает; возврат HCURSOR не читается. В R18 не вызывается (там
+ * `*0x4ec064` = OutputDebugStringA); обёртка — для будущих сайтов. */
+void load_cursor_from_file_a(const char *name)
+{
+    void *addr = fn(0x4ec264);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            push name
+            mov eax, addr
+            mov eax, [eax]                 /* CALL *0x4ec264 — через IAT-слот */
+            call eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
 /* FUN_0045e1d0 — grid-recompute (821 B, тело не дизассемблировано).
  * __thiscall, ECX = rec (PathFinder-объект `frame+0xcc`), 2 стек-аргумента,
  * RET 8 (site 0x44c8c8: ESP=frame−8 перед call; тройка-сохранение R14 и

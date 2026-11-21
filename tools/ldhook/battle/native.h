@@ -244,6 +244,13 @@ void log_assert(void *unit, const char *msg, int code);
  * Возврат (void) в теле не читается. */
 void output_debug_string_a(const char *s);
 
+/* IAT 0x4ec264 — user32!LoadCursorFromFileA: WinAPI __stdcall, 1 аргумент
+ * (char* имя файла), возврат HCURSOR (в теле не читается). В R18
+ * `FUN_0044bdd0` НЕ вызывается: все GUI-вызовы R18 идут через `*0x4ec064`
+ * (OutputDebugStringA, CONTRADICTIONS #15), а единственный сайт 0x4ec264 в
+ * .text — 0x41e4fd (вне порта). Обёртка — для будущих портов с этим IAT. */
+void load_cursor_from_file_a(const char *name);
+
 /* Игровой строковый литерал по VA (CP1251 char*): fn(VA) = base + RVA.
  * Помощник для push-сайтов вида `push $0x4eee1c`: логика передаёт только
  * номер VA, разрешение адреса — здесь (инвариант 3, без «голых» указателей). */
