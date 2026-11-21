@@ -69,7 +69,7 @@ python tools/probes/trace_diff.py <nat.log> <port.log> --align=ordinal [--fields
 
 - Исполнитель-сабагент по одному пункту; **ревью — всегда `strata`**; всё, кроме
   среднего и сложного, — `strata/q3.8-fn#medium`. Средние/сложные —
-  `particle-1:free#high`: при обрыве до 3 раз `continue` той же сессией, после 3-й
+  `particle-1:free#high`: при обрыве до 10 раз `continue` той же сессией, после 10-й
   неудачи — эскалация к человеку и до конца дня `ernie-5.5-flash:free#high` вместо
   particle. Если человек сообщает, что суточные лимиты бесплатных моделей исчерпаны,
   средние/сложные идут на `@preset/ds-flash-41-cheapest#low`.
