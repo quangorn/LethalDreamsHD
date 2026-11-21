@@ -544,11 +544,16 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
                                                                        * в 0x4570d0..0x457101 (ecx только читается
                                                                        * @0x4570d4/0x4570de/0x4570eb) → ecx = grid */
                             if (node2 == NULL) { s6_pfs_diag(PFS_R_GRID); GATE_EXIT(PFS_R_GRID, 0); return NULL; }  /* @0x45cc80 */
-                            p7 = s6_imax(s6_iabs(LS(0x1c)), s6_iabs(LS(0x24)));  /* @0x45cc86..0x45cca2 */
+                            /* ESP=Y после add $8 @0x45cc9f; аргументы @0x45cc86..0x45ccc1:
+                             * arg7 = MAX(|LS(0x1c)|,|LS(0x28)|) = адрес &spec[0x10] — FIDIV-делитель @0x45c460;
+                             * arg3=arg6=&LS(0x18), arg4=&LS(0x50), arg5=[cb40 arg2] → min-слот = &pos[0];
+                             * харнесс держит min=LS(0x14), p3=&out_metric (запись в восстановленный LDPos
+                             * портила identity leaf-значений). */
+                            p7 = s6_imax(s6_iabs(LS(0x14)), (int)(INT_PTR)&spec->out_metric);
                             ecx = s6_iabs(LS(0x24));  /* @0x45c394: MOV 0x8(%ESP),%ECX = arg2 = |L[0x24]|, RET его сохраняет */
                             if (s6_path_tree_search(self, node2, (int)(INT_PTR)spec->pos,
-                                                    (int)(INT_PTR)&spec->out_metric,
-                                                    (float *)&LS(0x48), &LS(0x14), &LS(0x18),
+                                                    (int)(INT_PTR)&spec->out_metric, (float *)&LS(0x48),
+                                                    &LS(0x14), &LS(0x18),
                                                     p7) == NULL) {      /* @0x45ccc1 */
                                 s6_pfs_diag(PFS_R_RECUR);
                                 GATE_EXIT(PFS_R_RECUR, 0);
