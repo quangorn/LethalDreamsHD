@@ -30,7 +30,9 @@
  * (`0x44cd0a..0x44cdf1`, B121..B126: GUI-блок K2, гейты code==4 — head/count,
  * `vtable+0x2c` против `[unit+0xfc]`, builder-ctor и mode-флаг 1/4), R20
  * (`0x44cdf2..0x44cee5`, B128..B134: state-копия, цепочки, cursor K3
- * `0x4eebc8`, builder+`446a80`); все листья —
+ * `0x4eebc8`, builder+`446a80`) и R21 (`0x44cee6..0x44cf77`, B135..B142:
+ * join out=1 + dtor строки msg, фаза code==4 — цепочки 2/4, `448c30(0x40)`,
+ * лог `0x51cc50`/0xa); все листья —
  * нативные
  * `native::…`, один детур на функцию (инвариант 5) — H1 `0x44bdf5` с возвратом
  * в нативный эпилог `0x44d074` (там же H2/capture, поэтому трассировка тика и
@@ -44,7 +46,7 @@
  * EDI/EBX не восстанавливает (их снимает нативный эпилог).
  *
  * Детур разоружён, пока тело неполное: `b0_port_enabled()` = LDHOOK_SITE5=1
- * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R18 — явные UNPORTED-
+ * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R21 — явные UNPORTED-
  * заглушки с адресом блока-цели; они возвращают 0 (= `xor al,al` @0x44d072).
  */
 #include <stdlib.h>
@@ -54,7 +56,7 @@
 #include "battle.h"
 #include "native.h"
 
-/* B0_BODY_COMPLETE — 0: портирован только R1..R20, тело неполное (дальше —
+/* B0_BODY_COMPLETE — 0: портирован только R1..R21, тело неполное (дальше —
  * UNPORTED-выходы), поэтому детур обязан быть разоружён. Определяется в 1
  * тем чанком, который доводит тело до единственного RET `0x44d08c`. */
 #ifndef B0_BODY_COMPLETE
@@ -84,7 +86,7 @@ int b0_env_on(void)
 int b0_port_enabled(void)
 {
 #if !B0_BODY_COMPLETE
-    /* UNPORTED: R21..R23 не портированы — детур не встаёт. */
+    /* UNPORTED: R22..R23 не портированы — детур не встаёт. */
     return 0;
 #else
     return b0_env_on();
@@ -1338,17 +1340,50 @@ b134_r20:
     goto b135_join;                                     /* fall 0x44cee6 → R21 */
 
 b138_r21:
-    /* 0x44cf10 — TODO(5.1b-19) UNPORTED: R21 B138..B141 (фаза code==4
-     * больше/unordered: vtable+0x40 → цепочки 2/4 → 448c30(0x40) → B142
-     * лог 0x51cc50/0xa → `[unit+0x34]` → 0x44d061 либо R22 B143).
-     * Возврат 0 = путь `xor al,al` @0x44d072. */
-    return 0;
+    /* --- R21 B138..B142 (0x44cf10..0x44cf77, GUI): фаза code==4 ---------- *
+     * Вход — только R19 B125 `0x44cdb6 jp` (фаза > `[unit+0xfc]` или
+     * unordered). ESP на входе = frame. EBP не сдвинут на всём пути
+     * (B126/B134 без `ADD EBP,0x18`), поэтому адресация — unit_x == unit.
+     * ESI/EDI/EBX в R21 не читаются (ESI после B121 — ctx, EDI = 0 из B77);
+     * ECX = EAX-клоббер каждого вызова, EBX пишется только в R20 B133. */
+    /* B138 (0x44cf10..0x44cf1a) — vtable+0x40 БЕЗ push: callee читает
+     * `[esp+4]` = frame[0] (модель B15/B24/B35/B88). NULL → B142. */
+    if (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL) {
+        goto b142_r21;                                  /* 0x44cf1a je 0x44cf5f */
+    }
+
+    /* B139 (0x44cf1c..0x44cf37) — цепочка ×1 (`push 1`), `TESTB $2`:
+     * бит взят → B141. */
+    flags_obj = b0_player_flag_chain(unit_x);           /* 0x44cf1c..0x44cf2f */
+    if ((*(const unsigned char *)flags_obj & 0x2) != 0) {
+        goto b141_r21;                                  /* 0x44cf37 jne 0x44cf56 */
+    }
+
+    /* B140 (0x44cf39..0x44cf54) — цепочка ×2, `TESTB $4`: бит снят → B142. */
+    flags_obj = b0_player_flag_chain(unit_x);           /* 0x44cf39..0x44cf4c */
+    if ((*(const unsigned char *)flags_obj & 0x4) == 0) {
+        goto b142_r21;                                  /* 0x44cf54 je 0x44cf5f */
+    }
+
+b141_r21:
+    /* B141 (0x44cf56..0x44cf5a) — cursor/mode update с аргументом 0x40. */
+    native::cursor_mode_update(unit_x, 0x40);           /* 0x44cf56..0x44cf5a */
+
+b142_r21:
+    /* B142 (0x44cf5f..0x44cf77) — лог `0x51cc50`/0xa, затем msg-гейт
+     * `unit+0x34`: 0 → out-guard `0x44d061` (AL=0); иначе fall → R22 B143. */
+    native::log_assert(unit_x, native::literal(0x51cc50), 0xa); /* 0x44cf5f..0x44cf68 */
+    if (*(const unsigned char *)(unit_x + 0x34) == 0) {
+        goto b0_exit_44d061;                            /* 0x44cf72 je 0x44d061 */
+    }
+    goto b144_r22;                                      /* fall 0x44cf78 → R22 */
 
 b144_r22:
-    /* 0x44cfea — TODO(5.1b-19) UNPORTED: R22 B144..B156 (финальные гейты:
+    /* 0x44cfea — TODO(5.1b-20) UNPORTED: R22 B144..B156 (финальные гейты:
      * 45c370/45af50, `[unit+0x114]==0.0f`, `[unit+0x84]`, `448ee0(unit,0/1)`,
-     * out-writes и AL=1 через 0x44d074). Возврат 0 = путь `xor al,al`
-     * @0x44d072. */
+     * out-writes и AL=1 через 0x44d074). Входы: R21 B142 fall (0x44cf78) и
+     * `jne/jg` R19 B122/B124 (0x44cd7b/0x44cd9d). Возврат 0 = путь
+     * `xor al,al` @0x44d072. */
     return 0;
 
 b74_cursor_tail:
@@ -1666,11 +1701,25 @@ b20:
     goto b135_join;                                     /* 0x44c086 jmp 0x44cee6 */
 
 b135_join:
-    /* 0x44cee6 — TODO(5.1b-19) UNPORTED: join R21 (входы B20 JZ, B21 jmp,
-     * R20 B134 fall). На всех входах ESP = frame (`446a80` снял `sub 0x3c`),
-     * поэтому out-guard R21 читает `[esp+0x164]` = `frame+0x164` (param_3).
-     * Возврат 0 = путь `xor al,al` @0x44d072. */
-    return 0;
+    /* --- R21 B135..B137 (0x44cee6..0x44cf0b, GUI): join-хвост ------------- *
+     * Входы: R3 B20 `je` (0x44c01c), R3 B21 `jmp` (0x44c086), R4 B29 `je`
+     * (0x44c17e), R4 B30 `jmp` (0x44c1e8), R20 B134 fall. На всех ESP = frame
+     * (`446a80` B134 снимает `sub 0x3c` через `ret 0x3c`), поэтому слот
+     * `[esp+0x164]` = `frame+0x164` = param_3. EBP на входах B21/B30 сдвинут
+     * (+0x18), но в R21 EBP не читается; ESI/EDI/EBX здесь тоже не читаются.
+     * Порядок: out=1 → dword trylevel −1 (ДО вызова) → dtor строки msg
+     * `frame+0x58` (поле +0x0c объекта R19 B126 `frame+0x4c`, как R16 B99) →
+     * `0x44d072` (`xor al,al`, без out-write). */
+    {
+        void *p3 = *(void **)(frame + 0x164);
+
+        if (p3 != NULL) {
+            *(int *)p3 = 1;                             /* 0x44cef1 movl $1,(%eax) */
+        }
+    }
+    *(unsigned int *)(frame + 0x154) = 0xffffffffu;     /* 0x44cefb..0x44cf02 (dword) */
+    native::msg_string_dtor(frame + 0x58);              /* 0x44cef7..0x44cf06 */
+    return 0;                                           /* 0x44cf0b jmp 0x44d072 */
 
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return 0;            /* SEH-рамка 0x44bdd0, как s6_ai_update */
@@ -1679,12 +1728,12 @@ b135_join:
 
 /* Точка входа порта (ABI натива: ECX = unit, 3 стек-аргумента, RET 0xc).
  * Тело — под B0_BODY_COMPLETE: пока оно неполное, функция возвращает 0 и
- * детур разоружён (b0_port_enabled). Тело R1..R20 остаётся скомпилированным и
+ * детур разоружён (b0_port_enabled). Тело R1..R21 остаётся скомпилированным и
  * типизированным — `(void)&` ниже, чтобы /W3 не снял его как неиспользуемый. */
 int b0_battle_ai_dispatch(void *unit, unsigned char *frame)
 {
 #if B0_BODY_COMPLETE
-    return b0_body_r1_r2(unit, frame);      /* TODO(5.1b-19): R21..R23 */
+    return b0_body_r1_r2(unit, frame);      /* TODO(5.1b-20): R22..R23 */
 #else
     /* UNPORTED: тело неполное — единственный вход детура остаётся пустым. */
     (void)&b0_body_r1_r2;
