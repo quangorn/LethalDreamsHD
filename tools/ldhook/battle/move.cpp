@@ -6,9 +6,10 @@
  * дизасм (п. 4.3). Поле trace-строки — решение движения и его аргументы.
  *
  * Статус: портированы sub-steps 4.1a — пролог 0x45eee0..0x45ef7f (B0/B1/B2),
- * 4.1b — 0x45ef82..0x45efdb (B3/B4/B5), 4.1c — 0x45efdc..0x45f0c7 (B6/B7/B8)
- * и 4.1d — 0x45f0cc..0x45f13a (B9; карта re/phase4_45eee0.md §8.2). B10 и далее
- * не портированы; функция static и ниоткуда не вызывается (детур и wiring — 4.2).
+ * 4.1b — 0x45ef82..0x45efdb (B3/B4/B5), 4.1c — 0x45efdc..0x45f0c7 (B6/B7/B8),
+ * 4.1d — 0x45f0cc..0x45f13a (B9) и 4.1e — 0x45f13d..0x45f21a (B10; карта
+ * re/phase4_45eee0.md §8.2). B11 и далее не портированы; функция static и
+ * ниоткуда не вызывается (детур и wiring — 4.2).
  */
 #include <string.h>
 
@@ -294,6 +295,78 @@ static void s6_tick_move(BattleAI *self, void *rec_arg)
         /* @0x45f134 neg (CF=1 при eax≠0) / @0x45f136 sbb al,al (CF→0xff) /
          * @0x45f138 inc al (0xff→0x00; при eax=0: 0x00→0x01) — итог 1 ⟺ path == NULL. */
         *(unsigned char *)((unsigned char *)self + 0x30) = (unsigned char)(path == NULL);  /* @0x45f13a mov %al,0x30(%esi) */
+    }
+
+    /* B10 (0x45f13d..0x45f21a) — lower_bound #1 по карте this+0x68 + создание
+     * PathState (ctor 45c2e0) либо выбор существующего узла, затем сборка
+     * spec-окна. Слоты lower_bound: out = &F+0x6c (второй push @0x45f145),
+     * key = &this+0x28 (первый push @0x45f13d; EDI = `lea 0x28(%esi)` @0x45f06b).
+     * В 0x434bc0 ключ читается из arg2 (`mov 0x18(%esp),%edi`@0x434bcf, key
+     * `mov (%edi),%eax`@0x434bfd, store @0x434bf7), result пишется в arg1
+     * (`mov 0x14(%esp),%eax`@0x434c0a, `mov %ecx,(%eax)`@0x434c10). Карта §8.1
+     * п.4 описывает это наоборот — листинг главнее. grid-root = *(this+0x28)
+     * (запись B7 @0x45f0b6) остаётся нетронутым: он — pos спеки. EBP —
+     * PathState/узел, его читает B11 (0x45f21d). */
+    {
+        int node;
+        void *ebp;
+
+        native::lower_bound_slots(&self->map1,               /* @0x45f142 ecx = lea 0x68(%esi) */
+                                  &LS(0x6c),                 /* @0x45f13e lea 0x70(%esp) / @0x45f145 push — out */
+                                  (int *)((unsigned char *)self + 0x28));  /* @0x45f13d push %edi = &this+0x28 — key */
+        node = LS(0x6c);                                     /* @0x45f14b mov (%eax),%eax — eax = out-указатель */
+        if (node == (int)(INT_PTR)self->cand_head) {         /* @0x45f14d cmp 0x6c(%esi) / @0x45f150 jne 0x45f21a */
+            PathState *pfs;
+            void *world;
+            int grid;
+            float ws, g14;
+            int dist2, h, h10000, cost;
+
+            pfs = s6_pfs_ctor();                             /* @0x45f156/0x45f158 call 0x45c2e0 (ECX = self телом не читается) */
+            ctx = (unsigned char *)self->game_ctx;           /* @0x45f15d mov (%esi),%ecx */
+            world = *(void **)(ctx + 0x04);                  /* @0x45f15f mov 0x4(%ecx),%ecx — world */
+            ebp = pfs;                                       /* @0x45f164 mov %eax,%ebp */
+            grid = *(const int *)((unsigned char *)self + 0x28);  /* @0x45f166 mov (%edi),%eax — grid-root */
+            LS(0x34) = grid;                                 /* @0x45f168 mov %eax,0x34(%esp) — spec+0x00 = grid-root */
+            LS(0x38) = 0;                                    /* @0x45f171 mov %ebx,0x3c(%esp) — spec+0x04 parent */
+            LS(0x3c) = 1;                                    /* @0x45f175 movl $1,0x40(%esp) — spec+0x08 filter */
+            /* world vtable, слот +0x38, 1 арг = &S(0x28) (buf world-notify, 3 dword:
+             * S(0x28..0x30) заполняет callee; писателя в листинге нет). Цель
+             * статически не разрешена — вызов через тот же слот (п. 1.5/§8.1). */
+            native::vcall1(world, 0x38, (int)(INT_PTR)&LS(0x28));  /* @0x45f162 mov (%ecx),%edx / @0x45f16c lea 0x28(%esp) / @0x45f170 push / @0x45f17d call *0x38(%edx) */
+            s6_grid_scale_compute((LDPos *)(INT_PTR)grid,    /* @0x45f185 mov (%edi),%ecx — receiver = grid-root */
+                                  (float *)LS_BYTES(0x20));  /* @0x45f180 lea 0x20(%esp) / @0x45f184 push / @0x45f187 call 0x456b20 */
+            /* spec+0x0c = S(0x28) − S(0x20) (дельта масштаба). */
+            s6_bits_set(&LS(0x40), s6_bits_get(LS(0x28)) - s6_bits_get(LS(0x20)));  /* @0x45f18c flds 0x28 / @0x45f190 fsubs 0x20 / @0x45f19e fstps 0x40 */
+            /* spec+0x10 = world[0x120] + grid-root[0x14] (out_metric). */
+            memcpy(&ws, (const unsigned char *)world + 0x120, sizeof(float));  /* @0x45f1a2 flds 0x120(%eax) */
+            memcpy(&g14, (const unsigned char *)(INT_PTR)grid + 0x14, sizeof(float));  /* @0x45f199 mov (%edi),%edi / @0x45f1a9 fadds 0x14(%edi) */
+            s6_bits_set(&LS(0x44), ws + g14);                /* @0x45f1af fstps 0x4c(%esp) */
+            LS(0x4c) = 0;                                    /* @0x45f1b7 mov %ebx,0x54(%esp) — spec+0x18 g_cost */
+            /* spec+0x14 = S(0x30) − S(0x24). */
+            s6_bits_set(&LS(0x48), s6_bits_get(LS(0x30)) - s6_bits_get(LS(0x24)));  /* @0x45f1b3 flds 0x38 / @0x45f1bb fsubs 0x2c / @0x45f1bf fstps 0x50 */
+            /* dist² = c480(grid-root, anchor): arg1 — последний push (%edi @0x45f1ac),
+             * arg2 — anchor (@0x45f1a8). */
+            dist2 = s6_distance2((void *)(INT_PTR)grid,
+                                 (void *)(INT_PTR)self->anchor);  /* @0x45f1a8/0x45f1ac/0x45f1c3 */
+            LS(0x50) = dist2;                                /* @0x45f1cc mov %eax,%edi / @0x45f1d1 mov %edi,0x54(%esp) — spec+0x1c */
+            h = s6_heuristic_gate(self, (int *)LS_BYTES(0x34));  /* @0x45f1c8 lea 0x34(%esp) / @0x45f1ce push / @0x45f1d5 call 0x45c690 — arg = &spec */
+            h10000 = h * 10000;                              /* @0x45f1da imul $0x2710,%eax,%eax */
+            LS(0x54) = h10000;                               /* @0x45f1e0 mov %eax,0x54(%esp) — spec+0x20 */
+            cost = h10000 + dist2;                           /* @0x45f1e4 add %edi,%eax */
+            LS(0x58) = cost;                                 /* @0x45f1eb mov %eax,0x5c(%esp) — spec+0x24 */
+            LS(0x5c) = (int)0xcb18967fu;                     /* @0x45f1f7 — spec+0x28 = −1e7f */
+            LS(0x60) = 0x4b18967f;                           /* @0x45f1ff — spec+0x2c = +1e7f */
+            LS(0x64) = 0;                                    /* @0x45f207 — spec+0x30 */
+            s6_copy_fields((int)(INT_PTR)pfs,                /* @0x45f1ef push %ebp — dst (порт: 1-й арг) */
+                           (int)(INT_PTR)LS_BYTES(0x34),     /* @0x45f1f0 lea 0x3c / @0x45f1f4 push — src = &spec */
+                           0x1fff);                          /* @0x45f1e6 push $0x1fff / @0x45f20b call 0x45c4b0 */
+            native::register_occupied_slot(self, (LDObject *)ebp);  /* @0x45f210 push %ebp / @0x45f213 call 0x45dd00 */
+            /* @0x45f218 jmp 0x45f21d — слияние с веткой существующего узла (B11). */
+        } else {
+            ebp = *(void **)((unsigned char *)(INT_PTR)node + 0x10);  /* @0x45f21a mov 0x10(%eax),%ebp — PathState* узла */
+        }
+        (void)ebp;   /* регистр живёт до B11 (0x45f21d) — трансляция продолжается в 4.1f */
     }
 
 #undef LS_BYTES

@@ -889,8 +889,10 @@ static int s6_grid_clamp(int size, int v)
  * (@0x45c522), DH.0 (бит8)→+0x20 (@0x45c52d), DH.2 (бит10)→+0x28
  * (@0x45c538), DH.3 (бит11)→+0x2c, DH.4 (бит12)→+0x30. Маски dd70:
  * ветка 1 — 0x1fff (@0x45df89 push), ветка 2 — 0x3c6 = {+0x04,+0x08,
- * +0x14,+0x20,+0x24,+0x28} (@0x45e01e push). */
-static void s6_copy_fields(int dst, int src_, unsigned int mask)
+ * +0x14,+0x20,+0x24,+0x28} (@0x45e01e push). Экспортирован для move.cpp
+ * (site @0x45f20b, маска 0x1fff); порт инвертирует нативный порядок:
+ * s6_copy_fields(dst, src, mask) при нативном (src, dst, mask). */
+void s6_copy_fields(int dst, int src_, unsigned int mask)
 {
     int *d = (int *)(INT_PTR)dst;
     const int *s = (const int *)(INT_PTR)src_;
