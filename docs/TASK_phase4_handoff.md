@@ -68,8 +68,8 @@ python tools/probes/trace_diff.py <nat.log> <port.log> --align=ordinal [--fields
 ## Порядок работы (как в этой сессии)
 
 - Исполнитель-сабагент по одному пункту; **первое ревью — всегда `strata`**; модель по
-  сложности: простые — `strata/q3.8-fn#low`, средние/сложные — `ernie-light#high`,
-  резерв — `particle-1#high`.
+  сложности: простые — `strata/q3.8-fn#medium`, средние/сложные — `ernie-5.5-flash:free#high`,
+  резерв — `particle-1:free#high`.
 - Сабагенты **не коммитят**: коммит и docs — оркестратор. Один сабагент за раз.
 - После каждой правки: сборки, `check_sites.py`, replay на регрессионной базе (числа не
   должны падать), `check_state.py --quick`.
