@@ -1010,6 +1010,57 @@ void *player_flags(void *flags_obj)
     return res;
 }
 
+/* FUN_0042d9c0 — player pos_set: ECX = player, 1 стек-арг = &triple,
+ * `ret $0x4` (@0x42d9f4); пишет 3 float в тройку. site 0x44c240. */
+void player_pos_set(void *player, void *triple)
+{
+    void *addr = fn(0x42d9c0);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, player
+            push triple
+            mov eax, addr
+            call eax
+            mov esp, esi                   /* ret 4 — стек = сохранённый esp */
+            popad
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
+/* FUN_00446af0 — assert/log: ECX = unit, 2 стек-арг, `ret $0x8` (@0x446bae).
+ * Лист читает arg1 = [S] (последний push), arg2 = [S+4] (@0x446b4f/0x446b57),
+ * поэтому сайт `PUSH 0x51cc50; PUSH 0xa` даёт arg1 = 0xa, arg2 = строка.
+ * site 0x44c28c. */
+void log_assert(void *unit, const char *msg, int code)
+{
+    void *addr = fn(0x446af0);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, unit
+            push msg                       /* arg2 — старший, первый push */
+            push code                      /* arg1 — [S] на входе листа */
+            mov eax, addr
+            call eax
+            mov esp, esi                   /* ret 8 */
+            popad
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
 /* FUN_00448c30 — cursor/mode update: ECX = unit, 1 стек-арг, `ret $0x4`.
  * site 0x44c012. */
 void cursor_mode_update(void *unit, int arg)

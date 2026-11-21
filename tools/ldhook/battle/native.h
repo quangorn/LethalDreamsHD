@@ -189,6 +189,19 @@ const char *string_c_str(void *obj);
  * ECX = объект, 0 аргументов (`ret` @0x49ac7d). sites: 0x44c070/0x44c081. */
 void string_dtor(void *obj);
 
+/* --- Фаза 5.1b-5: листья R6 (FUN_0044bdd0, `0x44c22a..0x44c306`) --- */
+
+/* FUN_0042d9c0 — player pos_set: __thiscall, ECX = player (результат vtable+0x40),
+ * 1 стек-аргумент = &triple (`ret $0x4` @0x42d9f4), пишет 3 float в triple.
+ * site: 0x44c240 (аргумент — тот же указатель, что оставлен на стеке
+ * `PUSH EAX` @0x44c238 после геттера; геттер его не снимает). */
+void player_pos_set(void *player, void *triple);
+
+/* FUN_00446af0 — assert/log: __thiscall, ECX = unit, 2 стек-аргумента
+ * (`ret $0x8` @0x446bae). Сайт 0x44c283/0x44c288: `PUSH 0x51cc50` затем
+ * `PUSH 0xa`, т.е. arg1 = код 0xa, arg2 = строка. Внутри зовёт ai_time_update. */
+void log_assert(void *unit, const char *msg, int code);
+
 /* IAT 0x4ec064 — kernel32!OutputDebugStringA (objdump -p: `000ec064 <none>
  * 0268 OutputDebugStringA`; LoadCursorFromFileA лежит на 0x4ec264 — правка
  * ошибочного «cursor» из disasm4). WinAPI __stdcall, 1 аргумент (char*),

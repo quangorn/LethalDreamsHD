@@ -3,7 +3,8 @@
  * Фаза 5.1b: порт тела порциями по диапазонам 1.3b. Этот чанк — R1
  * (`0x44bdf9..0x44bec1`, B1..B6 после пролога), R2 (`0x44bec2..0x44bfb7`,
  * B7..B15), R3 (`0x44bfb8..0x44c09c`, B16..B22), R4 (`0x44c09d..0x44c183`,
- * B23..B29) и R5 (`0x44c184..0x44c229`, B30..B33); все листья — нативные
+ * B23..B29), R5 (`0x44c184..0x44c229`, B30..B33) и R6 (`0x44c22a..0x44c306`,
+ * B34..B40, grid-probe + log + цепочки); все листья — нативные
  * `native::…`, один детур на функцию (инвариант 5) — H1 `0x44bdf5` с возвратом
  * в нативный эпилог `0x44d074` (там же H2/capture, поэтому трассировка тика и
  * захват продолжают работать).
@@ -16,7 +17,7 @@
  * EDI/EBX не восстанавливает (их снимает нативный эпилог).
  *
  * Детур разоружён, пока тело неполное: `b0_port_enabled()` = LDHOOK_SITE5=1
- * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R5 — явные UNPORTED-
+ * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R6 — явные UNPORTED-
  * заглушки с адресом блока-цели; они возвращают 0 (= `xor al,al` @0x44d072).
  */
 #include <stdlib.h>
@@ -26,7 +27,7 @@
 #include "battle.h"
 #include "native.h"
 
-/* B0_BODY_COMPLETE — 0: портирован только R1..R5, тело неполное (дальше —
+/* B0_BODY_COMPLETE — 0: портирован только R1..R6, тело неполное (дальше —
  * UNPORTED-выходы), поэтому детур обязан быть разоружён. Определяется в 1
  * тем чанком, который доводит тело до единственного RET `0x44d08c`. */
 #ifndef B0_BODY_COMPLETE
@@ -91,6 +92,16 @@ static int b0_gate_44_jp(float a, float b)
     return !(a == b);               /* 0x44bebd/0x44bec0, 0x44beca, 0x44bed7 */
 }
 
+/* Биты float для grid_query: лист 0x44bbf0 получает 4 dword со стека
+ * вызывающего и трактует их как целые (на сайте 0x45c67b — `FSTP m32`). */
+static int b0_float_bits(float f)
+{
+    int bits;
+
+    memcpy(&bits, &f, sizeof(bits));
+    return bits;
+}
+
 /* --- R1..R4: B0..B29 --------------------------------------------------- *
  * Цепочка player-флагов (B16..B18 и её клоны B25..B27): player_get(unit,1) →
  * 42da60(player,1) → 435d50; три идентичных прогона, различаются только
@@ -117,7 +128,11 @@ static int b0_body_r1_r2(void *unit_, unsigned char *frame)
     void *res;
     void *head;
     void *flags_obj;
+    void *player;
     int count;
+    int grid;
+    float pos_triple[3];            /* B34: тройка позиции игрока (натив: [esp] после sub 0xc) */
+    float cur_triple[3];            /* B34: тройка из result+4..0xc (второй grid_query) */
 
     __try {
 
@@ -380,8 +395,79 @@ b31:
     goto b34;                                           /* fall 0x44c22a → R6 */
 
 b34:
-    /* 0x44c22a — UNPORTED: R6 (`0x44c22a..0x44c306`, grid-probe B34..B40).
-     * Возврат 0 = путь `xor al,al` @0x44d072. */
+    /* R6 (0x44c22a..0x44c306) — grid-probe B34..B40.
+     * unit_x на входе: в 0x44c22a попадает только fall B33 (0x44c224 jp не
+     * взят); B31/B32 достижимы из B22 (0x44c08b) и B23 (0x44c09d), где сдвига
+     * `ADD EBP,0x18` нет (сдвиги B21 @0x44c035 и B30 @0x44c197 уходят
+     * `jmp 0x44cee6`). Значит EBP не сдвинут: unit_x == unit. */
+    {
+        /* B34 (0x44c22a..0x44c282). Натив: `PUSH 0; SUB ESP,0xc` даёт на стеке
+         * [esp]=&triple, [esp+4..0xc]=triple, [esp+0x10]=0 (arg4). Геттер
+         * vtable+0x40 получает [esp+4]=&triple (ret 0 — указатель остаётся);
+         * 42d9c0 снимает его (`ret $0x4`) и пишет позицию игрока в triple.
+         * Следом 0x44bbf0 читает 4 dword прямо из [esp..esp+0xc] (ret 0x10),
+         * т.е. triple и 0. Слот-записи `[esp+0x2c]=esp` в порт не нужны:
+         * grid_query получает аргументы явно (контракт native.h). */
+        pos_triple[0] = pos_triple[1] = pos_triple[2] = 0.0f;
+        player = native::player_get(unit_x, (int)(INT_PTR)pos_triple); /* 0x44c23b */
+        native::player_pos_set(player, pos_triple);                   /* 0x44c240 */
+        (void)native::grid_query(unit_x, b0_float_bits(pos_triple[0]),
+                                 b0_float_bits(pos_triple[1]),
+                                 b0_float_bits(pos_triple[2]), 0);     /* 0x44c247 */
+    }
+    /* 0x44c24c..0x44c276 — второй grid_query по result+4..0xc (+arg4=0). */
+    res = native::game_state_get(unit_x, 0);              /* 0x44c252 */
+    memcpy(cur_triple, (const unsigned char *)res + 4, 12); /* 0x44c257..0x44c26d */
+    grid = native::grid_query(unit_x, b0_float_bits(cur_triple[0]),
+                              b0_float_bits(cur_triple[1]),
+                              b0_float_bits(cur_triple[2]), 0);  /* 0x44c276 */
+    if (grid == 0) {                    /* 0x44c27d `test; jbe` (unsigned ⇒ ==0) */
+        goto b42;
+    }
+
+    /* B35 (0x44c283..0x44c29c) — assert/log только при grid > 0. */
+    native::log_assert(unit_x, native::literal(0x51cc50), 0xa); /* 0x44c283..0x44c28c */
+    /* 0x44c296 — геттер без push: callee читает [esp+4] = [frame] (модель B15). */
+    if (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL) {
+        goto b40;                                       /* 0x44c29b je 0x44c2fc */
+    }
+
+    /* B36 (0x44c29d..0x44c2b8) — цепочка ×1, NULL → B40. */
+    flags_obj = b0_player_flag_chain(unit_x);           /* 0x44c29d..0x44c2b5 */
+    if (flags_obj == NULL) {
+        goto b40;                                       /* 0x44c2b7 je */
+    }
+
+    /* B37 (0x44c2b9..0x44c2d5) — цепочка ×2, `TESTB $2`: бит → B39. */
+    flags_obj = b0_player_flag_chain(unit_x);           /* 0x44c2b9..0x44c2d1 */
+    if ((*(const unsigned char *)flags_obj & 0x2) != 0) {
+        goto b39;                                       /* 0x44c2d4 jne */
+    }
+
+    /* B38 (0x44c2d6..0x44c2f2) — цепочка ×3, `TESTB $4`: бит снят → B40. */
+    flags_obj = b0_player_flag_chain(unit_x);           /* 0x44c2d6..0x44c2ee */
+    if ((*(const unsigned char *)flags_obj & 0x4) == 0) {
+        goto b40;                                       /* 0x44c2f1 je */
+    }
+
+b39:
+    /* B39 (0x44c2f3..0x44c2fb) — cursor/mode update с аргументом 0x40. */
+    native::cursor_mode_update(unit_x, 0x40);           /* 0x44c2f3..0x44c2f7 */
+
+b40:
+    /* B40 (0x44c2fc..0x44c306) — msg-флаг `unit+0x34`: 0 → выход 0x44d061
+     * (out-guard param_3 = 0, AL = 0); иначе fall → B41 (R7). */
+    if (*(const unsigned char *)(unit_x + 0x34) == 0) {
+        void *p3 = *(void **)(frame + 0x164);           /* 0x44d061 out-guard */
+        if (p3 != NULL) {
+            *(int *)p3 = 0;
+        }
+        return 0;                                       /* 0x44d072 xor al,al */
+    }
+    goto b41;                                           /* fall 0x44c307 */
+
+b41:
+    /* 0x44c307 — UNPORTED: R7 B41 (string/cursor tail). Возврат 0 — заглушка. */
     return 0;
 
 b42:
@@ -457,7 +543,7 @@ b135_join:
 
 /* Точка входа порта (ABI натива: ECX = unit, 3 стек-аргумента, RET 0xc).
  * Тело — под B0_BODY_COMPLETE: пока оно неполное, функция возвращает 0 и
- * детур разоружён (b0_port_enabled). Чанк R1..R3 остаётся скомпилированным и
+ * детур разоружён (b0_port_enabled). Тело R1..R6 остаётся скомпилированным и
  * типизированным — `(void)&` ниже, чтобы /W3 не снял его как неиспользуемый. */
 int b0_battle_ai_dispatch(void *unit, unsigned char *frame)
 {
