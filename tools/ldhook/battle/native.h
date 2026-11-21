@@ -116,6 +116,14 @@ void *band_head(void *ai);
  * аргументов (`ret`). site: 0x44bef9. */
 int band_count(void *band);
 
+/* FUN_0045c730 (0x45c730..0x45c74c) — курсор ленты. Листинг: `MOV EAX,[ECX];
+ * TEST; JZ` (@0x45c730..0x45c734), затем дважды `MOV EAX,[EAX+0xc]; TEST; JZ`
+ * (@0x45c736..0x45c742), затем `MOV EAX,[EAX+0x234]; RET` (@0x45c744..0x45c74a);
+ * ветка NULL — `XOR EAX,EAX; RET` (@0x45c74b). Итог: `[[[ctx]+0xc]+0xc]+0x234`,
+ * 0 при NULL на любом шаге. __thiscall, ECX = BattleAI (= unit+0x138), 0 стек-
+ * аргументов (`ret`); side effects нет. sites: 0x44c36f/0x44c37e (R7). */
+void *band_cursor(void *ai);
+
 /* vtable `unit[+0x2c]` — float фазы. ECX = unit, 0 стек-аргументов; результат
  * в ST(0), поэтому пишется в *out (fstp). site: 0x44bf1e. */
 void phase_time(void *unit, float *out_f);

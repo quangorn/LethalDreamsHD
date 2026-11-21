@@ -800,6 +800,34 @@ int band_count(void *band)
     return res;
 }
 
+/* FUN_0045c730 — курсор ленты: цепочка `[[[ctx]+0xc]+0xc]+0x234` с null-
+ * guard'ом на каждом шаге (любой NULL → 0), `ret`. Тривиальный аксессор без
+ * side effects (battle_ai_leaves.md §1.4). sites 0x44c36f/0x44c37e. */
+void *band_cursor(void *ai)
+{
+    void *addr = fn(0x45c730);
+    void *res = NULL;
+
+    if (addr == NULL) {
+        return NULL;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, ai
+            mov eax, addr
+            call eax
+            mov res, eax
+            mov esp, esi
+            popad
+        }
+    } __except (native::av_filter()) {
+        res = NULL;
+    }
+    return res;
+}
+
 /* vtable unit[+0x2c] — float фазы в ST(0): callee оставляет ST(0), результат
  * снимается `fstp` в *out. site 0x44bf1e. */
 void phase_time(void *unit, float *out_f)
