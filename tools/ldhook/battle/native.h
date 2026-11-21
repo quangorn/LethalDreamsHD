@@ -23,6 +23,18 @@ TreeNode *tree_next(TreeNode *node);                              /* FUN_0047f80
 int tree_lookup(void *world, unsigned int key);                   /* FUN_00449160 (тип узла) */
 void register_occupied_slot(void *ai, LDObject *obj);            /* FUN_0045dd00 */
 
+/* Лента `this+0x3c` (сайты FUN_0045eee0 B4 @0x45efb6/@0x45efbd) и очистка карт
+ * (B5 @0x45efd7). Инвентарь 1.4 §5: вердикт «нативно». Все — __thiscall,
+ * ECX = приёмник, 0 стек-аргументов (`ret`), тела не портированы. */
+void band_free(void *band);          /* FUN_0045b6a0 — _free([band+0x20]) + нули +0x20..+0x28 */
+void native_45af10(void *band);      /* FUN_0045af10 — `movb $1,0x4(ecx)`; назначение не подтверждено */
+void clear_maps(void *ai);           /* FUN_0045ca70 — erase+_free по map1/map2 (обход от this+0x6c) */
+
+/* IAT 0x4ec268 — SetRectEmpty(rect) (`call *0x4ec268` @0x45c34c в FUN_0045c330;
+ * вызов через IAT-слот — `mov eax,[addr]` перед call). 1 аргумент, возврат BOOL
+ * в EAX (в порту не читается). */
+int set_rect_empty(void *rect);
+
 /* Виртуальные вызовы вида `MOV EDX,[receiver]; CALL *[EDX+off]` (ECX = receiver).
  * Формы по листингу FUN_0045c5e0: без стек-аргументов (`CALL *0x40(EDX)` @0x45c5ef,
  * `CALL *0x48(EDX)` @0x45c63b) и с одним int-аргументом (@0x45c603). Оффсет vtable

@@ -221,6 +221,130 @@ void register_occupied_slot(void *ai, LDObject *obj)
     }
 }
 
+/* --- лента `this+0x3c` и сброс AI (Фаза 4.1b, сайты FUN_0045eee0 B4/B5) --- */
+
+/* FUN_0045b6a0 (0x45b6a0..0x45b6c9, 42 байта) — очистка ленты. Листинг:
+ * guard `MOV EAX,[band+0x20]` @0x45b6a6 (`jz` @0x45b6a8), `_free` CALL 0x4d0e16
+ * @0x45b6ab на этом указателе, затем нули `+0x20` @0x45b6b3, `+0x24` @0x45b6ba,
+ * `+0x28` @0x45b6c1. Имя подтверждено телом. __thiscall, ECX = &band
+ * (= this+0x3c, `LEA EDI,[ESI+0x3c]` @0x45efb1), 0 стек-аргументов
+ * (`RET` @0x45b6c9). Тело не портировано (инвентарь §5 «нативно»); сайт
+ * @0x45efb6.
+ * ABI (число stack-аргументов и ret n) — стек восстанавливается сохранением
+ * esp (см. lower_bound). */
+void band_free(void *band)
+{
+    void *addr = fn(0x45b6a0);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad                         /* esp «до вызова», регистры в стеке */
+            mov esi, esp                   /* сохранённый esp */
+            mov ecx, band
+            mov eax, addr
+            call eax
+            mov esp, esi                   /* стек = сохранённый esp при любом ret n */
+            popad                          /* + регистры вызывающего */
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
+/* FUN_0045af10 (4 инструкции, 0x45af10..0x45af14) — единственное действие:
+ * `MOVB $1,0x4(ECX)` @0x45af10 (младший байт dword-поля +0x4), `RET` @0x45af14.
+ * Назначение НЕ подтверждено телом: «dirty-флаг» — вывод, не факт. По
+ * потребителю @0x45af20 `+0x4` — begin-указатель ленты (`MOV EAX,[ECX+4]`,
+ * gate `TEST EAX,EAX`, затем `([+0x8]−[+0x4])/24` через 0x2aaaaaab); таким
+ * образом запись задевает младший байт этого поля. Имя нейтральное, по VA.
+ * __thiscall, ECX = &band, 0 стек-аргументов. Сайт @0x45efbd.
+ * ABI (число stack-аргументов и ret n) — стек восстанавливается сохранением
+ * esp (см. lower_bound). */
+void native_45af10(void *band)
+{
+    void *addr = fn(0x45af10);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad                         /* esp «до вызова», регистры в стеке */
+            mov esi, esp                   /* сохранённый esp */
+            mov ecx, band
+            mov eax, addr
+            call eax
+            mov esp, esi                   /* стек = сохранённый esp при любом ret n */
+            popad                          /* + регистры вызывающего */
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
+/* IAT 0x4ec268 — SetRectEmpty(rect), форма site @0x45c34c (`call *0x4ec268`,
+ * байты FF 15 68 C2 4E 00 — вызов через IAT-слот, поэтому `MOV EAX,[addr]`
+ * перед CALL). В FUN_0045c330 аргумент — `&this+0x18` (`LEA EAX,[ESI+0x18]`
+ * @0x45c336, PUSH @0x45c339), т.е. canvas_rect. Возврат BOOL в EAX; в порту
+ * s6_ai_reset не используется.
+ * ABI (число stack-аргументов и ret n) — стек восстанавливается сохранением
+ * esp (см. lower_bound). */
+int set_rect_empty(void *rect)
+{
+    void *addr = fn(0x4ec268);
+    int res = 0;
+
+    if (addr == NULL) {
+        return 0;
+    }
+    __try {
+        __asm {
+            pushad                         /* esp «до аргументов», регистры в стеке */
+            mov esi, esp                   /* сохранённый esp */
+            mov ecx, rect
+            push rect                      /* SetRectEmpty(rect) — 1 аргумент */
+            mov eax, addr
+            mov eax, [eax]                 /* CALL *0x4ec268 — через IAT-слот */
+            call eax
+            mov res, eax                   /* eax читается до восстановления esp */
+            mov esp, esi                   /* стек = сохранённый esp при любом ret n */
+            popad                          /* + регистры вызывающего */
+        }
+    } __except (native::av_filter()) {
+        res = 0;
+    }
+    return res;
+}
+
+/* FUN_0045ca70 (0x45ca70..0x45cb3c) — очистка карт: обход от `[this+0x6c]`
+ * (`MOV ECX,[EBX+0x6c]` @0x45ca74; `_free` узлов CALL 0x4d0e16 @0x45ca88; шаг
+ * `CALL 0x47f800` @0x45ca94) для map1 и map2. __thiscall, ECX = BattleAI,
+ * 0 стек-аргументов (`RET` @0x45cb3c). Тело не портировано (инвентарь §5
+ * «нативно»); сайт @0x45efd7.
+ * ABI (число stack-аргументов и ret n) — стек восстанавливается сохранением
+ * esp (см. lower_bound). */
+void clear_maps(void *ai)
+{
+    void *addr = fn(0x45ca70);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad                         /* esp «до вызова», регистры в стеке */
+            mov esi, esp                   /* сохранённый esp */
+            mov ecx, ai
+            mov eax, addr
+            call eax
+            mov esp, esi                   /* стек = сохранённый esp при любом ret n */
+            popad                          /* + регистры вызывающего */
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
 /* Виртуальный вызов `MOV EDX,[receiver]; CALL *[EDX+off]` (ECX = receiver), без
  * стек-аргументов (форма @0x45c5ef/0x45c63b, байты FF 52 40 / FF 52 48 —
  * КОСВЕННЫЙ вызов через память vtable). Оффсет vtable задаётся вызывающим
