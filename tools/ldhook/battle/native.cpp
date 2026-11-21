@@ -345,6 +345,36 @@ void clear_maps(void *ai)
     }
 }
 
+/* FUN_0045c8c0 (0x45c8c0..0x45c995) — пересчёт search-параметров AI: радиусы
+ * `+0x14`@0x45c8f7 и `+0x10`@0x45c8fa (ftol от `(размер + 0.5)/grid[0x28]`;
+ * `faddl 0x4edf20` @0x45c8e4, `fdivs` @0x45c8ef), порог `+0x08`@0x45c933,
+ * `+0x0c` = `fptan(world[0x124])·grid[0x28]` @0x45c939..0x45c94d, RECT `+0x18`
+ * (SetRectEmpty @0x45c950, затем `call *0x4ec218` @0x45c989). Имя по телу
+ * (порт: радиусы/RECT/порог). __thiscall, ECX = BattleAI, 0 стек-аргументов
+ * (`add $0x3c,%esp; ret` @0x45c992/0x45c995). Тело не портировано; сайт @0x45f0c7.
+ * ABI (число stack-аргументов и ret n) — стек восстанавливается сохранением
+ * esp (см. lower_bound). */
+void search_params_update(void *ai)
+{
+    void *addr = fn(0x45c8c0);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad                         /* esp «до вызова», регистры в стеке */
+            mov esi, esp                   /* сохранённый esp */
+            mov ecx, ai
+            mov eax, addr
+            call eax
+            mov esp, esi                   /* стек = сохранённый esp при любом ret n */
+            popad                          /* + регистры вызывающего */
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
 /* Виртуальный вызов `MOV EDX,[receiver]; CALL *[EDX+off]` (ECX = receiver), без
  * стек-аргументов (форма @0x45c5ef/0x45c63b, байты FF 52 40 / FF 52 48 —
  * КОСВЕННЫЙ вызов через память vtable). Оффсет vtable задаётся вызывающим

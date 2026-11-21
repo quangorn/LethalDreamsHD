@@ -5,10 +5,10 @@
  * один детур на функцию (инвариант 5). Имя функции — по смыслу, который даст
  * дизасм (п. 4.3). Поле trace-строки — решение движения и его аргументы.
  *
- * Статус: портированы sub-steps 4.1a — пролог 0x45eee0..0x45ef7f (B0/B1/B2)
- * — и 4.1b — 0x45ef82..0x45efdb (B3/B4/B5; карта re/phase4_45eee0.md §8.2).
- * B6 и далее не портированы; функция static и ниоткуда не вызывается
- * (детур и wiring — 4.2).
+ * Статус: портированы sub-steps 4.1a — пролог 0x45eee0..0x45ef7f (B0/B1/B2),
+ * 4.1b — 0x45ef82..0x45efdb (B3/B4/B5) и 4.1c — 0x45efdc..0x45f0c7 (B6/B7/B8;
+ * карта re/phase4_45eee0.md §8.2). B9 и далее не портированы; функция static и
+ * ниоткуда не вызывается (детур и wiring — 4.2).
  */
 #include <string.h>
 
@@ -16,6 +16,21 @@
 #include "battle.h"
 #include "native.h"
 #include "trace.h"
+
+/* float ↔ int-биты слота (x87-операнды `FLDS/FSTPS [ESP+off]` над int-слотами
+ * кадра; паттерн path.cpp). */
+static void s6_bits_set(int *slot, float f)
+{
+    memcpy(slot, &f, sizeof(int));
+}
+
+static float s6_bits_get(int slot)
+{
+    float f;
+
+    memcpy(&f, &slot, sizeof(float));
+    return f;
+}
 
 /* FUN_0045c330 (0x45c330..0x45c364) — сброс AI-состояния, тонкий порт (инвентарь
  * §5: «порт (тривиальный)»; §8.2 — этот файл). __thiscall, ECX = BattleAI,
@@ -168,6 +183,69 @@ static void s6_tick_move(BattleAI *self, void *rec_arg)
         s6_ai_reset(self);                                   /* @0x45efce mov %esi,%ecx / @0x45efd0 call 0x45c330 */
         native::clear_maps(self);                            /* @0x45efd5 mov %esi,%ecx / @0x45efd7 call 0x45ca70 */
     }
+
+    /* B6 (0x45efdc..0x45f065) — масштабы таймаута S(0x10)/S(0x18)/S(0x1c) и
+     * ветка кодов {1,2,4}. ctx перечитывается; EDI = 32-бит флаги ctx
+     * (@0x45efde), EAX = ctx[0x14] как int-биты (@0x45efe0). Слоты сеются в
+     * порядке листинга: S(0x1c)=0, S(0x10)=ctx[0x14], S(0x18)=0; бит 4 →
+     * x87-перезапись S(0x1c)/S(0x10). */
+    ctx = (unsigned char *)self->game_ctx;                   /* @0x45efdc mov (%esi),%ecx */
+    {
+        unsigned int flags = *(const unsigned int *)ctx;     /* @0x45efde mov (%ecx),%edi */
+        int ctx14 = *(const int *)(ctx + 0x14);              /* @0x45efe0 mov 0x14(%ecx),%eax */
+        int code;                                            /* EAX ветки кодов (@0x45f020) */
+
+        LS(0x1c) = 0;                                        /* @0x45efeb movl $0x0,0x1c(%esp) */
+        LS(0x10) = ctx14;                                    /* @0x45eff3 mov %eax,0x10(%esp) */
+        LS(0x18) = 0;                                        /* @0x45eff7 movl $0x0,0x18(%esp) */
+        if (((flags >> 4) & 1) != 0) {                       /* @0x45efe3/0x45efe5/0x45efe8/0x45efff je 0x45f019 */
+            float c14 = s6_bits_get(ctx14);                  /* @0x45f001 flds 0x14(%ecx) */
+            float s1c = c14 * 0.0f;                          /* @0x45f004 fmuls [0x4ec37c] = 0.0f */
+            s6_bits_set(&LS(0x1c), s1c);                     /* @0x45f00a fstps 0x1c(%esp) */
+            s6_bits_set(&LS(0x10), c14 - s1c);               /* @0x45f00e flds 0x14 / @0x45f011 fsubs 0x1c / @0x45f015 fstps 0x10 */
+        }
+        LS(0x14) = (int)(INT_PTR)((unsigned char *)self + 0x38);  /* @0x45f019 lea 0x38(%esi),%eax / @0x45f01c mov %eax,0x14(%esp) */
+        code = *(const int *)((unsigned char *)self + 0x38); /* @0x45f020 mov (%eax),%eax — код выхода e0a0 */
+        if (code == 1 || code == 2 || code == 4) {           /* @0x45f022/0x45f025/0x45f027/0x45f02a/0x45f02c/0x45f02f je 0x45f056 */
+            LS(0x18) = LS(0x10);                             /* @0x45f056 mov 0x10(%esp),%edx / @0x45f05a mov %edx,0x18(%esp) */
+            LS(0x10) = 0;                                    /* @0x45f05e movl $0x0,0x10(%esp) */
+        } else if (((flags >> 7) & 1) == 0) {                /* @0x45f031/0x45f033/0x45f036/0x45f038 jne 0x45f066 */
+            float s10 = s6_bits_get(LS(0x10));               /* @0x45f03a/0x45f03e flds 0x10(%esp) ×2 (ST1 — копия старого) */
+            float p = s10 * 0.6f;                            /* @0x45f042 fmuls [0x4ef4fc] = 0.6f */
+            s6_bits_set(&LS(0x10), p);                       /* @0x45f048 fstps 0x10(%esp) */
+            s6_bits_set(&LS(0x18), s10 - p);                 /* @0x45f04c fsubs 0x10(%esp) — старый S10 − новый / @0x45f050 fstps 0x18 */
+        }
+    }
+
+    /* B7 (0x45f066..0x45f0c3) — grid-root `this+0x28` и посев 13-dword spec-окна
+     * с базой F+0x34 (= spec+0x00..+0x30). Источник — ctx[0x10] (ECX здесь = ctx
+     * с @0x45efdc, не world), запись @0x45f0b6 безусловная, fallback при нуле. */
+    {
+        int grid = *(const int *)(ctx + 0x10);               /* @0x45f066 mov 0x10(%ecx),%eax */
+        unsigned char *dst = (unsigned char *)self + 0x28;   /* @0x45f06b lea 0x28(%esi),%edi */
+
+        LS(0x34) = 0;                                        /* @0x45f06e spec+0x00 */
+        LS(0x38) = 0;                                        /* @0x45f072 spec+0x04 */
+        LS(0x3c) = 0;                                        /* @0x45f076 spec+0x08 */
+        LS(0x40) = 0;                                        /* @0x45f07a spec+0x0c */
+        LS(0x44) = 0;                                        /* @0x45f082 spec+0x10 */
+        LS(0x48) = 0;                                        /* @0x45f08a spec+0x14 */
+        LS(0x4c) = 0;                                        /* @0x45f092 spec+0x18 */
+        LS(0x50) = 0;                                        /* @0x45f096 spec+0x1c */
+        LS(0x54) = 0;                                        /* @0x45f09a spec+0x20 */
+        LS(0x58) = 0;                                        /* @0x45f09e spec+0x24 */
+        LS(0x5c) = (int)0xcb18967fu;                         /* @0x45f0a2 spec+0x28 = −1e7f */
+        LS(0x60) = 0x4b18967f;                               /* @0x45f0aa spec+0x2c = +1e7f */
+        LS(0x64) = 0;                                        /* @0x45f0b2 spec+0x30 */
+        *(int *)dst = grid;                                  /* @0x45f0b6 mov %eax,(%edi) — безусловно */
+        if (grid == 0) {                                     /* @0x45f069 cmp %ebx,%eax / @0x45f0b8 jne 0x45f0c5 */
+            const unsigned char *world =
+                (const unsigned char *)*(const void **)(ctx + 0x04);   /* @0x45f0ba mov 0x4(%ecx),%eax */
+            *(int *)dst = *(const int *)(world + 0x134);     /* @0x45f0bd mov 0x134(%eax),%ecx / @0x45f0c3 mov %ecx,(%edi) */
+        }
+    }
+
+    native::search_params_update(self);                      /* @0x45f0c5 mov %esi,%ecx / @0x45f0c7 call 0x45c8c0 */
 
 #undef LS
 }

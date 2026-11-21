@@ -29,6 +29,7 @@ void register_occupied_slot(void *ai, LDObject *obj);            /* FUN_0045dd00
 void band_free(void *band);          /* FUN_0045b6a0 — _free([band+0x20]) + нули +0x20..+0x28 */
 void native_45af10(void *band);      /* FUN_0045af10 — `movb $1,0x4(ecx)`; назначение не подтверждено */
 void clear_maps(void *ai);           /* FUN_0045ca70 — erase+_free по map1/map2 (обход от this+0x6c) */
+void search_params_update(void *ai); /* FUN_0045c8c0 — пересчёт радиуса/RECT/порога поиска */
 
 /* IAT 0x4ec268 — SetRectEmpty(rect) (`call *0x4ec268` @0x45c34c в FUN_0045c330;
  * вызов через IAT-слот — `mov eax,[addr]` перед call). 1 аргумент, возврат BOOL
