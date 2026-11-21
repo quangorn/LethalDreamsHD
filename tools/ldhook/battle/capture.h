@@ -36,6 +36,12 @@
  * pre-call поля `self+0x28/+0x2c/+0x30/+0x34/+0x38/+0x68/+0x6c` и `ctx_flags`,
  * а также на выходе — EAX, `self+0x2c` (grid-якорь `FUN_00458050`, +0x14),
  * `+0x30/+0x34/+0x38` и снапшоты `map1_after`/`occ_after`/`ai_words_after`.
+ *
+ * v10 добавляет пару `bdd0_cap`/`bdd0_res` на каждый вызов FUN_0044bdd0
+ * (диспетчер боевого AI, H1 @0x44bdf5 / H2 @0x44d074): аргументы кадра
+ * `param_1/param_2/param_3` ([esp+0x15c..0x164]), `unit+0x138` (BattleAI),
+ * `unit+0x170`, биты гейта `unit+0x114`, а на выходе — AL, `u170`, `*(int*)param_3`
+ * и `m0/m1/m2` (+0xa4..0xac). Пары связываются по независимому `seq`.
  */
 #ifndef BATTLE_CAPTURE_H
 #define BATTLE_CAPTURE_H
@@ -65,6 +71,11 @@ void battle_capture_e0a0_exit(void *node);
 /* v9: Per-call захват FUN_0045eee0 (s6_unit_ai_tick) через H3 (@0x44cbc5). */
 void battle_capture_eee0_enter(void *self, void *rec);
 void battle_capture_eee0_exit(int code, void *self);
+
+/* v10: Per-call захват FUN_0044bdd0 (диспетчер боевого AI) — H1/H2.
+ * esp — ESP кадра 44bdd0 на входе хука (E0-0x158); аргументы на +0x15c.. */
+void battle_capture_bdd0_enter(void *self, void *esp);
+void battle_capture_bdd0_exit(int al, void *esp);
 
 /* Регистрация результата листа; value — EAX оригинала, words — 5 dword
  * возвращённого объекта (только для CAP_LEAF_PATH, value != 0). */

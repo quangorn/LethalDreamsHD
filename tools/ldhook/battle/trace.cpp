@@ -554,6 +554,11 @@ void __cdecl battle_trace_code(int code, void *ai)
 /* H1 — 0x44bdf5: 8B E9 (mov ebp,ecx) | 74 5F (je 0x44be58) |          */
 /*                 D9 85 14 01 00 00 (flds [ebp+0x114]); продолжение   */
 /*                 0x44bdff. Флаги для `je` — от TEST AL,AL @0x44bdef. */
+/*                                                                     */
+/* v10: capture 44bdd0 — между battle_trace_tick_begin и popad; стек после
+ * `add esp,4` == стек после popad (flush-слот pushfd ниже). S = [esp+12]+4,
+ * unit = слот ECX pushad = [esp+28] (после push). EFLAGS/регистры не меняются:
+ * popfd возвращает флаги, попавшие в pushad. */
 /* ------------------------------------------------------------------ */
 __declspec(naked) void h1_tick_hook(void)
 {
@@ -563,6 +568,12 @@ __declspec(naked) void h1_tick_hook(void)
         push ecx                     /* unit */
         call battle_trace_tick_begin
         add esp, 4
+        mov edx, dword ptr [esp + 12]    /* сохранённый ESP (S-4) */
+        add edx, 4                       /* ESP кадра 44bdd0 (S) */
+        push edx                         /* arg1: esp кадра */
+        push dword ptr [esp + 28]        /* arg0: unit (слот ECX pushad) */
+        call battle_capture_bdd0_enter
+        add esp, 8
         popad
         mov ebp, ecx                 /* украденная инструкция 1 */
         popfd                        /* флаги для je */
@@ -584,6 +595,9 @@ __declspec(naked) void h1_tick_hook(void)
 /* H2 — 0x44d074: 8B 8C 24 4C 01 00 00 (mov ecx,[esp+0x14c]);          */
 /*                 продолжение 0x44d07b. unit берётся из g_tick_unit,    */
 /*                 [esp+0x164] — param_3 (out-код).                     */
+/*                                                                     */
+/* v10: capture 44bdd0 — тот же кадр S, AL и ESP кадра; сохраняет все   */
+/* регистры/флаги/ESP, затем украденная инструкция и jmp.               */
 /* ------------------------------------------------------------------ */
 __declspec(naked) void h2_epilogue_hook(void)
 {
@@ -596,6 +610,13 @@ __declspec(naked) void h2_epilogue_hook(void)
         push edx                         /* arg2: esp кадра */
         push eax                         /* arg1: al */
         call battle_trace_tick_end
+        add esp, 8
+        mov edx, dword ptr [esp + 12]    /* arg1: esp кадра (S) */
+        add edx, 4
+        movzx eax, byte ptr [esp + 28]   /* arg0: al */
+        push edx
+        push eax
+        call battle_capture_bdd0_exit
         add esp, 8
         popad
         popfd
