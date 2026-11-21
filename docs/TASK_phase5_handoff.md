@@ -74,7 +74,8 @@ python tools/probes/trace_diff.py <nat.log> <port.log> --align=ordinal
 - `45c4b0` (копия по маске): аргументы натива `(src, dst, mask)`; порт — `(dst, src, mask)`.
 - Живой прогон перезаписывает 4 шрифта установки → `--full` покажет `DRIFT hd_pack`;
   восстановление по `PITFALLS.md` (`7z` из `config[hd_pack]`). В последнем прогоне дрейфа не было.
-- Подробности — `docs/PITFALLS.md`, раздел «Офлайн-харнесс e0a0».
+- Неразрешённая семантика (callee, структуры, ABI) — сначала REA (decompile/xrefs), затем
+листинг; догадки по asm запрещены. Подробности — `docs/PITFALLS.md`, раздел «Офлайн-харнесс e0a0».
 
 ## Порядок работы
 
