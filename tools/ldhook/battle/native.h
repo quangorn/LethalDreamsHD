@@ -237,6 +237,21 @@ void output_debug_string_a(const char *s);
  * номер VA, разрешение адреса — здесь (инвариант 3, без «голых» указателей). */
 const char *literal(unsigned int va);
 
+/* FUN_0045e1d0 (0x45e1d0..…, 821 B; тело не дизассемблировано) — grid-recompute.
+ * ABI по site 0x44c8c8 + инвентарь §1.C: __thiscall, RET 8 (2 стек-аргумента).
+ * ECX = &frame+0xcc — тот же PathFinder-объект, что ctor 45f430 @0x44c74d и
+ * dtor 45e5e0 @0x44cad2 (один объект кадра).
+ *   arg1 = &frame+0xc0 (`lea 0xc0(%esp)`, последний push) — слот, заполненный
+ *          перед вызовом через vtable+0x38 (@0x44c883); `float* pos` по ABI.
+ *   arg2 = &frame+0x88 (первый push) — grid-record R12: {+0 tag 0xeb, +4 unit,
+ *          +8 tree, +0xc &pos-тройки, +0x10 anchor, +0x14 dword unit+0x12c,
+ *          +0x18 0}.
+ * Оба указателя передаются как есть — записи callee ложатся в те же слоты
+ * кадра, что и в нативе. Возврат EAX — указатель на тройку (site @0x44c8cd
+ * сразу читает [EAX]/[EAX+4]/[EAX+8], guard'а нет); обёртка копирует 3 dword в
+ * out3, пока указатель жив. site: 0x44c8c8. */
+void grid_recompute(void *rec, void *pos, void *req, float out3[3]);
+
 /* --- Фаза 5.1b-7: листья R8 (FUN_0044bdd0, `0x44c3ed..0x44c4dc`) --- */
 
 /* FUN_00403e80 (0x403e80..0x403eb5) — равенство двух float-троек: три пары

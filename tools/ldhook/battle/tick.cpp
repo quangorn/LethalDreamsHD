@@ -15,7 +15,10 @@
  * B77..B81), R12 (`0x44c74d..0x44c82b`, B82..B84: PathFinder-init на
  * `frame+0xcc`, grid-record `frame+0x88`, `458050` anchor, log при NULL) и
  * R13 (`0x44c82c..0x44c877`, B85..B87: flags-цепочка tail anchor-NULL пути,
- * `448c30(0x40)` join, все выходы — dtor-join `0x44cad2`); все листья —
+ * `448c30(0x40)` join, все выходы — dtor-join `0x44cad2`) и R14
+ * (`0x44c878..0x44c96f`, B88 core-A: world-notify + `45e1d0` → запись
+ * `unit+0xa4..0xac`, save/write/restore pos-полей состояния, FSTP фазы);
+ * все листья —
  * нативные
  * `native::…`, один детур на функцию (инвариант 5) — H1 `0x44bdf5` с возвратом
  * в нативный эпилог `0x44d074` (там же H2/capture, поэтому трассировка тика и
@@ -39,7 +42,7 @@
 #include "battle.h"
 #include "native.h"
 
-/* B0_BODY_COMPLETE — 0: портирован только R1..R13, тело неполное (дальше —
+/* B0_BODY_COMPLETE — 0: портирован только R1..R14, тело неполное (дальше —
  * UNPORTED-выходы), поэтому детур обязан быть разоружён. Определяется в 1
  * тем чанком, который доводит тело до единственного RET `0x44d08c`. */
 #ifndef B0_BODY_COMPLETE
@@ -69,7 +72,7 @@ int b0_env_on(void)
 int b0_port_enabled(void)
 {
 #if !B0_BODY_COMPLETE
-    /* UNPORTED: R11..R23 не портированы — детур не встаёт. */
+    /* UNPORTED: R15..R23 не портированы — детур не встаёт. */
     return 0;
 #else
     return b0_env_on();
@@ -149,6 +152,7 @@ static int b0_body_r1_r2(void *unit_, unsigned char *frame)
     float band_triple[3];           /* R8 B60: тройка из result+4..0xc (натив: [esp] после sub 0xc) */
     float gate;                     /* R8 B60: ST(0) 45b150 (float-гейт ленты) */
     float world_triple[3];          /* R11 B78: тройка под vtable+0x38 (натив: [esp] после sub 0xc) */
+    float r14_tri[3];               /* R14 B88: тройка из возврата 45e1d0 (0x44c8cd) */
     void *tail_str;                 /* R11 B73: EAX = строка из 413060 (вход 49ad70) */
     int edi;                        /* R11 B77: `XOR EDI,EDI` (модель регистра, читают R12/R14) */
     void *grid_tree;                /* R12 B82: [[unit+0xe0]+0x44]+0x238 (две независимые deref) */
@@ -642,7 +646,7 @@ b76:
 b77_join:
     /* B77 (0x44c715..0x44c71a) — flags-join. `XOR EDI,EDI`; `CMP EBX,EDI;
      * JNE 0x44c73d`. EDI=0 моделируется локальной (его читают R12 B82 —
-     * заполнение record-слотов — и R14 `CMP EAX,EDI`; оба ещё UNPORTED). */
+     * заполнение record-слотов — и R14: `PUSH EDI` ×4 в 442570). */
     edi = 0;
     if (ebx != (unsigned int)edi) {
         goto b80;                                       /* 0x44c719 jne 0x44c73d */
@@ -775,9 +779,75 @@ b87_r13:
     native::cursor_mode_update(unit_x, 0x40);           /* 0x44c86a..0x44c870 */
     goto b100_join;                                     /* 0x44c873 jmp 0x44cad2 */
 
+/* --- R14: core-A — grid-recompute + save/restore состояния и фаза -------- *
+ * Единственный вход — R12 B82 `0x44c7ea jne` (anchor != NULL); на этом пути
+ * `ADD EBP,0x18` не исполнялся (сдвиги уходят в `0x44cee6`/`0x44c6b6`/`0x44c6cb`),
+ * поэтому EBP-адресация R14 идёт через `unit_x == unit`. ESP на входе = frame:
+ * 458050 в R12 снимает свои `0x18`, и вся slot-арифметика R14 (0x44c8ed/0x44c8f4/
+ * 0x44c8f8, save/restore 0x10..0x18, FSTP 0x1c) сходится только при RET 8 у
+ * 45e1d0 — иначе тройка-сохранение и `FLDS 0x1c` R15 B89 разъехались бы.
+ * EDI = 0 (B77 `XOR EDI,EDI`), поэтому все четыре `PUSH EDI` → flags = 0.
+ * ESI переприсваивается: `LEA ESI,[EBP+0xa4]` @0x44c8cf (ctx больше не нужен);
+ * модель — запись/чтение идёт прямо по `unit_x+0xa4..0xac`. */
 b88_r14:
-    /* 0x44c878 — TODO(5.1b-13) UNPORTED: R14 B88 (core-A: 45e1d0 + запись
-     * unit+0xa4..0xac). Возврат 0 = путь `xor al,al` @0x44d072. */
+    /* B88 (0x44c878..0x44c96f). */
+    r14_tri[0] = r14_tri[1] = r14_tri[2] = 0.0f;
+    /* 0x44c878..0x44c88b — world-notify(&slot frame+0xc0), затем vtable+0x40
+     * БЕЗ push (callee читает [esp+4] = слот сохранённого EDI пролога — модель
+     * B15/B24/B35); возврат геттера НЕ читается (перетирается @0x44c88e). */
+    (void)native::vcall38_ptr(unit_x, frame + 0xc0);        /* 0x44c87b..0x44c883 */
+    (void)native::player_get(unit_x, *(const int *)(frame + 0)); /* 0x44c88b */
+    /* Grid-record `frame+0x88` (R12 заполнил +0x00 tag/+0x04 unit/+0x08 tree/
+     * +0x10 anchor): R14 добавляет +0x0c = &pos-тройки, +0x14 = dword
+     * `unit+0x12c`, +0x18 = 0. */
+    *(void **)(frame + 0x94) = frame + 0x2c;                /* 0x44c89f */
+    *(unsigned int *)(frame + 0x9c) =
+        *(const unsigned int *)(unit_x + 0x12c);            /* 0x44c8ae */
+    *(unsigned int *)(frame + 0xa0) = 0;                    /* 0x44c8bd */
+    /* 45e1d0: ECX = &frame+0xcc (тот же PathFinder-объект, что ctor 45f430 в
+     * R12 и dtor 45e5e0 в R16), arg1 = &frame+0xc0 (слот world-notify),
+     * arg2 = &frame+0x88 (record); RET 8. */
+    native::grid_recompute(frame + 0xcc, frame + 0xc0, frame + 0x88, r14_tri);
+    /* 0x44c8cd..0x44c8e2 — возврат-тройка → `unit+0xa4..0xac` (без guard). */
+    memcpy(unit_x + 0xa4, r14_tri, 12);
+    /* 0x44c8e5..0x44c8f8 — pos-тройка `frame+0x2c/+0x30/+0x34` ← `unit+0xa4..
+     * 0xac`. Порядок листинга: +0x34 (ESP=frame), затем push EDI и +0x2c/+0x30;
+     * это НЕ «мёртвая двойная запись» (разные базы ESP) — слотами позже
+     * пользуется R17 `[ESP+0x2c]` как &pos-тройкой пер-тик записи. */
+    *(unsigned int *)(frame + 0x34) = *(const unsigned int *)(unit_x + 0xac);
+    *(unsigned int *)(frame + 0x2c) = *(const unsigned int *)(unit_x + 0xa4);
+    *(unsigned int *)(frame + 0x30) = *(const unsigned int *)(unit_x + 0xa8);
+    /* 0x44c8fc..0x44c918 — save: pos-поля состояния (`result+4..0xc`) →
+     * `frame+0x10/+0x14/+0x18`. */
+    res = native::game_state_get(unit_x, edi);              /* 0x44c8fc */
+    memcpy(frame + 0x10, (const unsigned char *)res + 4, 12);
+    /* 0x44c91c..0x44c931 — write: `result+4..0xc` ← `unit+0xa4..0xac`. */
+    res = native::game_state_get(unit_x, edi);              /* 0x44c91c */
+    memcpy((unsigned char *)res + 4, unit_x + 0xa4, 12);
+    /* 0x44c934..0x44c93c — vtable+0x2c (float) → FSTP m32 `frame+0x1c`.
+     * Гейт по этому значению — уже R15 B89 (`FLDS [frame+0x1c]`, `FCOMPS
+     * [unit+0xfc]`, `TEST AH,0x41; JP 0x44caee` = больше или unordered). */
+    native::phase_time(unit_x, (float *)(frame + 0x1c));    /* 0x44c939..0x44c93c */
+    /* 0x44c940..0x44c95c — restore: `result+4..0xc` ← сохранённые слоты. */
+    res = native::game_state_get(unit_x, edi);              /* 0x44c943 */
+    memcpy((unsigned char *)res + 4, frame + 0x10, 12);
+    /* 0x44c95f..0x44c96a — состояние == 3 → B101 (dtor-join → R17), иначе
+     * fall → R15 B89. */
+    res = native::game_state_get(unit_x, edi);              /* 0x44c962 */
+    if (*(const int *)res == 3) {
+        goto b101_r16;                                      /* 0x44c96a je 0x44caee */
+    }
+    goto b89_r15;                                           /* fall 0x44c970 */
+
+b89_r15:
+    /* 0x44c970 — TODO(5.1b-14) UNPORTED: R15 B89 (гейт `FLDS [frame+0x1c]` vs
+     * `[unit+0xfc]`, `TEST AH,0x41; JP 0x44caee` = больше/unordered → B101;
+     * fall → B90 string-клон). Возврат 0 = путь `xor al,al` @0x44d072. */
+    return 0;
+
+b101_r16:
+    /* 0x44caee — TODO(5.1b-14) UNPORTED: R16 B101 (dtor 45e5e0(&frame+0xcc),
+     * dword trylevel −1, `JMP 0x44cb39` → R17). Возврат 0. */
     return 0;
 
 b100_join:
@@ -1116,7 +1186,7 @@ b135_join:
 int b0_battle_ai_dispatch(void *unit, unsigned char *frame)
 {
 #if B0_BODY_COMPLETE
-    return b0_body_r1_r2(unit, frame);      /* TODO(5.1b-2): R11..R23 */
+    return b0_body_r1_r2(unit, frame);      /* TODO(5.1b-14): R15..R23 */
 #else
     /* UNPORTED: тело неполное — единственный вход детура остаётся пустым. */
     (void)&b0_body_r1_r2;

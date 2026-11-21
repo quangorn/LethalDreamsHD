@@ -1301,6 +1301,43 @@ void output_debug_string_a(const char *s)
     }
 }
 
+/* FUN_0045e1d0 — grid-recompute (821 B, тело не дизассемблировано).
+ * __thiscall, ECX = rec (PathFinder-объект `frame+0xcc`), 2 стек-аргумента,
+ * RET 8 (site 0x44c8c8: ESP=frame−8 перед call; тройка-сохранение R14 и
+ * `FLDS 0x1c` R15 сходятся только при снятии 8 байт). arg1 = pos-слот
+ * (`&frame+0xc0`, заполнен vtable+0x38), arg2 = grid-record (`&frame+0x88`).
+ * Возврат EAX — указатель на тройку; site читает её немедленно и без guard'а,
+ * поэтому обёртка копирует 3 dword сразу. NULL (AV) → тройка = 0. */
+void grid_recompute(void *rec, void *pos, void *req, float out3[3])
+{
+    void *addr = fn(0x45e1d0);
+    void *res = NULL;
+
+    out3[0] = out3[1] = out3[2] = 0.0f;
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad                         /* esp «до аргументов», регистры в стеке */
+            mov esi, esp                   /* сохранённый esp */
+            mov ecx, rec
+            push req                       /* arg2 — старший, первый push */
+            push pos                       /* arg1 — младший, [ESP+4] на входе */
+            mov eax, addr
+            call eax
+            mov res, eax                   /* eax читается до восстановления esp */
+            mov esp, esi                   /* RET 8 снял аргументы */
+            popad                          /* + регистры вызывающего */
+        }
+    } __except (native::av_filter()) {
+        res = NULL;
+    }
+    if (res != NULL) {
+        memcpy(out3, res, 12);             /* [EAX], [EAX+4], [EAX+8] @0x44c8cd.. */
+    }
+}
+
 /* --- Фаза 5.1b-7: листья R8 (FUN_0044bdd0, `0x44c3ed..0x44c4dc`) --- */
 
 /* FUN_00403e80 — равенство двух float-троек (thiscall: ecx = a, стек-арг b,
