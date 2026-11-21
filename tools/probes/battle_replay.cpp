@@ -265,6 +265,9 @@ struct Call {
     std::vector<std::pair<int, int> > row_delta;   /* индекс rows → ячейка */
     std::vector<PathLeaf> leaves_path;
     std::vector<int> leaves_heur, leaves_timeout, leaves_timer;
+    /* v7: биты float world[0x120] на входе каждого cb40-вызова + флаг снятия. */
+    std::vector<unsigned int> leaves_scale;
+    std::vector<int> leaves_scale_ok;
     /* v5: пор-produced leaf-поток (реальный прогон, без подмены). */
     std::vector<PathLeaf> port_path;
     std::vector<int> port_heur, port_timeout;
@@ -540,6 +543,19 @@ static void read_leaves(Call &c, const JVal &res) {
             const JVal &lm = jarr(leaf, "timer", "res.leaf");
             for (size_t i = 0; i < lm.a.size(); i++) {
                 c.leaves_timer.push_back((int)jnum(lm.a[i], "res.leaf.timer"));
+            }
+        }
+        /* v7: scale/scale_ok — опциональные ключи (v1..v6 их не пишут). */
+        if (jhas(leaf, "scale") && jhas(leaf, "scale_ok")) {
+            const JVal &ls = jarr(leaf, "scale", "res.leaf");
+            const JVal &lok = jarr(leaf, "scale_ok", "res.leaf");
+            for (size_t i = 0; i < ls.a.size(); i++) {
+                c.leaves_scale.push_back(
+                    (unsigned int)(int)jnum(ls.a[i], "res.leaf.scale"));
+            }
+            for (size_t i = 0; i < lok.a.size(); i++) {
+                c.leaves_scale_ok.push_back(
+                    (int)jnum(lok.a[i], "res.leaf.scale_ok"));
             }
         }
     }
@@ -989,6 +1005,35 @@ extern "C" {
     static bool g_have_exit = false;
 }
 
+/* v7: world[0x120] — масштаб метрики c3a0/cb40. Харнесс подаёт снятое на входе
+ * cb40 значение (`res.leaf.scale`) перед каждым вызовом поиска порта: точка
+ * применения — stub tree_lookup, который порт вызывает в обходе цепочки до
+ * чтения масштаба (path.cpp @0x45c3e7 → 0x45c430). Нет значения — масштаб
+ * остаётся статическим из записи `grid`. Арифметика порта не меняется.
+ * scale_compared/scale_skipped — вызовы с захваченным масштабом / с фолбэком. */
+static int g_scale_compared = 0, g_scale_skipped = 0;
+
+static void rep_reset_world_scale(const Call *c)
+{
+    if (g_grid != NULL && !g_grid_error) {
+        memcpy(g_worldbuf + 0x120, &g_grid->wscale, 4);
+    }
+    if (c != NULL && !c->leaves_scale_ok.empty()) g_scale_compared++;
+    else g_scale_skipped++;
+}
+
+static void rep_apply_world_scale(void)
+{
+    const Call *c = g_cur;
+    size_t i = g_pi;
+    if (c == NULL || g_grid == NULL || g_grid_error) return;
+    if (i < c->leaves_scale_ok.size() && i < c->leaves_scale.size() &&
+        c->leaves_scale_ok[i] != 0) {
+        unsigned int bits = c->leaves_scale[i];
+        memcpy(g_worldbuf + 0x120, &bits, 4);
+    }
+}
+
 struct RNode {
     TreeNode tn;
     PathState ps;
@@ -1247,6 +1292,7 @@ static void rep_build(Rep *r, const Call &c) {
     if (g_grid && !g_grid_error) {
         g_worldbuf[0x110] = (unsigned char)c.w110;
     }
+    rep_reset_world_scale(&c);          /* v7: статический масштаб + счётчик вызовов */
     g_pos_ps.clear();
     for (size_t si = 0; si < g_occ_stubs.size(); si++) delete g_occ_stubs[si];
     g_occ_stubs.clear();
@@ -1432,6 +1478,7 @@ static void rep_rebind(Rep *r, const Call &c)
     if (g_grid && !g_grid_error) {
         g_worldbuf[0x110] = (unsigned char)c.w110;
     }
+    rep_reset_world_scale(&c);          /* v7: статический масштаб + счётчик вызовов */
     memcpy(&ai->timer_start_sec, &c.timer_bits, 4);
     memcpy(&ai->final_threshold, &c.final_bits, 4);
     memcpy(&ai->dist_threshold, &c.dist_bits, 4);
@@ -1843,6 +1890,7 @@ TreeNode *tree_next(TreeNode *node) { return s6_tree_next(node); }
 int tree_lookup(void *world, unsigned int key)
 {
     (void)world;   /* synthetic world; name-keyed table from capture */
+    rep_apply_world_scale();   /* v7: масштаб этого cb40-вызова до чтения @0x45c430 */
     if (g_grid == NULL || g_grid_error) return 0;
     std::map<unsigned int, int>::const_iterator it = g_grid->tree.find(key);
     int r = (it == g_grid->tree.end()) ? 0 : it->second;
@@ -2533,6 +2581,8 @@ int main(int argc, char **argv) {
         /* v6: tolerant gate compare counters (old captures have no leaf.gate). */
         printf("GATE: compared=%d skipped=%d\n",
                g_gate_compared, g_gate_skipped);
+        /* v7: вызовы с захваченным world[0x120] / со статическим фолбэком. */
+        printf("SCALE: compared=%d skipped=%d\n", g_scale_compared, g_scale_skipped);
         if (chained) {
             /* survived = число цепных вызовов, совпавших подряд до первого
              * расхождения (0, если первый же вызов разошёлся). */

@@ -35,7 +35,7 @@
 #define CAP_MAX_GRID_CELLS 200000  /* потолок статической сетки (v5) */
 #define CAP_MAX_TREE_DELTA 50000   /* потолок дельт world+0x104 за вызов */
 #define CAP_MAX_CELL_DELTA 20000   /* потолок дельт ячеек за вызов */
-#define CAP_VERSION     6          /* версия cap/res; v1..v5 — старые захваты */
+#define CAP_VERSION     7          /* версия cap/res; v1..v6 — старые захваты */
 
 /* v3: значение узла map2 (PathState*) — раньше реплика ставила NULL и всегда
  * шла «свободным путём». w[] — сырые dword'ы PathState; ptr[] — 11 указателей
@@ -92,6 +92,12 @@ static int      *g_cap_a1 = NULL, *g_cap_a2 = NULL;  /* v6: стек-арги cb
 static unsigned int g_gate_l10 = 0, g_gate_l2c = 0;
 static unsigned int g_gate_l14 = 0, g_gate_l18 = 0;
 static unsigned int g_cb40_ret = 0;     /* EAX на входе в ret-трамплин (результат cb40) */
+/* v7: world[0x120] на входе текущего cb40 (биты float) и флаг снятия; снятие —
+ * по цепочке native 0x45c42b..0x45c430: self→[0] (game_ctx) → +4 (world) → +0x120. */
+static unsigned int g_cb40_scale = 0;
+static int g_cb40_scale_ok = 0;
+static int *g_leaf_scale = NULL;        /* v7: биты на каждый cb40-leaf */
+static int *g_leaf_scale_ok = NULL;     /* v7: 1 — значение снято */
 
 /* v5: статическая сетка — один снимок на бой. Массивы выделяются в init. */
 static int *g_gkey = NULL, *g_gstatus = NULL, *g_gmin = NULL;
@@ -158,6 +164,8 @@ void battle_capture_init(void)
     g_tout = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
     g_tms = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
     g_gate = (int *)malloc((size_t)CAP_MAX_LEAF * CAP_GATE_WORDS * sizeof(int));
+    g_leaf_scale = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
+    g_leaf_scale_ok = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
     g_gkey = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
     g_gstatus = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
     g_gmin = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
@@ -178,14 +186,15 @@ void battle_capture_init(void)
     g_cd_val = (int *)malloc((size_t)CAP_MAX_CELL_DELTA * 11 * sizeof(int));
     g_prev_rows = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
     if (!g_nodes || !g_occ || !g_occ_nodes || !g_iter || !g_path || !g_pptr ||
-        !g_heur || !g_tout || !g_tms || !g_gate || !g_gkey || !g_gstatus || !g_gmin ||
+        !g_heur || !g_tout || !g_tms || !g_gate || !g_leaf_scale ||
+        !g_leaf_scale_ok || !g_gkey || !g_gstatus || !g_gmin ||
         !g_gmax || !g_gnext || !g_gchain || !g_grows ||
         !g_gw0 || !g_gw1 || !g_gw2 || !g_gw3 || !g_gw4 ||
         !g_tree_prev || !g_td_idx || !g_td_val ||
         !g_prev_fields || !g_cd_idx || !g_cd_val || !g_prev_rows) {
         free(g_nodes); free(g_occ); free(g_occ_nodes); free(g_iter);
         free(g_path); free(g_pptr); free(g_heur); free(g_tout); free(g_tms);
-        free(g_gate);
+        free(g_gate); free(g_leaf_scale); free(g_leaf_scale_ok);
         free(g_gkey); free(g_gstatus); free(g_gmin); free(g_gmax);
         free(g_gnext); free(g_gchain); free(g_grows);
         free(g_gw0); free(g_gw1); free(g_gw2); free(g_gw3); free(g_gw4);
@@ -428,6 +437,24 @@ static void cap_write_gate(FILE *f)
                     (unsigned int)g_gate[i * CAP_GATE_WORDS + k]);
         }
         fputc(']', f);
+    }
+    fputc(']', f);
+}
+
+/* v7: масштаб world[0x120] на входе каждого cb40-вызова: биты float и флаг снятия. */
+static void cap_write_scale(FILE *f, int n)
+{
+    int i;
+    fputs(",\"scale\":", f);
+    fputc('[', f);
+    for (i = 0; i < n; i++) {
+        fprintf(f, "%s%u", i ? "," : "", (unsigned int)g_leaf_scale[i]);
+    }
+    fputc(']', f);
+    fputs(",\"scale_ok\":", f);
+    fputc('[', f);
+    for (i = 0; i < n; i++) {
+        fprintf(f, "%s%d", i ? "," : "", g_leaf_scale_ok[i]);
     }
     fputc(']', f);
 }
@@ -982,6 +1009,11 @@ void battle_capture_leaf(int kind, int value, const int *words)
             g_leaf_overflow = 1;
             return;
         }
+        /* v7: масштаб на входе этого cb40-вызова (снят в cap_fn_cb40_hook). */
+        if (leaf_index < CAP_MAX_LEAF) {
+            g_leaf_scale[leaf_index] = (int)g_cb40_scale;
+            g_leaf_scale_ok[leaf_index] = g_cb40_scale_ok;
+        }
         /* v6: входы финального гейта этого cb40-вызова, сырые биты:
          * [0]=out_metric (spec+0x10, prologue arg1), [1]=final_threshold
          * (BattleAI+0x8), [2]=мин L[0x10], [3]=макс L[0x18]. */
@@ -1089,6 +1121,7 @@ void battle_capture_e0a0_exit(void *node)
     cap_write_ints(g_file, g_tout, g_tout_n);
     fputs(",\"timer\":", g_file);
     cap_write_ints(g_file, g_tms, g_tout_n);
+    cap_write_scale(g_file, g_path_n / CAP_WORDS);
     fprintf(g_file, ",\"overflow\":%d},\"trap\":%d}\n",
             g_leaf_overflow, g_map_trap);
 }
@@ -1098,6 +1131,27 @@ void battle_capture_e0a0_exit(void *node)
  * выполняем украденные байты пролога и прыгаем на оригинал. Возврат original
  * (RET 8/4) попадает в cap_ret_*, который логирует EAX и прыгает на настоящий
  * адрес возврата. Никаких манипуляций аргументами — только ESP/ECX как есть. */
+
+/* v7: масштаб world[0x120] на входе cb40 — цепочка native 0x45c42b..0x45c430
+ * (`mov (%ebx),%eax; mov 0x4(%eax),%ecx; flds 0x120(%ecx)`), ebx = self.
+ * На входе cb40 ECX = this (пролог `mov %ecx,%esi` @0x45cb47). */
+void __cdecl cap_read_cb40_scale(void *self)
+{
+    g_cb40_scale = 0;
+    g_cb40_scale_ok = 0;
+    __try {
+        unsigned char *ctx = (unsigned char *)self;
+        unsigned char *w0 = (ctx != NULL) ? *(unsigned char **)ctx : NULL;
+        unsigned char *world = (w0 != NULL) ? *(unsigned char **)(w0 + 4) : NULL;
+        if (world != NULL) {
+            g_cb40_scale = *(const unsigned int *)(world + 0x120);
+            g_cb40_scale_ok = 1;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        g_cb40_scale = 0;
+        g_cb40_scale_ok = 0;
+    }
+}
 
 static void *g_cont_cb40 = NULL, *g_cont_heur = NULL, *g_cont_timeout = NULL;
 static void *g_ret_cb40 = NULL, *g_ret_heur = NULL, *g_ret_timeout = NULL;
@@ -1126,6 +1180,11 @@ void battle_capture_set_leaf_fns(void *cb40, void *heur, void *timeout)
 void __declspec(naked) cap_fn_cb40_hook(void)
 {
     __asm {
+        push ecx                       /* v7: снять world[0x120] на входе cb40 */
+        push ecx
+        call cap_read_cb40_scale
+        add esp, 4
+        pop ecx
         mov eax, dword ptr [esp]       /* настоящий адрес возврата */
         mov dword ptr [g_ret_cb40], eax
         /* v6: [esp+4]=arg1=spec (PathState*), [esp+8]=arg2=pos (не читается
