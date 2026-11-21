@@ -39,9 +39,9 @@
 #define CAP_CHAIN_MAX   8          /* v8: узлов цепочки c3a0 на один cb40-вызов */
 #define CAP_CHAIN_WORDS 7          /* idx,min,max,key,next,chain,status */
 
-/* v3: значение узла map2 (PathState*) — раньше реплика ставила NULL и всегда
- * шла «свободным путём». w[] — сырые dword'ы PathState; ptr[] — 11 указателей
- * LDPos* (pos, parent, nbr[9]), ptr-поля в w[] харнесс подменяет по identity. */
+/* v3: значение узла map2 (PathState*). w[] — сырые dword'ы PathState; ptr[] —
+ * 11 указателей LDPos* (pos, parent, nbr[9]); ptr-поля в w[] харнесс подменяет
+ * по identity. Занятый ключ без записи значения остаётся NULL. */
 typedef struct {
     int key;
     int has_value;

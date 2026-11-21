@@ -359,7 +359,7 @@ int pt_in_rect(const int *rect, int pt_x, int pt_y)
  * ABI: cdecl, один аргумент (размер), очистка вызывающим (FUN_0045c2e0 делает
  * ADD ESP,4 @0x45c2eb), результат — указатель в EAX.
  * Это единственный разрешённый аллокатор для игровых структур: malloc из .pyd
- * порол бы кучу игры (план, «Риски»; defect C прошлой сессии). */
+ * порол бы кучу игры (план, «Риски»; defect C аудита). */
 typedef void *(*PFN_operator_new)(unsigned int size);
 
 void *operator_new(unsigned int size)

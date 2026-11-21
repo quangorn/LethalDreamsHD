@@ -10,8 +10,9 @@
  * точки подмены листьев в battle/*.cpp). Запуск:
  *   battle_replay.exe <capture.jsonl> <res_port.jsonl>
  *
- * Точки сравнения — replay_note_* / native::-stub'ы; режим v5 (по умолчанию)
- * прогоняет порт на реконструированной сетке, --leaf-replay оставляет старый A/B.
+ * Точки сравнения — replay_note_* / native::-stub'ы; режим по умолчанию
+ * (--real-path) прогоняет порт на реконструированной сетке; --leaf-replay
+ * подставляет нативные результаты листьев из захвата.
  */
 #include <windows.h>
 #include <stdio.h>
@@ -221,8 +222,8 @@ struct CapNode {
 struct GateVals { unsigned v[4]; bool present; };
 struct PathLeaf { bool null; int w[5]; int addr; GateVals gate; };
 
-/* v3: значение узла map2 (PathState*) — раньше реплика ставила NULL и шла
- * «свободным путём» для всех занятых ключей. */
+/* v3: значение узла map2 (PathState*) — носитель значений dd70-ветки 2.
+ * Занятый ключ без записи значения остаётся NULL (ветка «свободного пути»). */
 #define RP_AI_WORDS 32
 #define RP_PS_WORDS 22
 struct OccVal {
@@ -1154,7 +1155,7 @@ static int occ_key_of(LDPos *p) {
 }
 
 /* Ключи identity-карты: реальный адрес LDPos из захвата; запасной режим —
- * 0x100000000|occ_key (только для старых захватов без адресов). */
+ * 0x100000000|occ_key (захваты без адресов LDPos). */
 static unsigned long long pos_key_addr(int addr) {
     return (unsigned long long)(unsigned)addr;
 }
@@ -1166,7 +1167,7 @@ static unsigned long long pos_key_coord(int x, int y) {
 /* Порядок map1 задаётся КЛЮЧОМ узла — указателем LDPos (dd00 передаёт
  * &obj->pos в insert, 0xc(%узла) сравнивается в 45d810). tn->key = реальный
  * адрес из захвата (pos_addr); новые узлы получают адрес своего
- * cb40-результата (leaf ptr). Запасной режим (старый захват без адресов):
+ * cb40-результата (leaf ptr). Запасной режим (захват без адресов LDPos):
  * (x,y)-мажор — так отсортированы все map1/map1_after таких записей.
  * Порядок важен: s6_scan_map берёт строго минимум метрики (при равных —
  * первый in-order). */
@@ -1184,9 +1185,9 @@ static bool m1_coord_less(TreeNode *a, TreeNode *b) {
 static bool m1_less(std::pair<unsigned long long, TreeNode *> a,
                     std::pair<unsigned long long, TreeNode *> b)
 {
-    /* Ключ 0 = адреса из захвата нет (старый захват) — порядок задаёт
-     * (x,y)-фолбэк. Полные ключи: адресные узлы (адрес < 0x100000000) идут
-     * раньше координатных, внутри группы — по возрастанию ключа. */
+    /* Ключ 0 = адреса из захвата нет — порядок задаёт (x,y)-фолбэк.
+     * Полные ключи: адресные узлы (адрес < 0x100000000) идут первыми,
+     * внутри группы — по возрастанию ключа. */
     if (a.first != 0 && b.first != 0) return a.first < b.first;
     return m1_coord_less(a.second, b.second);
 }
@@ -1233,8 +1234,8 @@ static void rep_rebuild_m2(Rep *r) {
 /* ---------------- v3: значения узлов map2 в реплике --------------------- */
 /* Native/class FUN_0045dd00 кладёт в map2 тот же PathState, что уже лежит в
  * map1 (ветка 1 dd70 @0x45ded7 читает value как PathState* и идёт в ветку 2).
- * v1/v2 захваты value не имели — реплика ставила NULL и всегда считала ключ
- * свободным. Здесь identity восстанавливается по pos_addr. */
+ * Запись значения даёт identity pos_addr; без записи ключ считается свободным.
+ * Identity восстанавливается по pos_addr. */
 static std::map<int *, PathState *> g_pos_ps;
 static std::vector<RNode *> g_occ_stubs;
 
@@ -1338,19 +1339,12 @@ static int g_gi = 0;
 static int g_gate_compared = 0, g_gate_skipped = 0;
 
 extern "C" int replay_gate_index(void) { return g_gi; }
-extern "C" int replay_call_seq(void) { return (g_cur != NULL) ? g_cur->seq : -1; }
 extern "C" int replay_cell_index(void *cell)
 {
     if (g_grid == NULL || g_grid_error || cell == NULL) return -1;
     long d = ((unsigned char *)cell - (unsigned char *)g_grid->cells);
     if (d < 0 || d >= (long long)sizeof(GridCell) * g_grid->n) return -1;
     return (int)(d / sizeof(GridCell));
-}
-extern "C" int replay_tree_status(int key)
-{
-    if (g_grid == NULL || g_grid_error) return -99;
-    std::map<unsigned int, int>::const_iterator it = g_grid->tree.find((unsigned)key);
-    return (it == g_grid->tree.end()) ? 0 : it->second;
 }
 
 static void rep_build(Rep *r, const Call &c) {
@@ -1505,8 +1499,8 @@ static void rep_build(Rep *r, const Call &c) {
         tn->is_nil = 0;
         r->m2.nodes.push_back(tn);
     }
-    /* v3: восстанавливаем значения занятых узлов (ветка 2 dd70). Старые
-     * захваты и явный null оставляют value == NULL, как и раньше. */
+    /* v3: восстанавливаем значения занятых узлов (ветка 2 dd70). Запись значения
+     * отсутствует или явный null — value остаётся NULL. */
     if (!c.occ_vals.empty()) {
         for (i = 0; i < r->m2.nodes.size(); i++) {
             std::map<int, OccVal>::const_iterator oi =
@@ -1707,9 +1701,9 @@ extern "C" void *replay_path_next(void) {
 }
 
 extern "C" void *replay_grid_cell(int x, int y) {
-    /* Старый режим: заглушка. v5 (g_replay_override==0) сюда не попадает —
-     * s6_grid_lookup работает с реконструированной сеткой. Координаты нужны
-     * для указания ветки при расхождении листа. */
+    /* Заглушка режима подмены листьев (g_replay_override==1); в режиме реального
+     * прогона s6_grid_lookup работает с реконструированной сеткой. Координаты
+     * нужны для указания ветки при расхождении листа. */
     static int cell[16];
     g_last_grid_x = x; g_last_grid_y = y;
     cell[3] = x; cell[4] = y;    /* +0x0c/+0x10 */
@@ -1741,8 +1735,8 @@ extern "C" void *replay_note_path_res(void *result)
     if (result == NULL) {
         pl.null = true;
         if (c != NULL) const_cast<Call *>(c)->port_path.push_back(pl);
-        /* Нативный null-лист тоже потребляет свой индекс: иначе addr-уточнение
-         * выше читает устаревший индекс и пары съезжают. */
+        /* Нативный null-лист потребляет свой индекс: addr-уточнение ниже
+         * читает индекс грядущего листа, пары native/port остаются парами. */
         if (c != NULL && g_pi < c->leaves_path.size()) g_pi++;
         return NULL;
     }
@@ -2012,8 +2006,8 @@ void register_occupied_slot(void *ai, LDObject *obj) {
      * начать лавинообразно регистрировать узлы. Ограничиваем рост map1 по
      * нативному размеру вызова, чтобы прогон завершился и показал divergence. */
     {
-        /* Множитель cap (`LD_REPLAY_CAP_MULT`) — контрольный эксперимент: cap не
-         * должен влиять на префикс потока. По умолчанию 1 (cap без изменений). */
+        /* Множитель cap (`LD_REPLAY_CAP_MULT`): cap не влияет на префикс
+         * leaf- потока; по умолчанию 1 (cap без изменений). */
         static int mult = -1;
         if (mult < 0) {
             const char *s = getenv("LD_REPLAY_CAP_MULT");
@@ -2038,8 +2032,8 @@ void register_occupied_slot(void *ai, LDObject *obj) {
     tn->is_nil = 0;
     {
         /* Ключ map1 = адрес LDPos (нативный dd00); у new-узла это адрес его
-         * cb40-результата из replay_path_next. Нет адреса — 0 (старый захват,
-         * тогда порядок задаёт (x,y)-фолбэк в m1_less). */
+         * cb40-результата из replay_path_next. Захват без адресов LDPos — ключ 0,
+         * порядок задаёт (x,y)-фолбэк в m1_less. */
         std::map<int *, unsigned long long>::const_iterator ai_it =
             g_obj_key.find((int *)(void *)p);
         unsigned long long full = (ai_it != g_obj_key.end()) ? ai_it->second : 0ULL;
@@ -2298,7 +2292,7 @@ static void write_res_port(FILE *f, const Call &c, Rep *r) {
             g_reg_overflow);
 }
 
-/* Контрольный дамп расхождения (`LD_REPLAY_DIV_DUMP=1`): что харнесс-сетка
+/* Дамп расхождения (`LD_REPLAY_DIV_DUMP=1`): что харнесс-сетка
  * отдаёт на координатах первого расхождения, и сколько map1-узлов без адреса
  * из захвата (полный ключ 0 → порядок задаёт (x,y)-фолбэк). */
 static int replay_div_dump_on(void)
@@ -2421,9 +2415,9 @@ int main(int argc, char **argv) {
         if (strcmp(argv[i], "--chained") == 0) {
             chained = true;
         } else if (strcmp(argv[i], "--leaf-replay") == 0) {
-            leaf_replay = true;            /* A/B старого харнесса (v1..v4) */
+            leaf_replay = true;            /* режим подмены нативных листьев из захвата */
         } else if (strcmp(argv[i], "--real-path") == 0) {
-            leaf_replay = false;           /* по умолчанию: v5 */
+            leaf_replay = false;           /* по умолчанию: реальный прогон листьев порта */
         } else if (strncmp(argv[i], "--", 2) == 0) {
             fprintf(stderr, "ERROR: unknown flag '%s'\n", argv[i]);
             return 2;

@@ -36,9 +36,7 @@ static int g_chain[6];          /* агрегат последнего tree_sear
                                  * bits, 2 = best->key, 3 = число узлов цепочки,
                                  * 4 = p3 (guard гейта c3a0), 5 = p7 (делитель) */
 extern "C" int replay_gate_index(void);   /* число cb40-вызовов порта к текущему */
-extern "C" int replay_call_seq(void);     /* seq текущего вызова харнесса */
 extern "C" int replay_cell_index(void *cell);
-extern "C" int replay_tree_status(int key);
 /* Opt-in chain trace (LD_REPLAY_TRACE=2): one line per c3a0 call with the
  * reconstructed chain, its statuses and the slot writes. Behaviour-neutral. */
 /* v8: restore the per-cb40 chain state (captured at the native cb40 entry)
@@ -448,8 +446,8 @@ GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
  * читается. SEH-фрейма нет: граница harness'а — __try у s6_ai_update.
  * Рамка: ESP на call dd70 = U−8 (pushes @0x45df04/0x45df10), entry = U−12
  * (retaddr), `sub esp,0x3c` @0x45cb40 + 4 push → cb40 base Y = U − 88; слот
- * cb40 k (относительно Y) ↔ dd70 slot (k − 88) (re/esp_scan.py; прежний
- * delta −84 пропускал retaddr, отсюда ложный alias dd70-слотов). Все чтения
+ * cb40 k (относительно Y) ↔ dd70 slot (k − 88) (re/esp_scan.py; retaddr входит
+ * в delta, слоты dd70 alias'а не имеют). Все чтения
  * идут после записей — stale-read'ов в cb40 нет; в частности @0x45cbad
  * L[0x20] читает слот, записанный @0x45cb71 (посев pos->y).
  * Таблица слотов (LS(k) = l[k>>2], k относительно Y):
@@ -577,8 +575,8 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
                             /* ESP=Y после add $8 @0x45cc9f; аргументы @0x45cc86..0x45ccc1:
                              * arg7 = MAX(|LS(0x1c)|,|LS(0x28)|) = адрес &spec[0x10] — FIDIV-делитель @0x45c460;
                              * arg3=arg6=&LS(0x18), arg4=&LS(0x50), arg5=[cb40 arg2] → min-слот = &pos[0];
-                             * харнесс держит min=LS(0x14), p3=&out_metric (запись в восстановленный LDPos
-                             * портила identity leaf-значений). */
+                             * харнесс держит min=LS(0x14), p3=&out_metric: запись в восстановленный
+                             * LDPos меняет identity leaf-значения. */
                             p7 = s6_imax(s6_iabs(LS(0x14)), (int)(INT_PTR)&spec->out_metric);
                             ecx = s6_iabs(LS(0x24));  /* @0x45c394: MOV 0x8(%ESP),%ECX = arg2 = |L[0x24]|, RET его сохраняет */
                             if (s6_path_tree_search(self, node2, (int)(INT_PTR)spec->pos,
