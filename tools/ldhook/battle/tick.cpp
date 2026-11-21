@@ -17,7 +17,9 @@
  * R13 (`0x44c82c..0x44c877`, B85..B87: flags-цепочка tail anchor-NULL пути,
  * `448c30(0x40)` join, все выходы — dtor-join `0x44cad2`) и R14
  * (`0x44c878..0x44c96f`, B88 core-A: world-notify + `45e1d0` → запись
- * `unit+0xa4..0xac`, save/write/restore pos-полей состояния, FSTP фазы);
+ * `unit+0xa4..0xac`, save/write/restore pos-полей состояния, FSTP фазы),
+ * R15 (`0x44c970..0x44ca4b`, B89..B95: float-гейт `[unit+0xfc]`,
+ * string-клон msg + `446a80`, цепочки флагов, `448c30(0x40)`);
  * все листья —
  * нативные
  * `native::…`, один детур на функцию (инвариант 5) — H1 `0x44bdf5` с возвратом
@@ -32,7 +34,7 @@
  * EDI/EBX не восстанавливает (их снимает нативный эпилог).
  *
  * Детур разоружён, пока тело неполное: `b0_port_enabled()` = LDHOOK_SITE5=1
- * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R13 — явные UNPORTED-
+ * И `B0_BODY_COMPLETE` (ниже). Выходы за пределы R1..R15 — явные UNPORTED-
  * заглушки с адресом блока-цели; они возвращают 0 (= `xor al,al` @0x44d072).
  */
 #include <stdlib.h>
@@ -42,7 +44,7 @@
 #include "battle.h"
 #include "native.h"
 
-/* B0_BODY_COMPLETE — 0: портирован только R1..R14, тело неполное (дальше —
+/* B0_BODY_COMPLETE — 0: портирован только R1..R15, тело неполное (дальше —
  * UNPORTED-выходы), поэтому детур обязан быть разоружён. Определяется в 1
  * тем чанком, который доводит тело до единственного RET `0x44d08c`. */
 #ifndef B0_BODY_COMPLETE
@@ -72,7 +74,7 @@ int b0_env_on(void)
 int b0_port_enabled(void)
 {
 #if !B0_BODY_COMPLETE
-    /* UNPORTED: R15..R23 не портированы — детур не встаёт. */
+    /* UNPORTED: R16..R23 не портированы — детур не встаёт. */
     return 0;
 #else
     return b0_env_on();
@@ -840,14 +842,88 @@ b88_r14:
     goto b89_r15;                                           /* fall 0x44c970 */
 
 b89_r15:
-    /* 0x44c970 — TODO(5.1b-14) UNPORTED: R15 B89 (гейт `FLDS [frame+0x1c]` vs
-     * `[unit+0xfc]`, `TEST AH,0x41; JP 0x44caee` = больше/unordered → B101;
-     * fall → B90 string-клон). Возврат 0 = путь `xor al,al` @0x44d072. */
-    return 0;
+    /* --- R15: string-клон + `446a80` + цепочки + `448c30` (0x44c970..0x44ca4b) *
+     * Единственный вход — fall R14 B88. На этом пути EBP не сдвинут (сдвиги
+     * B21/B30/B41/B58/B62/B65/B69/B72 уходят из flags-join), поэтому `[EBP+…]`
+     * = `unit_x == unit`. ESP на входе = frame.
+     * B89 (0x44c970..0x44c984) — `FLDS [frame+0x1c]` (фаза из FSTP R14),
+     * `FCOMPS [unit+0xfc]`, `TEST AH,0x41; JP 0x44caee`: взято ⟺ больше или
+     * unordered → B101; fall → B90. */
+    if (b0_gate_41_jp(*(const float *)(frame + 0x1c),
+                      *(const float *)(unit_x + 0xfc))) {
+        goto b101_r16;                                      /* 0x44c97f jp 0x44caee */
+    }
+
+    /* B90 (0x44c985..0x44c9e5) — msg-блок-клон R3 B15/R4 B24, значения R15:
+     * `[frame+0x50]=1`, trylevel `[frame+0x154]=0x13` (байт). Прочее как в
+     * B15/B24: msg_ctor(frame+0x4c); 32 Б из `unit+0x64` в frame+0x60; src-
+     * указатель в frame+0x1c; [frame+0x80]=0; msg_copy в by-value буфер
+     * (натив: esp после `sub 0x3c`); 446a80 (by-value 0x3c, faithful);
+     * затем vtable+0x40 без push (аргумент — слот сохранённого EDI).
+     * EDI моделируется явно: `LEA EDI,[frame+0x60]` перед копией, `rep movsl`
+     * ×8 двигает его на 8 dword → EDI = frame+0x80. Читающих EDI блоков на
+     * остатке пути R15 нет; R16 B96/B97/B99/B100 EDI не читают, а их выход —
+     * `0x44d072`, поэтому ненулевой EDI до `0x44cb39` (R17, где EDI читается
+     * @0x44cb4a..) НЕ доходит: туда ведут только B101/B102 с EDI=0. */
+    native::msg_ctor(frame + 0x4c);                     /* 0x44c985..0x44c989 */
+    *(unsigned int *)(frame + 0x50) = 1;                /* 0x44c991 */
+    edi = (int)(INT_PTR)(frame + 0x60);                 /* 0x44c9a4 lea 0x9c(%esp),%edi */
+    memcpy(frame + 0x60, unit_x + 0x64, 32);            /* 0x44c99c..0x44c9ab rep movsl */
+    edi += 0x20;                                        /* rep movsl ×8: EDI → frame+0x80 */
+    *(void **)(frame + 0x1c) = msg_dst;                 /* 0x44c9b6 */
+    frame[0x154] = 0x13;                                /* 0x44c9bb (trylevel, байт) */
+    *(unsigned int *)(frame + 0x80) = 0;                /* 0x44c9c3 */
+    native::msg_copy(msg_dst, frame + 0x4c);            /* 0x44c9ce */
+    native::ai_time_update(unit_x, msg_dst);            /* 0x44c9d3..0x44c9d5 */
+    if (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL) {
+        goto b95_r15;                                   /* 0x44c9e2 je 0x44ca45 */
+    }
+
+    /* B91 (0x44c9e6..0x44ca01) — цепочка ×1 (`push 1` → vtable+0x40 → 42da60 →
+     * 435d50); `TEST EAX` → NULL → B95. */
+    flags_obj = b0_player_flag_chain(unit_x);           /* 0x44c9e6..0x44c9f9 */
+    if (flags_obj == NULL) {
+        goto b95_r15;                                   /* 0x44ca00 je 0x44ca45 */
+    }
+
+    /* B92 (0x44ca02..0x44ca1e) — цепочка ×2, `TESTB $2,(%eax)`: бит → B94. */
+    flags_obj = b0_player_flag_chain(unit_x);           /* 0x44ca02..0x44ca15 */
+    if ((*(const unsigned char *)flags_obj & 0x2) != 0) {
+        goto b94_r15;                                   /* 0x44ca1d jne 0x44ca3c */
+    }
+
+    /* B93 (0x44ca1f..0x44ca3b) — цепочка ×3, `TESTB $4,(%eax)`: бит снят → B95. */
+    flags_obj = b0_player_flag_chain(unit_x);           /* 0x44ca1f..0x44ca32 */
+    if ((*(const unsigned char *)flags_obj & 0x4) == 0) {
+        goto b95_r15;                                   /* 0x44ca3a je 0x44ca45 */
+    }
+
+b94_r15:
+    /* B94 (0x44ca3c..0x44ca44) — cursor/mode update с аргументом 0x40. */
+    native::cursor_mode_update(unit_x, 0x40);           /* 0x44ca3c..0x44ca40 */
+
+b95_r15:
+    /* B95 (0x44ca45..0x44ca4b) — msg-флаг байта `unit+0x34` (EBP не сдвинут):
+     * 0 → B97 (R16, out-write, пропуск cursor-блока); иначе fall → B96 (R16,
+     * cursor-блок I). Оба выхода — R16. */
+    if (*(const unsigned char *)(unit_x + 0x34) == 0) {
+        goto b97_r16;                                   /* 0x44ca4a je 0x44cab0 */
+    }
+    goto b96_r16;                                       /* fall 0x44ca4c */
 
 b101_r16:
-    /* 0x44caee — TODO(5.1b-14) UNPORTED: R16 B101 (dtor 45e5e0(&frame+0xcc),
+    /* 0x44caee — TODO(5.1b-15) UNPORTED: R16 B101 (dtor 45e5e0(&frame+0xcc),
      * dword trylevel −1, `JMP 0x44cb39` → R17). Возврат 0. */
+    return 0;
+
+b96_r16:
+    /* 0x44ca4c — TODO(5.1b-15) UNPORTED: R16 B96 (cursor-блок I). Путь
+     * B96 → B97 → B99 → B100 → `0x44d072`, возврат AL=0. */
+    return 0;
+
+b97_r16:
+    /* 0x44cab0 — TODO(5.1b-15) UNPORTED: R16 B97/B98 (out-write
+     * `[param_3]=1`). Заглушка возвращает 0 (в нативе — AL=0 @0x44d072). */
     return 0;
 
 b100_join:
