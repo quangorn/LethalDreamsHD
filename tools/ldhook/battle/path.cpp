@@ -517,26 +517,33 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
                 if (edi <= ebx + self->y_radius) {    /* @0x45cbdf JG → пропуск внутреннего */
                 LS(0x1c) = -self->y_radius;       /* @0x45cbe9 (loop_base, запись до чтения @0x45cc86) */
                     for (;;) {                    /* внутренний цикл (edi — inner-счётчик) */
-                        if (!(ecx == ebp && ebx == edi)) {   /* @0x45cbf0/0x45cbf4 центр */
-                        LS(0x38) = (int)((unsigned short)ebp << 16)
-                                 | (int)(unsigned short)edi;  /* ключ @0x45cbfc..0x45cc07 */
+                        if (!(ecx == ebp && ebx == edi)) {   /* @0x45cbf0/0x45cbf4 центр (текущий ecx) */
+                        ecx = (int)((unsigned short)ebp << 16)
+                            | (int)(unsigned short)edi;       /* @0x45cbfc..0x45cc05: ключ строится В ecx */
+                        LS(0x38) = ecx;                       /* @0x45cc07 */
                         native::lower_bound_slots(&self->map2, &LS(0x44), &LS(0x38));  /* @0x45cc10/&L[0x44], @0x45cc0b/&L[0x38], CALL 0x434bc0 */
+                        ecx = (int)(INT_PTR)&self->map2;      /* @0x434bc0 PUSH ECX / POP ECX @0x434c13/0x434c2a:
+                                                               * ecx возвращает посев @0x45cc15 (lea 0x74(%esi)) */
                         if ((void *)(INT_PTR)LS(0x44) == self->occ_head) {  /* @0x45cc2d: head → NOT занято */
                             GridLevel *grid;
                             GridCell *node2;
                             int p7;
 
-                            if (edi < 0) { s6_pfs_diag(PFS_R_SIGN); GATE_EXIT(PFS_R_SIGN, 0); return NULL; }  /* @0x45cc3f JL */
-                            if (ebp < 0) { s6_pfs_diag(PFS_R_SIGN); GATE_EXIT(PFS_R_SIGN, 0); return NULL; }  /* @0x45cc47 JL */
                             grid = (GridLevel *)(INT_PTR)
-                                *(const int *)((const unsigned char *)self->game_ctx + 8);  /* @0x45cc3c */
+                                *(const int *)((const unsigned char *)self->game_ctx + 8);  /* @0x45cc3c: ecx = grid */
+                            ecx = (int)(INT_PTR)grid;
+                            if (edi < 0) { s6_pfs_diag(PFS_R_SIGN); GATE_EXIT(PFS_R_SIGN, 0); return NULL; }  /* @0x45cc38/0x45cc3f JL */
+                            if (ebp < 0) { s6_pfs_diag(PFS_R_SIGN); GATE_EXIT(PFS_R_SIGN, 0); return NULL; }  /* @0x45cc45/0x45cc47 JL */
                             /* FCOMPP ST0=size_x (FILD @0x45cc51) vs ST1=edi (FILD @0x45cc4d):
                              * маска 0x41 (C3|C0) → выход, когда size_x <= edi. */
                             if (!(grid->size_x > LS(0x30))) { s6_pfs_diag(PFS_R_BOUND); GATE_EXIT(PFS_R_BOUND, 0); return NULL; }  /* @0x45cc4d..0x45cc5b */
                             if (!(grid->size_y > LS(0x34))) { s6_pfs_diag(PFS_R_BOUND); GATE_EXIT(PFS_R_BOUND, 0); return NULL; }  /* @0x45cc61..0x45cc6f */
-                            node2 = s6_grid_lookup(grid, edi, ebp);  /* @0x45cc77: x=inner, y=outer */
+                            node2 = s6_grid_lookup(grid, edi, ebp);  /* @0x45cc77: x=inner, y=outer; ecx НЕ пишется
+                                                                       * в 0x4570d0..0x457101 (ecx только читается
+                                                                       * @0x4570d4/0x4570de/0x4570eb) → ecx = grid */
                             if (node2 == NULL) { s6_pfs_diag(PFS_R_GRID); GATE_EXIT(PFS_R_GRID, 0); return NULL; }  /* @0x45cc80 */
                             p7 = s6_imax(s6_iabs(LS(0x1c)), s6_iabs(LS(0x24)));  /* @0x45cc86..0x45cca2 */
+                            ecx = s6_iabs(LS(0x24));  /* @0x45c394: MOV 0x8(%ESP),%ECX = arg2 = |L[0x24]|, RET его сохраняет */
                             if (s6_path_tree_search(self, node2, (int)(INT_PTR)spec->pos,
                                                     (int)(INT_PTR)&spec->out_metric,
                                                     (float *)&LS(0x48), &LS(0x14), &LS(0x18),
@@ -545,6 +552,9 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
                                 GATE_EXIT(PFS_R_RECUR, 0);
                                 return NULL;                          /* @0x45ccce JE 0x45cd75 */
                             }
+                            /* @0x45c3a0 clobbers ecx; остаточный ecx не наблюдаем (последнее значение ecx внутри
+                             * 0x45c3e0..0x45c417 зависит от обхода) — консервативно сохраняем ecx=grid. Все
+                             * продолжения проходят перечитывание @0x45cd04, где native сеет ecx слотом L[0x20]. */
                             ebx = LS(0x3c);                           /* @0x45ccce перечитывание pos->x */
                         }
                         /* хвост 0x45ccd2 (общий обеим ветвям head-проверки): */
@@ -556,6 +566,9 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
                         }
                     }
                     /* внутренний хвост 0x45cd00: */
+                    ecx = LS(0x20);                                 /* @0x45cd04: native перечитывает посев центра
+                                                                     * КАЖДЫЙ виток — все продолжения (0x45cbf0-капа
+                                                                     * @0x45cd19 и внешний хвост @0x45cd1f) видят L[0x20] */
                     LS(0x1c) = LS(0x1c) + 1;                          /* @0x45cd09 */
                     edi = edi + 1;                                    /* @0x45cd08 */
                     LS(0x30) = edi;                                   /* @0x45cd15 */
