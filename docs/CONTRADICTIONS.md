@@ -109,3 +109,6 @@
 15. **«IAT `0x4ec064` = LoadCursorFromFileA» — неверно.** `objdump -p` установочного EXE:
     `000ec064` = `OutputDebugStringA` (ordinal 0x268), `LoadCursorFromFileA` — `0x4ec264`.
     Сайт `0x44c1c0` пишет debug-строку; реализация — `native::output_debug_string_a`.
+16. **«`[ESP+0x160]` в R7/R16 — param_2, „clobbers bit3"» — неверно.** В блоке с `ADD EBP,0x18`
+    ESP = frame−0xc, поэтому `0x160(%esp)` = **`frame+0x154`** (SEH trylevel), а не param_2
+    (`frame+0x160`). param_2 пишется только B4 (`orl $8`) и читается на B80 (`0x44cb07`).
