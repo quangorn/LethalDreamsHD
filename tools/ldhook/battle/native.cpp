@@ -283,6 +283,51 @@ void native_45af10(void *band)
     }
 }
 
+/* FUN_00458050 (0x458050..0x4581f4) — grid-якорь. Пролог `sub $0x8` + push
+ * ebx/ebp/esi/edi @0x458050..0x45805b; ECX = ctx[8] (@0x45f103/0x45f105),
+ * 6 стек-аргументов (`ret $0x18` @0x45814e/0x45815a). Чтения аргументов:
+ * `flds 0x1c(%esp)`@0x45805f = arg1 (float), `flds 0x24(%esp)`@0x45807c = arg3
+ * (float), `mov 0x28(%esp),%ebp`@0x4580cb = arg4 (указатель), `mov 0x2c(%esp),
+ * %eax`@0x4580f1/@0x45815d = arg5 (int-слот байт-флага: `movb $1,(%eax)`
+ * @0x4580fd, `movb $0,(%eax)`@0x458161), `mov 0x30(%esp),%ecx`@0x4580e3/
+ * @0x45812e = arg6 (world, receiver 0x449160). Границы [grid+0x2c]/[grid+0x30]
+ * (@0x4580a7/0x4580bb), масштаб [grid+0x28]. Имя по телу: возвращает узел
+ * якоря (EAX, NULL при промахе). Тело не портировано (инвентарь §5), сайт
+ * @0x45f10c.
+ * ABI (число stack-аргументов и ret n) — стек восстанавливается сохранением
+ * esp (см. lower_bound). */
+void *grid_anchor(void *grid, int a1, int a2, int a3, int a4, int *flag_slot,
+                  void *world)
+{
+    void *addr = fn(0x458050);
+    void *res = NULL;
+
+    if (addr == NULL) {
+        return NULL;
+    }
+    __try {
+        __asm {
+            pushad                         /* esp «до аргументов», регистры в стеке */
+            mov esi, esp                   /* сохранённый esp */
+            mov ecx, grid
+            push world                     /* arg6 — старший, первый push */
+            push flag_slot                 /* arg5 */
+            push a4                        /* arg4 */
+            push a3
+            push a2
+            push a1                        /* arg1 — младший, [ESP+4] на входе */
+            mov eax, addr
+            call eax
+            mov res, eax                   /* eax читается до восстановления esp */
+            mov esp, esi                   /* стек = сохранённый esp при любом ret n */
+            popad                          /* + регистры вызывающего */
+        }
+    } __except (native::av_filter()) {
+        res = NULL;
+    }
+    return res;
+}
+
 /* IAT 0x4ec268 — SetRectEmpty(rect), форма site @0x45c34c (`call *0x4ec268`,
  * байты FF 15 68 C2 4E 00 — вызов через IAT-слот, поэтому `MOV EAX,[addr]`
  * перед CALL). В FUN_0045c330 аргумент — `&this+0x18` (`LEA EAX,[ESI+0x18]`

@@ -6,9 +6,9 @@
  * дизасм (п. 4.3). Поле trace-строки — решение движения и его аргументы.
  *
  * Статус: портированы sub-steps 4.1a — пролог 0x45eee0..0x45ef7f (B0/B1/B2),
- * 4.1b — 0x45ef82..0x45efdb (B3/B4/B5) и 4.1c — 0x45efdc..0x45f0c7 (B6/B7/B8;
- * карта re/phase4_45eee0.md §8.2). B9 и далее не портированы; функция static и
- * ниоткуда не вызывается (детур и wiring — 4.2).
+ * 4.1b — 0x45ef82..0x45efdb (B3/B4/B5), 4.1c — 0x45efdc..0x45f0c7 (B6/B7/B8)
+ * и 4.1d — 0x45f0cc..0x45f13a (B9; карта re/phase4_45eee0.md §8.2). B10 и далее
+ * не портированы; функция static и ниоткуда не вызывается (детур и wiring — 4.2).
  */
 #include <string.h>
 
@@ -69,11 +69,12 @@ static void s6_ai_reset(BattleAI *self)
  * Регистр-носитель нуля: EBX = 0 с @0x45eeea до B16 (перечитывается @0x45f3da). */
 static void s6_tick_move(BattleAI *self, void *rec_arg)
 {
-    int l[28];                       /* слоты F+0x00..F+0x6c (rec — последний) */
+    int l[34];                       /* F−0x18..F+0x6c: index 0 = слот F−0x18 (temp B9) */
     unsigned char *ctx;
     const unsigned char *rec;
 
-#define LS(k) (l[(k) >> 2])
+#define LS(k) (l[((k) + 0x18) >> 2])
+#define LS_BYTES(k) ((unsigned char *)(l + (((k) + 0x18) >> 2)))
 
     LS(0x6c) = (int)(INT_PTR)rec_arg;   /* rec = [entry+4] = слот F+0x6c */
 
@@ -247,5 +248,54 @@ static void s6_tick_move(BattleAI *self, void *rec_arg)
 
     native::search_params_update(self);                      /* @0x45f0c5 mov %esi,%ecx / @0x45f0c7 call 0x45c8c0 */
 
+    /* B9 (0x45f0cc..0x45f13a) — гейт bit7, grid-якорь 458050 и pathfind 45cb40.
+     * Кадр здесь опускается до F−0x18: 16-байтовый temp — слоты F−0x18..F−8
+     * (= l[0..5] после re-base), затем LS(0x20) = &temp. */
+    ctx = (unsigned char *)self->game_ctx;                   /* @0x45f0cc mov (%esi),%eax */
+    if (((*(const unsigned int *)ctx >> 7) & 1) != 0) {      /* @0x45f0ce/0x45f0d0/0x45f0d3/0x45f0d6 je 0x45f13d (бит7=0 → B10) */
+        const unsigned char *sub;
+        void *anchor;
+        void *path;
+        int metric;
+
+        *LS_BYTES(0x6c) = 0;                                 /* @0x45f0d8 mov %bl,0x6c(%esp) — БАЙТ rec-слота */
+        sub = (const unsigned char *)*(const void **)(ctx + 0x0c);   /* @0x45f0df mov 0xc(%eax),%eax */
+        /* 16-байтовый temp @F−0x18 = копия 4 dword объекта ctx[0xc] (sub-объект B2). */
+        *(int *)(LS_BYTES(-0x18) + 0x00) = *(const int *)(sub + 0x00);  /* @0x45f0e8/0x45f0ef */
+        *(int *)(LS_BYTES(-0x18) + 0x04) = *(const int *)(sub + 0x04);  /* @0x45f0f1/0x45f0f4 */
+        *(int *)(LS_BYTES(-0x18) + 0x08) = *(const int *)(sub + 0x08);  /* @0x45f0f7/0x45f0fa */
+        *(int *)(LS_BYTES(-0x18) + 0x0c) = *(const int *)(sub + 0x0c);  /* @0x45f0fd/0x45f100 */
+        LS(0x20) = (int)(INT_PTR)(void *)LS_BYTES(-0x18);    /* @0x45f108 mov %esp,0x38(%esp) (esp=F−0x18 → F+0x20) */
+        /* arg6 = ctx[4] (world, @0x45f0dc/0x45f0e2), arg5 = &LS(0x6c)
+         * (@0x45f0e3/0x45f0e7 — callee пишет байт-флаг через этот слот,
+         * @0x4580fd/0x458161), arg1..arg4 = temp dword 0..3; ECX = ctx[8]
+         * (@0x45f103/0x45f105). Ret $0x18. */
+        anchor = native::grid_anchor(
+            *(void **)(ctx + 0x08),                          /* ECX = ctx[8] */
+            *(const int *)(LS_BYTES(-0x18) + 0x00),          /* @0x45f10c arg1 */
+            *(const int *)(LS_BYTES(-0x18) + 0x04),          /* arg2 */
+            *(const int *)(LS_BYTES(-0x18) + 0x08),          /* arg3 */
+            *(const int *)(LS_BYTES(-0x18) + 0x0c),          /* arg4 (callee использует как указатель) */
+            &LS(0x6c),                                       /* arg5 = &rec-слота */
+            *(void **)(ctx + 0x04));                         /* arg6 = world */
+        self->anchor = (LDPos *)anchor;                      /* @0x45f113 mov %eax,0x2c(%esi) */
+        if (anchor == NULL) {                                /* @0x45f111 cmp %ebx,%eax / @0x45f116 je 0x45f379 */
+            return;                                          /* эпилог 0x45f379..0x45f382: EAX=0, ret $4; код — 4.1h */
+        }
+        metric = *(const int *)((const unsigned char *)anchor + 0x14);  /* @0x45f11c mov 0x14(%eax),%edx */
+        LS(0x34) = (int)(INT_PTR)anchor;                     /* @0x45f11f mov %eax,0x34(%esp) — spec+0x00 */
+        LS(0x44) = metric;                                   /* @0x45f12b mov %edx,0x4c(%esp) — spec+0x10 = anchor[0x14] */
+        /* 45cb40 = s6_path_search: ECX = self (@0x45f129), arg1 = &spec
+         * (@0x45f124/0x45f128), arg2 = 0/EBX (@0x45f123); порт имеет 2 параметра:
+         * этот слот callee сам перезаписывает как out-скретч lower_bound
+         * (`lea 0x38(esp)`@0x45cc0b, store `mov %ecx,0x38(esp)`@0x45cc07) и
+         * значение не читает — поэтому нуль вызывающего не передаётся. Ret 8. */
+        path = s6_path_search(self, (PathState *)LS_BYTES(0x34));  /* @0x45f12f call 0x45cb40 */
+        /* @0x45f134 neg (CF=1 при eax≠0) / @0x45f136 sbb al,al (CF→0xff) /
+         * @0x45f138 inc al (0xff→0x00; при eax=0: 0x00→0x01) — итог 1 ⟺ path == NULL. */
+        *(unsigned char *)((unsigned char *)self + 0x30) = (unsigned char)(path == NULL);  /* @0x45f13a mov %al,0x30(%esi) */
+    }
+
+#undef LS_BYTES
 #undef LS
 }

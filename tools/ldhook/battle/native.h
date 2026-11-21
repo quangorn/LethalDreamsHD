@@ -31,6 +31,14 @@ void native_45af10(void *band);      /* FUN_0045af10 — `movb $1,0x4(ecx)`; н�
 void clear_maps(void *ai);           /* FUN_0045ca70 — erase+_free по map1/map2 (обход от this+0x6c) */
 void search_params_update(void *ai); /* FUN_0045c8c0 — пересчёт радиуса/RECT/порога поиска */
 
+/* FUN_00458050 (0x458050..0x4581f4) — grid-якорь: ECX = ctx[8] (GridLevel),
+ * 6 стек-аргументов (`ret $0x18`): arg1..arg4 — 16-байтовый temp (dword 0/2 —
+ * float-позиция, dword 3 — указатель), arg5 — int-слот, куда callee пишет
+ * байт-флаг (@0x4580fd `= 1` / @0x458161 `= 0`), arg6 — world (источник
+ * 0x449160 @0x4580e8). Возврат EAX — узел/якорь или NULL. Тело не портировано
+ * (инвентарь §5: порт — 4.1d только вызов); сайт @0x45f10c. */
+void *grid_anchor(void *grid, int a1, int a2, int a3, int a4, int *flag_slot, void *world);
+
 /* IAT 0x4ec268 — SetRectEmpty(rect) (`call *0x4ec268` @0x45c34c в FUN_0045c330;
  * вызов через IAT-слот — `mov eax,[addr]` перед call). 1 аргумент, возврат BOOL
  * в EAX (в порту не читается). */
