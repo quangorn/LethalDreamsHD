@@ -189,37 +189,47 @@ python3 tools/ldhook/patch_ui.py --restore   # откат: вернуть ui.pyc
 python3 tools/ldhook/build.py
 python3 tools/probes/battle_replay_build.py
 build/ldhook/battle_replay.exe [--chained] [--leaf-replay|--real-path] <capture.jsonl> <res_port.jsonl>
-`battle_replay_diff.py <capture> <res_port> --fields=leaf` — сравнение потока
-листьев; `LEAF:`/`RESULT:` в stdout — совпадения и первое расхождение.
-`leaf_stream_diff.py <capture> <res_port>` — поэлементное сравнение `res.leaf.path` с
-`res_port.leaf.path` по seq (общий префикс + маркер `EXTRA` хвоста); rc 0/1/2.
+python3 tools/probes/battle_replay_diff.py <capture.jsonl> <res_port.jsonl> [--prefix=N] [--fields=a,b,…] [--limit=N]
+python3 tools/probes/leaf_stream_diff.py <capture.jsonl> <res_port.jsonl> [--extra-limit=N]
 ```
 
-Без флага реплика строится заново из `cap` каждого вызова, сравнение делает
-`battle_replay_diff.py` (rc 0 равно, 1 расхождение, 2 битый вход, 3 короткий
-диапазон). С `--chained`: реплика инициализируется один раз из первой полной
-`cap`, дальше в каждый вызов подаётся СОБСТВЕННОЕ after-state порта; после
-каждого схода сравниваются `node/code/iters/iter_seq` и after-state
-(`map1_after`/`occ_after`/`ai_words_after`). Класс `MUTATE` = результат совпал,
-а состояние нет; в выводе — дельта (pos/pos_addr/filter/g/cost) и ветка порта
-(`dd70` branch 1 → `0x45dd00`). Итог `CHAIN:` даёт chain_length, survived (=
-число совпавших подряд вызовов до первого расхождения), entry_state_mismatch,
-first_div_seq/class, ai_after_compared/ai_after_skipped/ai_words_mismatch; rc 0
-равно, 1 расхождение, 2 битый вход. `LD_REPLAY_TRACE=1/2` — лог порта в stderr.
+`battle_replay_diff.py` — сравнение по seq (node, code, iters, iter_seq,
+`map1_after`, `occ_after`, leaf; `--fields=leaf` — только поток листьев); rc 0 равно,
+1 расхождение, 2 битый вход, 3 prefix не выполнен; `DIVERGE` + ±2 контекста в stdout.
+`leaf_stream_diff.py` — поэлементное сравнение `res.leaf.path` с
+`res_port.leaf.path` по seq (общий префикс + маркер `EXTRA` хвоста); rc 0/1/2.
 
-`ai_words_after` сравнивается только если захват содержит ключ (v4; v1..v3 его
-не пишут — сравнение пропускается и это сказано в строке `CHAIN`).
+Захват v8 (по умолчанию), ключи по версиям: v3 — `ai_words` (скалярный блок
+BattleAI), v4 — `ai_words_after`; v5 — запись `grid` перед первой `cap` (уровни/размеры,
+`cells` (LDPos-вид, метрики, ключи, связи), `rows`, статусы world-дерева, внешние входы
+эвристики, `res.timer`); v6 — значения гейта листьев + стек-арги cb40; v7 — `scale`/`scale_ok`:
+float `world[0x120]` на входе каждого cb40-вызова по цепочке self→[0]→+4→+0x120, харнесс
+подаёт его world-масштабу перед каждым cb40-вызовом порта; v8 — снимок цепочки c3a0 на каждый
+cb40-вызов (count, idx, min/max, key, next, chain, status), replay применяет снимок,
+собственные регистрации порта питают `tree_lookup`. Порт исполняет
+`s6_path_search`/`s6_pfs_ctor`/`s6_tree_next`/`s6_heuristic` сам; `res_port.leaf` — его
+поток листьев. Отсутствие ключей в захвате — сводки `GATE:`/`SCALE:`/`CHAINSTATE:`,
+счётные значения годны только при skipped = 0.
 
-v5 (по умолчанию): захват добавляет одну запись `grid` — уровни/размеры,
-`cells` (LDPos-вид, метрики, ключи, связи), `rows`, статусы world-дерева и
-внешние входы эвристики; дельты world/rows/cells пишутся по вызовам.
-Порт исполняет `s6_path_search`/`s6_pfs_ctor`/`s6_tree_next`/`s6_heuristic`
-сам; `res_port.leaf` — его поток листьев. `--leaf-replay` возвращает старую
-подмену листьев (A/B харнесса); старые захваты без `grid` ⇒ `ERROR`, rc 2.
+Гейт (решение 3.7) — режим по умолчанию (real pathfinding): replay сам сравнивает результат
+и leaf-поток (`LEAF:`/`RESULT:`, rc 1 на расхождении), полевой уровень —
+`battle_replay_diff.py`. `--leaf-replay` — A/B харнесса с подменой листьев, **без сравнения**
+(блок сравнения в `if (!leaf_replay)`), его rc 0 вакуумный, не гейт. Захваты без
+используемого `grid` ⇒ `ERROR`, rc 2. Живой A/B — санитарный:
+`trace_diff.py --align=ordinal`; `unit=` в trace синтетический, кросс-прогонная сверка
+сравнивает разные юниты.
 
 `--chained` — **диагностика, не гейт**: игра очищает карты кандидатов/занятых
 **между** вызовами e0a0 — `FUN_0045ca70` на `0x45efd7` перед регистрацией seed,
 условно по биту 7 флагов `[obj]` (в захвате `cap.map1` следующего вызова = 1
 узел против сотен в `map1_after`), поэтому `entry_state_mismatch` в цепи ожидаем
-и не дефект порта; faithful-гейт — обычный per-call replay
-(`battle_replay_diff.py`). Подробности — `docs/TASK_battle_replay_handoff.md` §7.
+и не дефект порта; faithful-гейт — обычный per-call replay (`battle_replay_diff.py`).
+Реплика инициализируется один раз из первой полной `cap`, дальше в каждый вызов подаётся
+СОБСТВЕННОЕ after-state порта; после каждого схода сравниваются `node/code/iters/iter_seq`
+и after-state (`map1_after`/`occ_after`/`ai_words_after`). Класс `MUTATE` = результат совпал,
+а состояние нет; в выводе — дельта (pos/pos_addr/filter/g/cost) и ветка порта
+(`dd70` branch 1 → `0x45dd00`). Итог `CHAIN:` даёт chain_length, survived (= число совпавших
+подряд вызовов до первого расхождения), entry_state_mismatch, first_div_seq/class,
+ai_after_compared/ai_after_skipped/ai_words_mismatch; rc 0 равно, 1 расхождение, 2 битый вход.
+Скалярный блок сравнивается только при наличии ключа (с v3/v4), отсутствие — сказано в
+строке `CHAIN`. `LD_REPLAY_TRACE=1/2` — лог порта в stderr.

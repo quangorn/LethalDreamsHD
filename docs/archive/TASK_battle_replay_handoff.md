@@ -1,3 +1,6 @@
+> ЗАКРЫТО 21.11.2026: работа выполнена; метод гейта заменён решением плана 3.7
+> (`docs/PLAN_BATTLE_AI_CPP.md`), описание харнесса — `tools/ldhook/README.md`.
+
 # Handoff: offline capture/replay harness for FUN_0045e0a0 (plan 1.7 §3.2)
 
 ## 1. Goal
@@ -16,7 +19,7 @@ mask 4 heur2 call-site: lines 249 crash False
 mask 8 timeout call-site: lines 1  crash True  impl ['cap_impl: timeout value=135069697']
 mask 0 no leaf hooks:  lines 369 crash False
 ```
-Tried and failed: wrong EAX restore order in trampolines (fixed); cb40 arg offsets grabbing the return address (fixed with `g_cap_a1/a2`); ECX clobber by diagnostic C++ call before `call [g_fn_*]` (fixed with `mov ecx,[esp+4]`) — heur1/timeout still crash while identical heur2 works. A ctypes `DEBUG_PROCESS` catcher (`D:/tmp/cygwin/opencode/ld/catch_crash.py`) segfaulted under 64-bit Python; no crash address. Don't repeat.
+Tried and failed: wrong EAX restore order in trampolines (fixed); cb40 arg offsets grabbing the return address (fixed with `g_cap_a1/a2`); ECX clobber by diagnostic C++ call before `call [g_fn_*]` (fixed with `mov ecx,[esp+4]`) — heur1/timeout still crash while identical heur2 works. A ctypes `DEBUG_PROCESS` catcher (приватный рабочий каталог, `catch_crash.py`) segfaulted under 64-bit Python; no crash address. Don't repeat.
 Best hypothesis: patching those **call sites** with `E9` is unsafe (context/SEH), not the logging. The current unbuilt function-entry approach (overwrite return address on stack, replay stolen prologue bytes, jmp original; `cap_ret_*` logs EAX then jumps to saved return address) is the fix attempt. Stolen lengths: cb40 9 B, c690 6 B, c5a0 10 B (includes `call [0x4ec27c]`); cb40/c5a0 prologues are not unique in `.text` — locate by VA and verify bytes, not `find_in_text`.
 
 ## 4. Remaining work
@@ -32,21 +35,21 @@ Best hypothesis: patching those **call sites** with `E9` is unsafe (context/SEH)
 ```
 python3 tools/ldhook/build.py
 python3 tools/probes/battle_replay_build.py
-cp build/ldhook/ldhook.pyd D:/tmp/cygwin/opencode/ld/ldhook/tree/ldhook.pyd
+cp build/ldhook/ldhook.pyd <scratch>/ld/ldhook/tree/ldhook.pyd
 # PowerShell (env inherited by runner and game):
-$env:LD_GAME="D:/tmp/cygwin/opencode/ld/ldhook/tree"; $env:LD_SHOTS="D:/tmp/cygwin/opencode/ld/battle_shots"
+$env:LD_GAME="<scratch>/ld/ldhook/tree"; $env:LD_SHOTS="<scratch>/ld/battle_shots"
 $env:LDHOOK_SITE6="0"; $env:LDHOOK_BATTLE_TRACE="0"; $env:LDHOOK_LOG="1"
-$env:LDHOOK_BATTLE_CAPTURE="D:/tmp/cygwin/opencode/ld/replay_capture_addr.jsonl"; $env:LDHOOK_BATTLE_CAPTURE_MAX="400"
+$env:LDHOOK_BATTLE_CAPTURE="<scratch>/ld/replay_capture_addr.jsonl"; $env:LDHOOK_BATTLE_CAPTURE_MAX="400"
 # add $env:LDHOOK_BATTLE_CAPTURE_LEAF="0" to capture without leaves
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/probes/battle_169.ps1 -Tag replay_cap
-build/ldhook/battle_replay.exe D:/tmp/cygwin/opencode/ld/replay_capture_addr.jsonl D:/tmp/cygwin/opencode/ld/replay_port.jsonl
-python3 tools/probes/battle_replay_diff.py D:/tmp/cygwin/opencode/ld/replay_capture_addr.jsonl D:/tmp/cygwin/opencode/ld/replay_port.jsonl
+build/ldhook/battle_replay.exe <scratch>/ld/replay_capture_addr.jsonl <scratch>/ld/replay_port.jsonl
+python3 tools/probes/battle_replay_diff.py <scratch>/ld/replay_capture_addr.jsonl <scratch>/ld/replay_port.jsonl
 # stderr-лог порта: LD_REPLAY_TRACE=1 (info) / =2 (info+debug, шумно)
 ```
-Runner log: `D:/tmp/cygwin/opencode/ld/ldhook/tree/hdlog.txt`; scratch EXE baseline `45e93d46…`, loader already in `ui.pyc`. Format v4: `cap` + `res` per call; leaf streams (`path`/`ptr`/`heur`/`timeout`) and `ai_words_after` in the `res` record; `args.cmp_addr` + per-node `pos_addr` = LDPos identity; grid = sizes only (pathfinding stubbed). Diff rc: 0 equal, 1 diverge, 2 input error, 3 prefix unmet.
+Runner log: `<scratch>/ld/ldhook/tree/hdlog.txt`; scratch EXE baseline `45e93d46…`, loader already in `ui.pyc`. Format v4: `cap` + `res` per call; leaf streams (`path`/`ptr`/`heur`/`timeout`) and `ai_words_after` in the `res` record; `args.cmp_addr` + per-node `pos_addr` = LDPos identity; grid = sizes only (pathfinding stubbed). Diff rc: 0 equal, 1 diverge, 2 input error, 3 prefix unmet.
 
 ## 6. Warnings
-Never delete files; installed game `D:/Games/LethalDreams` READ-ONLY (use scratch tree only). Always `taskkill /F /IM LETHALDREAMS.EXE` after runs. Do not guess slot layouts without `game_dis.txt` / `docs/PLAN_BATTLE_AI_CPP.md` evidence. Keep writes opt-in; verify `check_state.py --quick` after installed-game changes.
+Never delete files; installed game `config[game.root]` READ-ONLY (use scratch tree only). Always `taskkill /F /IM LETHALDREAMS.EXE` after runs. Do not guess slot layouts without `game_dis.txt` / `docs/PLAN_BATTLE_AI_CPP.md` evidence. Keep writes opt-in; verify `check_state.py --quick` after installed-game changes.
 
 ## 7. State (offline replay gate, v5 real pathfinding)
 

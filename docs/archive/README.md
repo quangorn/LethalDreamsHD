@@ -39,6 +39,7 @@ md5, offsets, VA, размеры, термины и формулировки **�
 | `PLAN_BATTLE_AI_PORT.md` | 12304 B, 214 строк | план порта боевого AI + pathfinding в `.pyd` (site6, цель — снять тормоза боя) | заменён 19.11.2026: цель пересмотрена на читаемый порт логики, канон — `docs/PLAN_BATTLE_AI_CPP.md` |
 | `CANCELLED_Q_MODE.md` | новый | отменённые планы Q-режима (формула «квадрат по центру», план патча, реализация и её ограничения) | ОТМЕНЕНО 16.11.2026, код удалён; рабочее решение — `docs/PATCHES.md` («R/E/F1: финальное решение») |
 | `TASK_battle_trace_h2.md` | 78 строк | handoff: починка чтения полей trace (H2) для гейта Фазы 2 порта боя | закрыто решением 2.8 (`docs/PLAN_BATTLE_AI_CPP.md`): H1 сохраняет unit, H2 берёт `this = unit + 0x138` — `tools/ldhook/battle/trace.cpp` |
+| `TASK_battle_replay_handoff.md` | 6777 B, 76 строк | handoff: офлайн capture/replay харнесс `FUN_0045e0a0` (plan 1.7 §3.2) | ЗАКРЫТО 21.11.2026; метод гейта — решение плана 3.7, описание харнесса — `tools/ldhook/README.md` |
 
 ## Правила
 
