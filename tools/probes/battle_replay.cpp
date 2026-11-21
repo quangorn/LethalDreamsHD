@@ -268,6 +268,9 @@ struct Call {
     /* v7: биты float world[0x120] на входе каждого cb40-вызова + флаг снятия. */
     std::vector<unsigned int> leaves_scale;
     std::vector<int> leaves_scale_ok;
+    /* v8: per-cb40 chain snapshot [count, (idx,min,max,key,next,chain,status)*].
+     * Empty for v1..v7 captures — the replay then keeps the e0a0-level grid. */
+    std::vector< std::vector<int> > leaves_chain;
     /* v5: пор-produced leaf-поток (реальный прогон, без подмены). */
     std::vector<PathLeaf> port_path;
     std::vector<int> port_heur, port_timeout;
@@ -556,6 +559,19 @@ static void read_leaves(Call &c, const JVal &res) {
             for (size_t i = 0; i < lok.a.size(); i++) {
                 c.leaves_scale_ok.push_back(
                     (int)jnum(lok.a[i], "res.leaf.scale_ok"));
+            }
+        }
+        /* v8: optional per-cb40 chain state (old captures have no key). */
+        if (jhas(leaf, "chain")) {
+            const JVal &ch = jarr(leaf, "chain", "res.leaf.chain");
+            for (size_t i = 0; i < ch.a.size(); i++) {
+                std::vector<int> rec;
+                if (ch.a[i].t == JVal::ARR) {
+                    for (size_t k = 0; k < ch.a[i].a.size(); k++) {
+                        rec.push_back((int)jnum(ch.a[i].a[k], "res.leaf.chain"));
+                    }
+                }
+                c.leaves_chain.push_back(rec);
             }
         }
     }
@@ -1012,6 +1028,61 @@ extern "C" {
  * остаётся статическим из записи `grid`. Арифметика порта не меняется.
  * scale_compared/scale_skipped — вызовы с захваченным масштабом / с фолбэком. */
 static int g_scale_compared = 0, g_scale_skipped = 0;
+
+/* v8: per-cb40 chain reconstruction. The port's own node registrations are
+ * recorded in g_port_tree and win over the captured status when the chain
+ * state is applied, so tree_lookup sees the PORT's state, not a stale capture.
+ * Old captures have no leaf.chain -> skipped, zero behaviour change. */
+static std::map<unsigned int, int> g_port_tree;
+static int g_chain_applied = 0, g_chain_skipped = 0;
+
+extern "C" void replay_apply_chain_state(int leaf_index)
+{
+    const Call *c = g_cur;
+    static int disabled = -1;
+    if (disabled < 0) {
+        const char *s = getenv("LD_REPLAY_DISABLE_CHAIN");
+        disabled = (s != NULL && *s != '\0') ? atoi(s) : 0;
+    }
+    if (disabled) {
+        g_chain_skipped++;
+        return;
+    }
+    if (c == NULL || g_grid == NULL || g_grid_error) {
+        return;
+    }
+    if (leaf_index < 0 || leaf_index >= (int)c->leaves_chain.size() ||
+        c->leaves_chain[leaf_index].empty()) {
+        g_chain_skipped++;
+        return;
+    }
+    const std::vector<int> &rec = c->leaves_chain[leaf_index];
+    int cnt = rec[0];
+    if (cnt < 0 || cnt > 8 || rec.size() < (size_t)(1 + cnt * 7)) {
+        g_chain_skipped++;
+        return;
+    }
+    for (int i = 0; i < cnt; i++) {
+        const int *e = &rec[1 + i * 7];
+        int idx = e[0];
+        unsigned key;
+        if (idx < 0 || idx >= g_grid->n) continue;
+        GridCell *cell = &g_grid->cells[idx];
+        memcpy(&cell->min_metric, &e[1], sizeof(int));
+        memcpy(&cell->max_metric, &e[2], sizeof(int));
+        g_grid->krecs[idx].key = e[3];
+        g_grid->cell_keys[idx] = e[3];
+        cell->next = (e[4] >= 0 && e[4] < g_grid->n)
+                     ? &g_grid->cells[e[4]] : NULL;
+        cell->chain_next = (e[5] >= 0 && e[5] < g_grid->n)
+                           ? &g_grid->cells[e[5]] : NULL;
+        key = (unsigned)e[3];
+        if (g_port_tree.find(key) == g_port_tree.end()) {
+            g_grid->tree[key] = e[6];   /* world+0x104 status through native seam */
+        }
+    }
+    g_chain_applied++;
+}
 
 static void rep_reset_world_scale(const Call *c)
 {
@@ -1714,6 +1785,39 @@ extern "C" void replay_note_gate_state(const int *spec_in, const int *spec_out,
     g_gi++;
 }
 
+/* Opt-in per-c3a0 chain trace (LD_REPLAY_CHAIN_SEQ=<seq> + LD_REPLAY_TRACE=2):
+ * shows what the reconstructed chain looks like when the port walks it.
+ * Behaviour-neutral: printing only, no state changes. */
+extern "C" void replay_chain_trace(const char *what, const void *p1,
+                                   int n_walked, const int *walk,
+                                   int p1idx, int lastidx, int bestidx,
+                                   int p5before, int p6before,
+                                   int p5after, int p6after, int p3, int p7)
+{
+    static int target = -2;
+    if (target == -2) {
+        const char *s = getenv("LD_REPLAY_CHAIN_SEQ");
+        target = (s != NULL && *s != '\0') ? atoi(s) : -1;
+    }
+    if (replay_trace_level() < 2 || target < 0 || g_cur == NULL ||
+        g_cur->seq != target) {
+        return;
+    }
+    fprintf(stderr,
+            "CHAIN %s seq=%d p1=%p idx=%d last=%d best=%d n=%d "
+            "p5[0x%x->0x%x] p6[0x%x->0x%x] p3=0x%x p7=%d nodes:",
+            what, g_cur->seq, p1, p1idx, lastidx, bestidx, n_walked,
+            (unsigned)p5before, (unsigned)p5after,
+            (unsigned)p6before, (unsigned)p6after,
+            (unsigned)p3, p7);
+    for (int i = 0; i < n_walked && i < 16; i++) {
+        const int *e = &walk[i * 5];
+        fprintf(stderr, " [i=%d k=%d st=%d mn=0x%x mx=0x%x]",
+                e[0], e[1], e[2], (unsigned)e[3], (unsigned)e[4]);
+    }
+    fputc('\n', stderr);
+}
+
 extern "C" void replay_note_heur(int value)
 {
     const Call *c = rep_cur();
@@ -1950,6 +2054,11 @@ void register_occupied_slot(void *ai, LDObject *obj) {
     m2tn->key = p ? occ_key_of(p) : 0;
     m2tn->value = obj;
     m2tn->is_nil = 0;
+    /* v8: port's own registration is a tree-status mutation. replay_apply_chain_state
+     * keeps this value instead of overwriting it with the captured status. */
+    if (p != NULL) {
+        g_port_tree[(unsigned)m2tn->key] = 1;
+    }
     r->m2.nodes.push_back(m2tn);
     {
         RegEvent ev;
@@ -2583,6 +2692,9 @@ int main(int argc, char **argv) {
                g_gate_compared, g_gate_skipped);
         /* v7: вызовы с захваченным world[0x120] / со статическим фолбэком. */
         printf("SCALE: compared=%d skipped=%d\n", g_scale_compared, g_scale_skipped);
+        printf("CHAINSTATE: applied=%d skipped=%d port_status=%u\n",
+               g_chain_applied, g_chain_skipped,
+               (unsigned)g_port_tree.size());
         if (chained) {
             /* survived = число цепных вызовов, совпавших подряд до первого
              * расхождения (0, если первый же вызов разошёлся). */

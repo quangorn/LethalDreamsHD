@@ -39,6 +39,16 @@ extern "C" int replay_gate_index(void);   /* число cb40-вызовов по
 extern "C" int replay_call_seq(void);     /* seq текущего вызова харнесса */
 extern "C" int replay_cell_index(void *cell);
 extern "C" int replay_tree_status(int key);
+/* Opt-in chain trace (LD_REPLAY_TRACE=2): one line per c3a0 call with the
+ * reconstructed chain, its statuses and the slot writes. Behaviour-neutral. */
+/* v8: restore the per-cb40 chain state (captured at the native cb40 entry)
+ * before the port's own search runs; old captures are skipped by the harness. */
+extern "C" void replay_apply_chain_state(int leaf_index);
+extern "C" void replay_chain_trace(const char *what, const void *p1,
+                                   int n_walked, const int *walk,
+                                   int p1idx, int lastidx, int bestidx,
+                                   int p5before, int p6before,
+                                   int p5after, int p6after, int p3, int p7);
 #endif
 /* In-order successor по std::_Tree (порт FUN_0047f800, без вызова). */
 TreeNode *s6_tree_next(TreeNode *node)
@@ -315,6 +325,8 @@ GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
     GridCell *best = NULL;
 #ifdef BATTLE_REPLAY
     int n_walked = 0;               /* число узлов цепочки, прочитанных циклом */
+    int p5before = (p5 != NULL) ? *p5 : 0, p6before = (p6 != NULL) ? *p6 : 0;
+    int walk[16 * 5];               /* idx,key,status,min,max на узел (opt-in trace) */
 #endif
 
     InterlockedIncrement(&g_ts_calls);
@@ -351,6 +363,16 @@ GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
         n_walked++;
 #endif
         status = native::tree_lookup(world, (unsigned int)cur->key_rec->key);  /* 0x45c3eb */
+#ifdef BATTLE_REPLAY
+        if (n_walked < 16) {
+            int *e = &walk[(n_walked - 1) * 5];
+            e[0] = replay_cell_index(cur);
+            e[1] = cur->key_rec->key;
+            e[2] = status;
+            e[3] = *(const int *)&cur->min_metric;
+            e[4] = *(const int *)&cur->max_metric;
+        }
+#endif
 
         if (status == 1) {                 /* 0x45c3f8: EDI = cur — кандидат принят */
             best = cur;
@@ -407,6 +429,14 @@ GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
     g_chain[0] = (best != NULL) ? *(const int *)&best->min_metric : 0;
     g_chain[1] = (best != NULL) ? *(const int *)&best->max_metric : 0;
     g_chain[2] = (best != NULL) ? best->key_rec->key : 0;
+    replay_chain_trace("c3a0", p1, n_walked, walk,
+                       replay_cell_index(p1),
+                       (n_walked > 0 && n_walked <= 16)
+                           ? walk[(n_walked - 1) * 5] : -1,
+                       (best != NULL) ? replay_cell_index(best) : -1,
+                       p5before, p6before,
+                       (p5 != NULL) ? *p5 : 0, (p6 != NULL) ? *p6 : 0,
+                       p3, p7);
 #endif
     return best;
 }
@@ -630,6 +660,7 @@ void *s6_path_search(BattleAI *self, PathState *spec)
 
         memset(g_gate, 0, sizeof(g_gate));        /* слоты на каждый вызов */
         memcpy(spec_in, spec, sizeof(spec_in));   /* состояние cb40 на входе */
+        replay_apply_chain_state(replay_gate_index());  /* v8: состояние цепочки */
         r = s6_path_search_body(self, spec);
         memcpy(spec_out, spec, sizeof(spec_out)); /* состояние на выходе */
         replay_note_gate_state(spec_in, spec_out, g_gate);

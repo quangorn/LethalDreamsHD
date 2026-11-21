@@ -35,7 +35,9 @@
 #define CAP_MAX_GRID_CELLS 200000  /* потолок статической сетки (v5) */
 #define CAP_MAX_TREE_DELTA 50000   /* потолок дельт world+0x104 за вызов */
 #define CAP_MAX_CELL_DELTA 20000   /* потолок дельт ячеек за вызов */
-#define CAP_VERSION     7          /* версия cap/res; v1..v6 — старые захваты */
+#define CAP_VERSION     8          /* версия cap/res; v1..v7 — старые захваты */
+#define CAP_CHAIN_MAX   8          /* v8: узлов цепочки c3a0 на один cb40-вызов */
+#define CAP_CHAIN_WORDS 7          /* idx,min,max,key,next,chain,status */
 
 /* v3: значение узла map2 (PathState*) — раньше реплика ставила NULL и всегда
  * шла «свободным путём». w[] — сырые dword'ы PathState; ptr[] — 11 указателей
@@ -98,6 +100,12 @@ static unsigned int g_cb40_scale = 0;
 static int g_cb40_scale_ok = 0;
 static int *g_leaf_scale = NULL;        /* v7: биты на каждый cb40-leaf */
 static int *g_leaf_scale_ok = NULL;     /* v7: 1 — значение снято */
+/* v8: состояние цепочки c3a0 на ВХОДЕ каждого cb40-вызова: [count, entries…].
+ * Entry = [idx,min(+14),max(+18),key,next(+24),chain(+28),tree_status].
+ * Снимается в трамплине cb40, поэтому видит мутации ячеек внутри e0a0,
+ * которых нет в статическом grid/cell_delta уровня e0a0. */
+static int *g_chain_leaf = NULL;
+static int  g_chain_overflow = 0;
 
 /* v5: статическая сетка — один снимок на бой. Массивы выделяются в init. */
 static int *g_gkey = NULL, *g_gstatus = NULL, *g_gmin = NULL;
@@ -166,6 +174,8 @@ void battle_capture_init(void)
     g_gate = (int *)malloc((size_t)CAP_MAX_LEAF * CAP_GATE_WORDS * sizeof(int));
     g_leaf_scale = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
     g_leaf_scale_ok = (int *)malloc((size_t)CAP_MAX_LEAF * sizeof(int));
+    g_chain_leaf = (int *)malloc((size_t)CAP_MAX_LEAF *
+                                 (1 + CAP_CHAIN_MAX * CAP_CHAIN_WORDS) * sizeof(int));
     g_gkey = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
     g_gstatus = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
     g_gmin = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
@@ -187,14 +197,14 @@ void battle_capture_init(void)
     g_prev_rows = (int *)malloc((size_t)CAP_MAX_GRID_CELLS * sizeof(int));
     if (!g_nodes || !g_occ || !g_occ_nodes || !g_iter || !g_path || !g_pptr ||
         !g_heur || !g_tout || !g_tms || !g_gate || !g_leaf_scale ||
-        !g_leaf_scale_ok || !g_gkey || !g_gstatus || !g_gmin ||
+        !g_leaf_scale_ok || !g_chain_leaf || !g_gkey || !g_gstatus || !g_gmin ||
         !g_gmax || !g_gnext || !g_gchain || !g_grows ||
         !g_gw0 || !g_gw1 || !g_gw2 || !g_gw3 || !g_gw4 ||
         !g_tree_prev || !g_td_idx || !g_td_val ||
         !g_prev_fields || !g_cd_idx || !g_cd_val || !g_prev_rows) {
         free(g_nodes); free(g_occ); free(g_occ_nodes); free(g_iter);
         free(g_path); free(g_pptr); free(g_heur); free(g_tout); free(g_tms);
-        free(g_gate); free(g_leaf_scale); free(g_leaf_scale_ok);
+        free(g_gate); free(g_leaf_scale); free(g_leaf_scale_ok); free(g_chain_leaf);
         free(g_gkey); free(g_gstatus); free(g_gmin); free(g_gmax);
         free(g_gnext); free(g_gchain); free(g_grows);
         free(g_gw0); free(g_gw1); free(g_gw2); free(g_gw3); free(g_gw4);
@@ -441,6 +451,82 @@ static void cap_write_gate(FILE *f)
     fputc(']', f);
 }
 
+/* v8: снимок цепочки, которую обойдёт ПЕРВЫЙ c3a0 этого cb40 (FUN_0045c3a0):
+ * node = spec->pos, спуск FUN_00456a70 по +0x28, затем переходы +0x24.
+ * Поля ровно те, что читает 0x45c3e0..0x45c425: min/max +0x14/+0x18,
+ * ключ [[node+0x20]], next +0x24, link +0x28 и статус tree_lookup. */
+static void cap_snapshot_chain(void *self)
+{
+    unsigned char *cells = NULL, *world = NULL;
+    int n = 0, cnt = 0;
+    void *node;
+    size_t li;
+    int *out;
+
+    if (g_chain_leaf == NULL) {
+        return;
+    }
+    __try {
+        unsigned char *ctx = (unsigned char *)self;
+        if (ctx != NULL) {
+            GridLevel *lvl;
+            world = *(unsigned char **)(ctx + 4);
+            lvl = *(GridLevel **)(ctx + 8);
+            while (lvl != NULL && lvl->next_level != NULL) lvl = lvl->next_level;
+            if (lvl != NULL) {
+                cells = (unsigned char *)lvl->cells;
+                n = lvl->size_x * lvl->size_y;
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return;
+    }
+    if (cells == NULL || world == NULL || n <= 0 || n > CAP_MAX_GRID_CELLS) {
+        return;
+    }
+    li = (size_t)(g_path_n / CAP_WORDS);   /* индекс листа pc40 до записи на выходе */
+    if (li >= CAP_MAX_LEAF) {
+        return;
+    }
+    out = &g_chain_leaf[li * (1 + CAP_CHAIN_MAX * CAP_CHAIN_WORDS)];
+    out[0] = 0;
+    node = (g_cap_a1 != NULL) ? *(void **)g_cap_a1 : NULL;   /* spec->pos */
+    __try {
+        if (node != NULL) {
+            void *q = *(void **)((unsigned char *)node + 0x28);
+            while (q != NULL) {
+                node = q;
+                q = *(void **)((unsigned char *)node + 0x28);
+            }
+        }
+        while (node != NULL && cnt < CAP_CHAIN_MAX) {
+            unsigned char *c = (unsigned char *)node;
+            void *kr = *(void **)(c + 0x20);
+            void *nx = *(void **)(c + 0x24);
+            void *ch = *(void **)(c + 0x28);
+            int *e = &out[1 + cnt * CAP_CHAIN_WORDS];
+            int key = (kr != NULL) ? *(int *)kr : 0;
+            e[0] = (c >= cells && c < cells + (size_t)n * S6_GRID_CELL_SIZE)
+                   ? (int)(((unsigned char *)c - cells) / S6_GRID_CELL_SIZE) : -1;
+            e[1] = *(int *)(c + 0x14);
+            e[2] = *(int *)(c + 0x18);
+            e[3] = key;
+            e[4] = (nx >= cells && nx < cells + (size_t)n * S6_GRID_CELL_SIZE)
+                   ? (int)(((unsigned char *)nx - cells) / S6_GRID_CELL_SIZE) : -1;
+            e[5] = (ch >= cells && ch < cells + (size_t)n * S6_GRID_CELL_SIZE)
+                   ? (int)(((unsigned char *)ch - cells) / S6_GRID_CELL_SIZE) : -1;
+            e[6] = native::tree_lookup(world, (unsigned int)key);
+            cnt++;
+            node = nx;                       /* 0x45c420: node = [node+0x24] */
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    out[0] = cnt;
+    if (cnt == CAP_CHAIN_MAX && node != NULL) {
+        g_chain_overflow = 1;
+    }
+}
+
 /* v7: масштаб world[0x120] на входе каждого cb40-вызова: биты float и флаг снятия. */
 static void cap_write_scale(FILE *f, int n)
 {
@@ -457,6 +543,26 @@ static void cap_write_scale(FILE *f, int n)
         fprintf(f, "%s%d", i ? "," : "", g_leaf_scale_ok[i]);
     }
     fputc(']', f);
+}
+
+/* v8: записать снимки цепочек по cb40-вызовам (параллельно leaf.path). */
+static void cap_write_chain(FILE *f, int n)
+{
+    int i, j, k;
+    fputs(",\"chain\":[", f);
+    for (i = 0; i < n; i++) {
+        const int *p = &g_chain_leaf[(size_t)i * (1 + CAP_CHAIN_MAX * CAP_CHAIN_WORDS)];
+        int cnt = p[0];
+        fputs(i ? "],[" : "[", f);
+        fprintf(f, "%d", cnt);
+        for (j = 0; j < cnt; j++) {
+            const int *e = &p[1 + j * CAP_CHAIN_WORDS];
+            for (k = 0; k < CAP_CHAIN_WORDS; k++) {
+                fprintf(f, ",%d", e[k]);
+            }
+        }
+    }
+    fputs(n ? "]]" : "]", f);
 }
 
 /* v3: полная запись значения узла map2 (NULL или PathState) + скалярный блок
@@ -1122,8 +1228,9 @@ void battle_capture_e0a0_exit(void *node)
     fputs(",\"timer\":", g_file);
     cap_write_ints(g_file, g_tms, g_tout_n);
     cap_write_scale(g_file, g_path_n / CAP_WORDS);
-    fprintf(g_file, ",\"overflow\":%d},\"trap\":%d}\n",
-            g_leaf_overflow, g_map_trap);
+    cap_write_chain(g_file, g_path_n / CAP_WORDS);   /* v8: состояние цепочки на входе */
+    fprintf(g_file, ",\"overflow\":%d,\"chain_overflow\":%d},\"trap\":%d}\n",
+            g_leaf_overflow, g_chain_overflow, g_map_trap);
 }
 
 /* ----------------------------- трамплины листьев ------------------------ */
@@ -1151,6 +1258,7 @@ void __cdecl cap_read_cb40_scale(void *self)
         g_cb40_scale = 0;
         g_cb40_scale_ok = 0;
     }
+    cap_snapshot_chain(self);   /* v8: состояние цепочки на входе cb40 */
 }
 
 static void *g_cont_cb40 = NULL, *g_cont_heur = NULL, *g_cont_timeout = NULL;
@@ -1180,11 +1288,6 @@ void battle_capture_set_leaf_fns(void *cb40, void *heur, void *timeout)
 void __declspec(naked) cap_fn_cb40_hook(void)
 {
     __asm {
-        push ecx                       /* v7: снять world[0x120] на входе cb40 */
-        push ecx
-        call cap_read_cb40_scale
-        add esp, 4
-        pop ecx
         mov eax, dword ptr [esp]       /* настоящий адрес возврата */
         mov dword ptr [g_ret_cb40], eax
         /* v6: [esp+4]=arg1=spec (PathState*), [esp+8]=arg2=pos (не читается
@@ -1193,6 +1296,11 @@ void __declspec(naked) cap_fn_cb40_hook(void)
         mov dword ptr [g_cap_a1], eax
         mov eax, dword ptr [esp+8]
         mov dword ptr [g_cap_a2], eax
+        push ecx                       /* v7/v8: снять scale + состояние цепочки */
+        push ecx
+        call cap_read_cb40_scale
+        add esp, 4
+        pop ecx
         mov dword ptr [esp], offset cap_ret_cb40
         sub esp, 0x3c                  /* украденные байты пролога cb40 */
         push ebx
