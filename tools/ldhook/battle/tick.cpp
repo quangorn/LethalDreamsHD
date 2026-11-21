@@ -28,8 +28,9 @@
  * цепочка флагов), R18 (`0x44cc19..0x44cd09`, B109..B120: dispatch-каскад
  * кодов 2/3, GUI-блок K1 и out-guard `*param_3 = 0`) и R19
  * (`0x44cd0a..0x44cdf1`, B121..B126: GUI-блок K2, гейты code==4 — head/count,
- * `vtable+0x2c` против `[unit+0xfc]`, builder-ctor и mode-флаг 1/4);
- * все листья —
+ * `vtable+0x2c` против `[unit+0xfc]`, builder-ctor и mode-флаг 1/4), R20
+ * (`0x44cdf2..0x44cee5`, B128..B134: state-копия, цепочки, cursor K3
+ * `0x4eebc8`, builder+`446a80`); все листья —
  * нативные
  * `native::…`, один детур на функцию (инвариант 5) — H1 `0x44bdf5` с возвратом
  * в нативный эпилог `0x44d074` (там же H2/capture, поэтому трассировка тика и
@@ -53,7 +54,7 @@
 #include "battle.h"
 #include "native.h"
 
-/* B0_BODY_COMPLETE — 0: портирован только R1..R19, тело неполное (дальше —
+/* B0_BODY_COMPLETE — 0: портирован только R1..R20, тело неполное (дальше —
  * UNPORTED-выходы), поэтому детур обязан быть разоружён. Определяется в 1
  * тем чанком, который доводит тело до единственного RET `0x44d08c`. */
 #ifndef B0_BODY_COMPLETE
@@ -83,7 +84,7 @@ int b0_env_on(void)
 int b0_port_enabled(void)
 {
 #if !B0_BODY_COMPLETE
-    /* UNPORTED: R20..R23 не портированы — детур не встаёт. */
+    /* UNPORTED: R21..R23 не портированы — детур не встаёт. */
     return 0;
 #else
     return b0_env_on();
@@ -161,7 +162,7 @@ static int b0_body_r1_r2(void *unit_, unsigned char *frame)
     /* EBP в нативе сдвигается `ADD EBP,0x18` в cursor-блоках и НЕ
      * восстанавливается (снимает только эпилогный POP EBP). Адресация после
      * сдвига идёт через unit_x (= EBP); сайты: 0x44c035 (R3 B21), 0x44c197
-     * (R5 B30), далее 0x44c9a7/0x44ce7c (R14/R20). */
+     * (R5 B30), далее 0x44c9a7 (R15 B90). */
     unsigned char *unit_x = unit;
     unsigned char snap_buf[0x20];   /* B2: снимок 0x20 Б (натив: [esp] после sub 0x20) */
     unsigned char msg_dst[0x40];    /* B15/B24: копия msg-объекта (натив: esp после sub 0x3c) */
@@ -1263,11 +1264,78 @@ b122_r19:
     goto b128_r20;                                      /* fall 0x44cdf2 → R20 */
 
 b128_r20:
-    /* 0x44cdf2 — TODO(5.1b-19) UNPORTED: R20 B128..B134 (442570(unit,0) →
-     * ESI-alias, rep movsl ×8 в `frame+0x60`, `[frame+0x80]=0`, vtable+0x40,
-     * цепочки 2/4, cursor-блок K3 0x4eebc8, builder 4040f0 + 446a80 → join
-     * 0x44cee6). Возврат 0 = путь `xor al,al` @0x44d072. */
-    return 0;
+    /* --- R20: state-копия + цепочки + cursor K3 + builder/timer ----------- *
+     * `0x44cdf2..0x44cee5`, B128..B134. Входы: B127 fall и B128 `jne`
+     * (R19 B126 `0x44cde8`). На обоих EBP не сдвинут (`ADD EBP,0x18` есть
+     * только в B21/B30/B41/B58/B62/B65/B69/B72/B96; все они уходят из этого
+     * пути), поэтому `unit_x == unit`. ESI на входе мёртв: B128 сразу
+     * `MOV ESI,EAX` (результат 442570) и использует его лишь как источник
+     * `rep movsl`. EDI тоже перезаписывается B128 (`LEA EDI,[frame+0x60]`,
+     * затем +0x20 от rep) и до конца R20 не читается. EBX читается только
+     * как BL в B133, куда пишется `MOV BL,0x1b`.
+     *
+     * ESP: R19 B126 оставляет `push 0` под вызов 442570 @0x44cdf2; `ret 4`
+     * callee снимает его, поэтому все слоты R20 `[esp+…]` = `frame+…`.
+     * B134 `SUB ESP,0x3c` балансируется `446a80` (`ret $0x3c`), поэтому на
+     * join `0x44cee6` ESP = frame (out-guard R21: `[esp+0x164]` = frame+0x164). */
+    res = native::game_state_get(unit_x, 0);            /* 0x44cdf2 (push 0, ECX=unit_x, ret 4) */
+    memcpy(frame + 0x60, res, 32);                      /* 0x44ce05 rep movsl ×8 */
+    *(unsigned int *)(frame + 0x80) = 0;                /* 0x44ce09 */
+    /* vtable+0x40 БЕЗ push: callee читает [esp+4] = frame (модель B15/B24/B35). */
+    if (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL) {
+        goto b132_r20;                                  /* 0x44ce19 je 0x44ce5e */
+    }
+
+    /* B129 (0x44ce1b..0x44ce36) — цепочка ×1 (`push 1`), `TESTB $2`:
+     * бит взят → B131. */
+    flags_obj = b0_player_flag_chain(unit_x);           /* 0x44ce1b..0x44ce33 */
+    if ((*(const unsigned char *)flags_obj & 0x2) != 0) {
+        goto b131_r20;                                  /* 0x44ce36 jne 0x44ce55 */
+    }
+
+    /* B130 (0x44ce38..0x44ce53) — цепочка ×2, `TESTB $4`: бит снят → B132. */
+    flags_obj = b0_player_flag_chain(unit_x);           /* 0x44ce38..0x44ce50 */
+    if ((*(const unsigned char *)flags_obj & 0x4) == 0) {
+        goto b132_r20;                                  /* 0x44ce53 je 0x44ce5e */
+    }
+
+b131_r20:
+    /* B131 (0x44ce55..0x44ce5c) — cursor/mode update с аргументом 0x40. */
+    native::cursor_mode_update(unit_x, 0x40);           /* 0x44ce55..0x44ce59 */
+
+b132_r20:
+    /* B132 (0x44ce5e..0x44ce64) — msg-флаг `unit+0x34`: 0 → B134 (пропуск
+     * cursor-блока). */
+    if (*(const unsigned char *)(unit_x + 0x34) == 0) {
+        goto b134_r20;                                  /* 0x44ce63 je 0x44cec9 */
+    }
+
+    /* B133 (0x44ce65..0x44cec4) — cursor-блок K3, литерал 0x4eebc8. Форма
+     * 413060 как B118/B121: ctor A `frame+0x10`; dst `frame+0x20`;
+     * arg2 = `unit_x+0x18` (EBP НЕ сдвигается — только `lea`); 3 push
+     * (`[esp+0x160]` при esp=frame−0xc ⇒ byte `frame+0x154`);
+     * trylevel 0x1b → 0x1c → BL(0x1b) → 0x1a, все четыре — байтовые записи. */
+    native::string_ctor(frame + 0x10, native::literal(0x4eebc8)); /* 0x44ce65..0x44ce6f */
+    ebx = 0x1b;                                         /* 0x44ce80 */
+    frame[0x154] = (unsigned char)ebx;                  /* 0x44ce83 (byte) */
+    tail_str = native::string_format(frame + 0x20, unit_x + 0x18, frame + 0x10); /* 0x44ce8a */
+    frame[0x154] = 0x1c;                                /* 0x44ce94 (byte) */
+    native::output_debug_string_a(native::string_c_str(tail_str)); /* 0x44ce9c..0x44cea2 */
+    frame[0x154] = (unsigned char)ebx;                  /* 0x44ceac (byte, mov %bl) */
+    native::string_dtor(frame + 0x20);                  /* 0x44cea8..0x44ceb3 */
+    frame[0x154] = 0x1a;                                /* 0x44cebc (byte) */
+    native::string_dtor(frame + 0x10);                  /* 0x44ceb8..0x44cec4 */
+
+b134_r20:
+    /* B134 (0x44cec9..0x44cee5) — builder-копия msg + таймер. Натив:
+     * `SUB ESP,0x3c` (буфер by-value), src = `frame+0x4c` (msg-объект R19
+     * B126), dst = ESP; `[frame+0x1c]` = ESP; `4040f0` (ret 4), затем
+     * `446a80` (`ret 0x3c`, ECX=unit_x). Слот frame+0x1c держит указатель
+     * на локальный буфер, как в B15/B24/B90; сам SUB в порт не переносится. */
+    *(void **)(frame + 0x1c) = msg_dst;                 /* 0x44ced5 */
+    native::msg_copy(msg_dst, frame + 0x4c);            /* 0x44ceda */
+    native::ai_time_update(unit_x, msg_dst);            /* 0x44cee1 */
+    goto b135_join;                                     /* fall 0x44cee6 → R21 */
 
 b138_r21:
     /* 0x44cf10 — TODO(5.1b-19) UNPORTED: R21 B138..B141 (фаза code==4
@@ -1598,7 +1666,9 @@ b20:
     goto b135_join;                                     /* 0x44c086 jmp 0x44cee6 */
 
 b135_join:
-    /* 0x44cee6 — TODO(5.1b-2) UNPORTED: join R21 (входы B20 JZ, B21 jmp).
+    /* 0x44cee6 — TODO(5.1b-19) UNPORTED: join R21 (входы B20 JZ, B21 jmp,
+     * R20 B134 fall). На всех входах ESP = frame (`446a80` снял `sub 0x3c`),
+     * поэтому out-guard R21 читает `[esp+0x164]` = `frame+0x164` (param_3).
      * Возврат 0 = путь `xor al,al` @0x44d072. */
     return 0;
 
@@ -1609,12 +1679,12 @@ b135_join:
 
 /* Точка входа порта (ABI натива: ECX = unit, 3 стек-аргумента, RET 0xc).
  * Тело — под B0_BODY_COMPLETE: пока оно неполное, функция возвращает 0 и
- * детур разоружён (b0_port_enabled). Тело R1..R19 остаётся скомпилированным и
+ * детур разоружён (b0_port_enabled). Тело R1..R20 остаётся скомпилированным и
  * типизированным — `(void)&` ниже, чтобы /W3 не снял его как неиспользуемый. */
 int b0_battle_ai_dispatch(void *unit, unsigned char *frame)
 {
 #if B0_BODY_COMPLETE
-    return b0_body_r1_r2(unit, frame);      /* TODO(5.1b-19): R20..R23 */
+    return b0_body_r1_r2(unit, frame);      /* TODO(5.1b-19): R21..R23 */
 #else
     /* UNPORTED: тело неполное — единственный вход детура остаётся пустым. */
     (void)&b0_body_r1_r2;
