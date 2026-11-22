@@ -42,6 +42,12 @@
  * `param_1/param_2/param_3` ([esp+0x15c..0x164]), `unit+0x138` (BattleAI),
  * `unit+0x170`, биты гейта `unit+0x114`, а на выходе — AL, `u170`, `*(int*)param_3`
  * и `m0/m1/m2` (+0xa4..0xac). Пары связываются по независимому `seq`.
+ *
+ * v11 (пара bdd0_*; остальные записи — v10) добавляет в res слоты кадра
+ * `frame+0x98` (`anc` — grid-якорь 458050, 0x44c7e1), `frame+0x88` (`tag` —
+ * grid-record, 0x44c774), `frame+0x2c..0x34` (`tri0..tri2` — pos-тройка R14)
+ * и `frame+0x38` (`a4n` — arg4 458050, 0x44c387 / B75 0x44c6ed). native и порт
+ * пишут те же значения, правки тела не требуется.
  */
 #ifndef BATTLE_CAPTURE_H
 #define BATTLE_CAPTURE_H
@@ -72,8 +78,9 @@ void battle_capture_e0a0_exit(void *node);
 void battle_capture_eee0_enter(void *self, void *rec);
 void battle_capture_eee0_exit(int code, void *self);
 
-/* v10: Per-call захват FUN_0044bdd0 (диспетчер боевого AI) — H1/H2.
- * esp — ESP кадра 44bdd0 на входе хука (E0-0x158); аргументы на +0x15c.. */
+/* v10/v11: Per-call захват FUN_0044bdd0 (диспетчер боевого AI) — H1/H2.
+ * esp — ESP кадра 44bdd0 на входе хука (E0-0x158); аргументы на +0x15c..,
+ * v11-слоты читаются от того же base (frame+0x98/0x88/0x2c..0x34/0x38). */
 void battle_capture_bdd0_enter(void *self, void *esp);
 void battle_capture_bdd0_exit(int al, void *esp);
 

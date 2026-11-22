@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bdd0_ab_diff.py - offline A/B diff of FUN_0044bdd0 captures (capture.cpp v10).
+"""bdd0_ab_diff.py - offline A/B diff of FUN_0044bdd0 captures (capture.cpp v10/v11).
 
 Input: two capture jsonl files with `bdd0_cap` (H1 @0x44bdf5) and `bdd0_res`
 (H2 @0x44d074) records - one pair per call of the battle AI dispatcher, paired
@@ -10,12 +10,24 @@ are ignored.
 Compared for every seq present on BOTH sides of each record type:
   res: al, u170, out, m0, m1, m2, trap
   cap: p1, p2, p3 presence, u170, gate114, trap
+v11 adds to res: anc (frame+0x98 grid-anchor result), tag (frame+0x88
+grid-record tag), tri0..tri2 (frame+0x2c..0x34 pos triple), a4n (frame+0x38,
+arg4 of 458050). These fields are compared only when BOTH inputs are v11; on
+v10 inputs the diff is exactly the v10 behaviour. Files whose versions differ
+are reported as a `version` divergence (rc 1): a v10 run is not comparable
+with a v11 run.
+
+tri0..tri2 must mirror m0..m2 inside each file (R14 copies unit+0xa4..0xac
+into the frame triple); an internal disagreement is reported as `self.tri`
+(rc 1), so a broken capture is visible even when both sides match each other.
+
 Cap fields are compared for every seq that has `bdd0_cap` on both sides,
 including the unpaired tail cap (the capture always ends with one - the
 truncated final call), so gate114/u170 divergences in the tail are not masked.
 p3 is a raw pointer: only presence (p3 != 0) is compared, as cap.p3_presence.
-m0..m2 are the raw dwords of unit+0xa4..0xac (float bits), compared
-bit-exactly; the float value is printed next to the raw dword.
+m0..m2 and tri0..tri2 are the raw dwords of unit+0xa4..0xac / frame slots
+(float bits), compared bit-exactly; the float value is printed next to the
+raw dword.
 
 `unit` is a deterministic integer id, so it is compared on both records, but
 advisory only: a mismatch prints an ADVISORY line and counts as advisory.unit,
@@ -26,8 +38,8 @@ difference for a seq (cap vs cap+res, present vs missing) is a `pairing`
 divergence (rc 1). The summary lists which seqs were compared cap-only.
 
 rc: 0 - every compared seq is equal and the seq sets match;
-    1 - field divergence, pairing mismatch, or unequal tail counts
-        (advisory.unit alone does not set it);
+    1 - field divergence, pairing mismatch, self.tri, version mismatch,
+        or unequal tail counts (advisory.unit alone does not set it);
     2 - file unreadable / malformed record / bad arguments.
 """
 import json
@@ -38,16 +50,24 @@ import tempfile
 
 RES_FIELDS = ["al", "u170", "out", "m0", "m1", "m2", "trap"]
 CAP_FIELDS = ["p1", "p2", "p3_presence", "u170", "gate114", "trap"]
-SIDE_FIELDS = [("res", RES_FIELDS), ("cap", CAP_FIELDS)]
+# v11-only res fields: compared when both inputs are v11.
+V11_RES_FIELDS = ["anc", "tag", "tri0", "tri1", "tri2", "a4n"]
+SIDE_FIELDS = [("res", RES_FIELDS + V11_RES_FIELDS), ("cap", CAP_FIELDS)]
 # Fields that must be present in the record as integers (p3_presence is derived
 # from p3). `unit` is compared on both records (advisory).
 RES_RAW = RES_FIELDS + ["unit"]
+RES_RAW_V11 = RES_RAW + V11_RES_FIELDS
 CAP_RAW = ["p1", "p2", "p3", "u170", "gate114", "trap", "unit"]
-FLOAT_FIELDS = ("m0", "m1", "m2")
+FLOAT_FIELDS = ("m0", "m1", "m2", "tri0", "tri1", "tri2")
+# tri* must mirror m0..m2 inside one file; key is not a side.field pair.
+TRI_PAIRS = [("m0", "tri0"), ("m1", "tri1"), ("m2", "tri2")]
 ADV_KEY = "advisory.unit"
+SELF_KEY = "self.tri"
+VER_KEY = "version"
 RANK = dict((key, i) for i, key in enumerate(
-    ["res.%s" % f for f in RES_FIELDS] + ["cap.%s" % f for f in CAP_FIELDS]
-    + ["pairing", ADV_KEY]))
+    [VER_KEY] + ["res.%s" % f for f in RES_FIELDS + V11_RES_FIELDS]
+    + ["cap.%s" % f for f in CAP_FIELDS]
+    + [SELF_KEY, "pairing", ADV_KEY]))
 
 USAGE = ("usage: bdd0_ab_diff.py <baseline.jsonl> <candidate.jsonl> "
          "[--max-show=N] [--quiet]\n"
@@ -61,6 +81,11 @@ HELP = (USAGE + "\n"
         "`pairing` divergence (rc 1).\n"
         "  cap p3 is a raw pointer: only presence (p3 != 0) is compared, as "
         "cap.p3_presence.\n"
+        "  v11 res adds anc, tag, tri0..tri2, a4n: compared only when BOTH "
+        "inputs\n  are v11; tri* must mirror m0..m2 in each file, and an "
+        "internal disagreement\n  is reported as self.tri (rc 1). Files of "
+        "different versions are a version\n  divergence (rc 1). v10 inputs "
+        "behave exactly as before.\n"
         "  unit is a deterministic id, compared on both records as ADVISORY: "
         "a mismatch\n  prints an ADVISORY line and counts as advisory.unit, "
         "and never sets rc 1.\n"
@@ -85,11 +110,13 @@ def is_int(v):
 
 
 def load(path):
-    """(caps, res): seq -> (rec, raw_line) for one run. Validates v/fn/kind,
-    unique integer seq, and that every compared field is present as an integer
-    (a non-integer JSON value is a format error, rc 2). Other kinds are
-    ignored."""
+    """(caps, res, v): seq -> (rec, raw_line) for one run, plus the version of
+    its bdd0 pair. Validates v/fn/kind, unique integer seq, and that every
+    compared field is present as an integer (a non-integer JSON value is a
+    format error, rc 2). A file mixing v10 and v11 bdd0 records is a format
+    error: the capture writes one version per run. Other kinds are ignored."""
     caps, res = {}, {}
+    ver = None
     for line in read_lines(path):
         if not line.strip():
             continue
@@ -98,10 +125,15 @@ def load(path):
         if kind not in ("bdd0_cap", "bdd0_res"):
             continue
         dst = caps if kind == "bdd0_cap" else res
-        ints = CAP_RAW if kind == "bdd0_cap" else RES_RAW
         v = rec.get("v")
-        if v is True or v is False or v != 10:
+        if v is True or v is False or v not in (10, 11):
             raise ValueError("bad v=%r in %s" % (v, path))
+        if ver is None:
+            ver = v
+        elif ver != v:
+            raise ValueError("mixed bdd0 v=%r and v=%r in %s" % (ver, v, path))
+        ints = CAP_RAW if kind == "bdd0_cap" else (
+            RES_RAW_V11 if v == 11 else RES_RAW)
         if rec.get("fn") != "44bdd0":
             raise ValueError("bad fn=%r at seq=%r in %s"
                              % (rec.get("fn"), rec.get("seq"), path))
@@ -122,7 +154,7 @@ def load(path):
         raise ValueError("no bdd0_cap records in %s" % path)
     if not res:
         raise ValueError("no bdd0_res records in %s" % path)
-    return caps, res
+    return caps, res, ver
 
 
 def field_value(rec, f):
@@ -163,9 +195,14 @@ def pairing_issues(base, cand):
     return out
 
 
-def scan(base, cand, idx, side, seqs, counts, events):
-    """Compare the fields of one record type for the seqs present on both sides."""
-    fields = CAP_FIELDS if side == "cap" else RES_FIELDS
+def scan(base, cand, idx, side, seqs, counts, events, v11):
+    """Compare the fields of one record type for the seqs present on both sides.
+    v11 res fields (anc, tag, tri0..tri2, a4n) are compared only when both
+    inputs are v11."""
+    if side == "cap":
+        fields = CAP_FIELDS
+    else:
+        fields = RES_FIELDS + V11_RES_FIELDS if v11 else RES_FIELDS
     for seq in seqs:
         a = base[idx][seq][0]
         b = cand[idx][seq][0]
@@ -183,6 +220,23 @@ def scan(base, cand, idx, side, seqs, counts, events):
                            str(b["unit"]), raws[0], raws[1], "ADVISORY"))
 
 
+def self_tri(base, cand, counts, events):
+    """v11: tri0..tri2 must mirror m0..m2 inside each file (R14 copies
+    unit+0xa4..0xac into the frame triple). A file whose own slots disagree is
+    a broken capture: reported as self.tri (rc 1)."""
+    for seq in sorted(set(base[1]) & set(cand[1])):
+        desc = []
+        for side in (base, cand):
+            rec = side[1][seq][0]
+            bad = ["%s=%d %s=%d" % (m, rec[m], t, rec[t])
+                   for m, t in TRI_PAIRS if rec[m] != rec[t]]
+            desc.append("; ".join(bad) if bad else "ok")
+        if desc[0] != "ok" or desc[1] != "ok":
+            counts[SELF_KEY] = counts.get(SELF_KEY, 0) + 1
+            events.append((seq, SELF_KEY, desc[0], desc[1],
+                           cap_raw(base, seq), cap_raw(cand, seq), "DIVERGE"))
+
+
 def fmt_seqs(seqs, limit=10):
     s = ",".join(str(x) for x in seqs[:limit])
     left = len(seqs) - limit
@@ -194,10 +248,17 @@ def compare(base, cand, max_show, quiet):
     advisories: (seq, field, base_str, cand_str, base_cap_raw, cand_cap_raw,
     tag), where tag is DIVERGE or ADVISORY."""
     counts, events = {}, []
+    v11 = base[2] == 11 and cand[2] == 11
     cap_common = sorted(set(base[0]) & set(cand[0]))
     res_common = sorted(set(base[1]) & set(cand[1]))
-    scan(base, cand, 0, "cap", cap_common, counts, events)
-    scan(base, cand, 1, "res", res_common, counts, events)
+    scan(base, cand, 0, "cap", cap_common, counts, events, v11)
+    scan(base, cand, 1, "res", res_common, counts, events, v11)
+    if v11:
+        self_tri(base, cand, counts, events)
+    if base[2] != cand[2]:
+        counts[VER_KEY] = counts.get(VER_KEY, 0) + 1
+        events.append((0, VER_KEY, "v%d" % base[2], "v%d" % cand[2],
+                       "n/a", "n/a", "DIVERGE"))
     issues = pairing_issues(base, cand)
     events += issues
     events.sort(key=lambda e: (e[0], RANK.get(e[1], len(RANK))))
@@ -216,12 +277,13 @@ def compare(base, cand, max_show, quiet):
             lines.append("... +%d more events" % left)
     tail_s = "%d" % tail[0] if tail[0] == tail[1] else "%d/%d" % tail
     lines.append("SUMMARY: seqs=%d paired=%d caponly=%s base(cap=%d res=%d) "
-                 "cand(cap=%d res=%d) unpaired_tail=%s pairing=%d"
+                 "cand(cap=%d res=%d) unpaired_tail=%s pairing=%d v=%d/%d"
                  % (len(set(cap_common) | set(res_common)),
                     len(set(cap_common) & set(res_common)),
                     fmt_seqs(sorted(set(cap_common) - set(res_common))),
                     len(base[0]), len(base[1]),
-                    len(cand[0]), len(cand[1]), tail_s, len(issues)))
+                    len(cand[0]), len(cand[1]), tail_s, len(issues),
+                    base[2], cand[2]))
     lines.append("SUMMARY: mismatches %s total=%d %s=%d rc=%d"
                  % (" ".join("%s.%s=%d" % (side, f, counts.get("%s.%s" % (side, f), 0))
                              for side, fields in SIDE_FIELDS for f in fields),
@@ -307,6 +369,18 @@ def drop_all(raw, kind):
     return "\n".join(out) + "\n"
 
 
+def set_version(raw, new_v):
+    """Rewrite v on every bdd0_cap/bdd0_res line (self-test version check)."""
+    lines = lines_of(raw)
+    for i, line in enumerate(lines):
+        if line.strip() and json.loads(line).get("kind") in ("bdd0_cap",
+                                                              "bdd0_res"):
+            rec = json.loads(line)
+            rec["v"] = new_v
+            lines[i] = json.dumps(rec, separators=(",", ":"))
+    return "\n".join(lines) + "\n"
+
+
 def self_test(path, max_show):
     """Asserts, each printing PASS/FAIL:
       self-diff of a temp copy -> rc 0;
@@ -317,6 +391,9 @@ def self_test(path, max_show):
       `pairing` divergence;
       a file with no bdd0_cap records -> rc 2 (so an emptied field list cannot
       pass silently).
+    On a v11 input, additionally: anc^1, a4n^1 and tri1^1 mutations -> rc 1 with
+    res.anc / res.a4n / res.tri1 + self.tri reported, and a v10 candidate
+    against the v11 baseline -> rc 1 with `version` reported.
     Returns 0 only if every assert passes. Temp files are created here and
     removed by this function.
     """
@@ -353,6 +430,21 @@ def self_test(path, max_show):
             ("drop all bdd0_cap records (format error)",
              drop_all(raw, "bdd0_cap"), 2, []),
         ]
+        if base[2] == 11:
+            mut_anc, anc_seq = edit_record(raw, "bdd0_res",
+                                           {"anc": lambda v: v ^ 1}, False)
+            mut_a4n, a4n_seq = edit_record(raw, "bdd0_res",
+                                           {"a4n": lambda v: v ^ 1}, False)
+            mut_tri, tri_seq = edit_record(raw, "bdd0_res",
+                                           {"tri1": lambda v: v ^ 1}, False)
+            checks += [
+                ("res.anc^1 at seq=%d" % anc_seq, mut_anc, 1, ["res.anc"]),
+                ("res.a4n^1 at seq=%d" % a4n_seq, mut_a4n, 1, ["res.a4n"]),
+                ("res.tri1^1 at seq=%d (tri must mirror m)" % tri_seq, mut_tri,
+                 1, ["res.tri1", SELF_KEY]),
+                ("v10 candidate against the v11 baseline", set_version(raw, 10),
+                 1, [VER_KEY]),
+            ]
         for label, text, want_rc, want_keys in checks:
             p = write_tmp(text)
             tmps.append(p)

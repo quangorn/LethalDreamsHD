@@ -36,6 +36,7 @@
 #define CAP_MAX_TREE_DELTA 50000   /* потолок дельт world+0x104 за вызов */
 #define CAP_MAX_CELL_DELTA 20000   /* потолок дельт ячеек за вызов */
 #define CAP_VERSION     10         /* версия cap/res; v1..v9 — старые захваты */
+#define CAP_BDD0_VER    11         /* v11: пара bdd0_cap/bdd0_res (остальные — v10) */
 #define CAP_CHAIN_MAX   8          /* v8: узлов цепочки c3a0 на один cb40-вызов */
 #define CAP_CHAIN_WORDS 7          /* idx,min,max,key,next,chain,status */
 /* v10: кадр FUN_0044bdd0 (оба хука стоят на ESP = E0-0x158; аргументы
@@ -43,6 +44,17 @@
 #define CAP_BDD0_P1     0x15c      /* [esp] = param_1 (гейт: AL = байт) */
 #define CAP_BDD0_P2     0x160      /* [esp] = param_2 (scratch) */
 #define CAP_BDD0_P3     0x164      /* [esp] = param_3 (указатель out-кода) */
+/* v11: слоты кадра 44bdd0 (тот же base, что и CAP_BDD0_P*). native и b0-порт
+ * пишут их одинаково: anc = grid-якорь 458050 (0x44c7e1; при NULL — ноль),
+ * tag = grid-record (0x44c774 = 0xeb), tri0..2 = pos-тройка R14 (0x44c8f4..
+ * 0x44c8ff), a4n = arg4 458050: player_get-указатель (B48 0x44c387) или 0
+ * (B75 0x44c6ed). */
+#define CAP_BDD0_ANC    0x98
+#define CAP_BDD0_TAG    0x88
+#define CAP_BDD0_TRI0   0x2c
+#define CAP_BDD0_TRI1   0x30
+#define CAP_BDD0_TRI2   0x34
+#define CAP_BDD0_A4     0x38
 
 /* v3: значение узла map2 (PathState*). w[] — сырые dword'ы PathState; ptr[] —
  * 11 указателей LDPos* (pos, parent, nbr[9]); ptr-поля в w[] харнесс подменяет
@@ -1394,12 +1406,14 @@ void battle_capture_eee0_exit(int code, void *self)
     }
 }
 
-/* ------------------- v10: per-call FUN_0044bdd0 (диспетчер AI) ---------- *
+/* ------------------- v10/v11: per-call FUN_0044bdd0 (диспетчер AI) -------- *
  * Пара `bdd0_cap` (H1 @0x44bdf5, ECX = unit) / `bdd0_res` (H2 @0x44d074)
  * на каждый вызов верхнего диспетчера боевого AI; связывание — по `seq`
  * (независимый g_bdd0_seq). Аргументы вызывающего лежат в кадре 44bdd0
  * (esp = E0-0x158 на обоих хуках), читаются по CAP_BDD0_P*. Предел — свой
- * (g_max_calls), файл закрывает только e0a0. Все разыменования под __try. */
+ * (g_max_calls), файл закрывает только e0a0. Все разыменования под __try.
+ * v11: res дополнительно снимает слоты кадра (CAP_BDD0_ANC, TAG, TRI0..TRI2,
+ * A4). */
 void battle_capture_bdd0_enter(void *self, void *esp)
 {
     int seq;
@@ -1441,7 +1455,7 @@ void battle_capture_bdd0_enter(void *self, void *esp)
     fprintf(g_file, "{\"v\":%d,\"kind\":\"bdd0_cap\",\"seq\":%d,\"tick\":%d,"
             "\"unit\":%d,\"fn\":\"44bdd0\",\"self\":%d,\"p1\":%d,\"p2\":%d,"
             "\"p3\":%d,\"ai\":%d,\"u170\":%d,\"gate114\":%u,\"trap\":%d}\n",
-            CAP_VERSION, seq, g_tick, g_unit, (int)(size_t)self, p1, p2, p3,
+            CAP_BDD0_VER, seq, g_tick, g_unit, (int)(size_t)self, p1, p2, p3,
             ai_ptr, u170, gate114, trap);
 }
 
@@ -1451,6 +1465,9 @@ void battle_capture_bdd0_exit(int al, void *esp)
     int out = -1;
     int u170 = -1;
     unsigned int m0 = 0xFFFFFFFFu, m1 = 0xFFFFFFFFu, m2 = 0xFFFFFFFFu;
+    int anc = 0, a4n = 0;
+    unsigned int tag = 0xFFFFFFFFu, tri0 = 0xFFFFFFFFu, tri1 = 0xFFFFFFFFu,
+                 tri2 = 0xFFFFFFFFu;
     bdd0_frame fr;
     int seq, trap = 0;
 
@@ -1484,10 +1501,29 @@ void battle_capture_bdd0_exit(int al, void *esp)
         u170 = -1;
         m0 = m1 = m2 = 0xFFFFFFFFu;
     }
+    /* v11: слоты кадра на эпилоге (эпилог их не трогает до H2): anc — итог
+     * 458050, tag — grid-record, tri* — pos-тройка, a4n — arg4 458050. */
+    __try {
+        if (esp != NULL) {
+            const unsigned char *frame = (const unsigned char *)esp;
+            anc = (*(const void *const *)(frame + CAP_BDD0_ANC) != NULL) ? 1 : 0;
+            a4n = (*(const void *const *)(frame + CAP_BDD0_A4) != NULL) ? 1 : 0;
+            tag = *(const unsigned int *)(frame + CAP_BDD0_TAG);
+            tri0 = *(const unsigned int *)(frame + CAP_BDD0_TRI0);
+            tri1 = *(const unsigned int *)(frame + CAP_BDD0_TRI1);
+            tri2 = *(const unsigned int *)(frame + CAP_BDD0_TRI2);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        trap = 1;
+        anc = -1; a4n = -1;
+        tag = tri0 = tri1 = tri2 = 0xFFFFFFFFu;
+    }
     fprintf(g_file, "{\"v\":%d,\"kind\":\"bdd0_res\",\"seq\":%d,\"tick\":%d,"
             "\"unit\":%d,\"fn\":\"44bdd0\",\"al\":%d,\"u170\":%d,\"out\":%d,"
-            "\"m0\":%u,\"m1\":%u,\"m2\":%u,\"trap\":%d}\n",
-            CAP_VERSION, seq, g_tick, g_unit, al, u170, out, m0, m1, m2, trap);
+            "\"m0\":%u,\"m1\":%u,\"m2\":%u,\"anc\":%d,\"tag\":%u,"
+            "\"tri0\":%u,\"tri1\":%u,\"tri2\":%u,\"a4n\":%d,\"trap\":%d}\n",
+            CAP_BDD0_VER, seq, g_tick, g_unit, al, u170, out, m0, m1, m2,
+            anc, tag, tri0, tri1, tri2, a4n, trap);
 }
 
 void battle_capture_leaf(int kind, int value, const int *words)
