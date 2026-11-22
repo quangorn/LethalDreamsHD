@@ -226,6 +226,15 @@ Space — саммоны на снимке.
   ровно `sub 0x3c`, поэтому на join `0x44cee6` ESP = frame; trylevel `movl $−1,0x154(%esp)`
   и dtor `lea 0x58(%esp)` это подтверждают. **Обход:** `param_3 = frame+0x164`; не вычитать 0x3c.
 
+## `New-Item -Force` на ключе AppCompat `Layers` стирает значения путей (22.11.2026)
+
+- **Симптом:** после установки флага на scratch-EXE `check_state --quick` даёт
+  `DRIFT registry … LETHALDREAMS.EXE (HIGHDPIAWARE отсутствует)` для пути установки.
+- **Причина:** PowerShell `New-Item -Force` на существующем ключе реестра пересоздаёт ключ и
+  снимает уже записанные значения; флаг установки (путь игры) был снят.
+- **Обход:** для AppCompat `Layers` — только `Set-ItemProperty -Name <путь EXE>`, без
+  `New-Item -Force`; проверка — список значений ключа до и после.
+
 ## Живой A/B прогонов недетерминирован — не fidelity-гейт (22.11.2026)
 
 - **Симптом:** два прогона одного и того же нативного `ldhook.pyd` на одном сценарии и SEED дают
