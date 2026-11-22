@@ -180,7 +180,7 @@ python3 tools/ldhook/patch_ui.py --restore   # откат: вернуть ui.pyc
 
 История: cap итераций (`site4`, 19.11.2026) лаги убирал, но ломал агро (31%
 поисков → «цель не найдена»); код и API сняты в п. 3.4 плана. Разбор —
-`docs/PERF_BATTLE.md`, «Ревизия плана».
+`docs/PERF_BATTLE.md`, «Кап итераций (19.11.2026 — снято)».
 
 ## Офлайн replay-харнесс e0a0 (LDHOOK_BATTLE_CAPTURE)
 
