@@ -201,6 +201,13 @@ void *player_flags(void *flags_obj);
  * @0x44c00e). Возврат не читается. site: 0x44c012. */
 void cursor_mode_update(void *unit, int arg);
 
+/* FUN_00448ee0 (0x448ee0..0x449152, 626 B) — state-флаг + debug-вывод: читает
+ * `[unit+0x114]` (float, сравнивает с 0.0f `[0x4ec37c]`), при необходимости
+ * пишет `[unit+0x114]=1.0f` и печатает строки через OutputDebugStringA;
+ * arg = char (0/1, `mov 0x8(%ebp),%al`). __thiscall, ECX = unit, 1 стек-аргумент,
+ * `ret $0x4` (@0x44914f). sites R22: 0x44d029 (arg 0), 0x44d05c (arg 1). */
+void state_flag_log(void *unit, int flag);
+
 /* FUN_0049b0f0 — ctor строкового объекта (3 dword) из char*: __thiscall,
  * ECX = объект, 1 стек-аргумент = char* (`ret $0x4` @0x49b10a), возврат
  * EAX = объект. site: 0x44c02b (литерал 0x4eee1c @0x44c022). */

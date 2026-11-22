@@ -1193,6 +1193,30 @@ void cursor_mode_update(void *unit, int arg)
     }
 }
 
+/* FUN_00448ee0 — state-флаг + debug-вывод: ECX = unit, 1 стек-арг (char),
+ * `ret $0x4` (@0x44914f). sites R22: 0x44d029 (arg 0), 0x44d05c (arg 1). */
+void state_flag_log(void *unit, int flag)
+{
+    void *addr = fn(0x448ee0);
+
+    if (addr == NULL) {
+        return;
+    }
+    __try {
+        __asm {
+            pushad
+            mov esi, esp
+            mov ecx, unit
+            push flag
+            mov eax, addr
+            call eax
+            mov esp, esi                   /* ret 4 */
+            popad
+        }
+    } __except (native::av_filter()) {
+    }
+}
+
 /* FUN_0049b0f0 — ctor строкового объекта из char*: ECX = объект,
  * 1 стек-арг, `ret $0x4`, EAX = объект. site 0x44c02b. */
 void *string_ctor(void *obj, const char *s)
