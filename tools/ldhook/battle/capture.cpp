@@ -76,7 +76,10 @@
 #define CAP_BDD0_BAND_CAP   0x64   /* BattleAI+0x28 */
 #define CAP_BDD0_BAND_DIRTY 0x7c   /* BattleAI+0x40 */
 #define CAP_BDD0_BAND_ELEM  0x18
+#define CAP_BDD0_BAND_MAX   64     /* потолок материализуемых элементов ленты */
+#define CAP_BDD0_GS_SIZE    0x20   /* объект FUN_00442570, читаемый телом */
 #define CAP_B64_MAX         (CAP_BDD0_UNIT_SIZE * 4 / 3 + 8)
+#define CAP_B64_BAND_MAX    (CAP_BDD0_BAND_MAX * CAP_BDD0_BAND_ELEM * 4 / 3 + 8)
 
 /* v3: значение узла map2 (PathState*). w[] — сырые dword'ы PathState; ptr[] —
  * 11 указателей LDPos* (pos, parent, nbr[9]); ptr-поля в w[] харнесс подменяет
@@ -208,7 +211,18 @@ static int    g_bdd0_sp = 0;       /* 0 — стек пуст */
 static unsigned char g_snap_frame[CAP_BDD0_FRAME_SIZE];
 static unsigned char g_snap_unit[CAP_BDD0_UNIT_SIZE];
 static unsigned char g_snap_ai[CAP_BDD0_AI_SIZE];
+/* v12 (аддитивно): аддитивные блоки, без которых офлайн-харнесс
+ * (tools/probes/bdd0_harness.cpp) не может материализовать разыменования
+ * снимка — см. tools/probes/bdd0/arena.cpp, таблица k_fixups:
+ *   band_b64 — элементы ленты (band_count*0x18, до CAP_BDD0_BAND_MAX штук);
+ *   gs_b64   — 0x20 Б объекта FUN_00442570 (accessor вызывается один раз на
+ *              H1 под __try; тело читает его 4+ раз за тик);
+ *   e0/e0_44/gctx0 — сырые указатели цепочки unit+0xe0 → [+0x44] → [+0x238]
+ *              и первый dword game_ctx (`*(u32)*(unit+0x138)`). */
+static unsigned char g_snap_band[CAP_BDD0_BAND_MAX * CAP_BDD0_BAND_ELEM];
+static unsigned char g_snap_gs[CAP_BDD0_GS_SIZE];
 static char          g_b64[CAP_B64_MAX];
+static char          g_b64_big[CAP_B64_BAND_MAX];
 
 /* Адреса оригинальных листьев (устанавливаются из install_capture_sites). */
 static void *g_fn_cb40 = NULL;
@@ -1488,6 +1502,18 @@ static int cap_b64_encode(char *out, const unsigned char *in, int n)
     return o;
 }
 
+static void cap_write_b64_big(FILE *f, int ok, const unsigned char *p, int n)
+{
+    if (!ok) {
+        fputs("null", f);
+        return;
+    }
+    cap_b64_encode(g_b64_big, p, n);
+    fputc('"', f);
+    fputs(g_b64_big, f);
+    fputc('"', f);
+}
+
 static void cap_write_b64_field(FILE *f, int ok, const unsigned char *p, int n)
 {
     if (!ok) {
@@ -1505,7 +1531,10 @@ static void cap_write_bdd0_in(int seq, void *self, void *esp, int p1, int p2,
                               unsigned int gate114)
 {
     int frame_ok = 1, unit_ok = 1, ai_ok = 1, trap = 0;
+    int band_ok = 1, band_n = 0, gs_ok = 0, gctx0_ok = 0;
     unsigned int bb = 0, be = 0, bc = 0, bd = 0;
+    unsigned int e0_v = 0, e044_v = 0, tree_v = 0;
+    int gctx0 = 0;
     int band_count = 0;
 
     if (esp != NULL) {
@@ -1547,6 +1576,58 @@ static void cap_write_bdd0_in(int seq, void *self, void *esp, int p1, int p2,
             band_count = (int)((int)(be - bb) / (int)CAP_BDD0_BAND_ELEM);
         }
     }
+    /* v12 (аддитивно): элементы ленты — только в пределах потолка. */
+    band_n = 0;
+    if (band_ok && band_count > 0) {
+        int n = band_count;
+        if (n > CAP_BDD0_BAND_MAX) n = CAP_BDD0_BAND_MAX;
+        __try {
+            memcpy(g_snap_band, (const void *)bb, (unsigned)n * CAP_BDD0_BAND_ELEM);
+            band_n = n;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            band_n = 0;
+        }
+    }
+    /* v12 (аддитивно): сырые указатели цепочки unit+0xe0 → [+0x44] → [+0x238]
+     * и game_ctx[0] (первый dword `*(unit+0x138)`). */
+    if (self != NULL) {
+        __try {
+            void *e0 = *(void * const *)((const unsigned char *)self + 0xe0);
+            if (e0 != NULL) {
+                e0_v = (unsigned)(size_t)e0;
+                void *p44 = *(void * const *)((const unsigned char *)e0 + 0x44);
+                if (p44 != NULL) {
+                    e044_v = (unsigned)(size_t)p44;
+                    void *tr = *(void * const *)((const unsigned char *)p44 + 0x238);
+                    tree_v = (unsigned)(size_t)tr;
+                }
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+        __try {
+            const void *gctx = *(void * const *)((const unsigned char *)self + 0x138);
+            if (gctx != NULL) {
+                gctx0 = *(const int *)gctx;
+                gctx0_ok = 1;
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            gctx0_ok = 0;
+        }
+    }
+    /* v12 (аддитивно): объект состояния игры FUN_00442570 (0x20 Б). Accessor
+     * вызывается под __try; тело всё равно зовёт его 4+ раз за тик. */
+    gs_ok = 0;
+    if (self != NULL) {
+        __try {
+            const void *gs = native::game_state_get(self, 0);
+            if (gs != NULL) {
+                memcpy(g_snap_gs, gs, CAP_BDD0_GS_SIZE);
+                gs_ok = 1;
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            gs_ok = 0;
+        }
+    }
 
     fprintf(g_file, "{\"v\":%d,\"kind\":\"bdd0_in\",\"seq\":%d,\"tick\":%d,"
             "\"unit\":%d,\"fn\":\"44bdd0\",\"self\":%d,\"p1\":%d,\"p2\":%d,"
@@ -1564,7 +1645,7 @@ static void cap_write_bdd0_in(int seq, void *self, void *esp, int p1, int p2,
 }
 
 void battle_capture_bdd0_leaf(int va, const void *ecx, const int *args,
-                              int nargs, int ret)
+                              int nargs, int ret, const int *w, int nw)
 {
     bdd0_frame *fr;
     int order, k;

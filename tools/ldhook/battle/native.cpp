@@ -405,7 +405,7 @@ void *grid_anchor(void *grid, int a1, int a2, int a3, int a4, int *flag_slot,
         av[3] = a4;
         av[4] = (int)(size_t)flag_slot;
         av[5] = (int)(size_t)world;
-        battle_capture_bdd0_leaf(0x458050, grid, av, 6, (int)(size_t)res);
+        battle_capture_bdd0_leaf(0x458050, grid, av, 6, (int)(size_t)res, NULL, 0);
     }
     return res;
 }
@@ -656,7 +656,7 @@ int grid_query(void *world, int arg1, int arg2, int arg3, int arg4)
         av[1] = arg2;
         av[2] = arg3;
         av[3] = arg4;
-        battle_capture_bdd0_leaf(0x44bbf0, world, av, 4, res);
+        battle_capture_bdd0_leaf(0x44bbf0, world, av, 4, res, NULL, 0);
     }
     return res;
 }
@@ -823,7 +823,11 @@ void *ctx_pos_get(void *ctx, float *out_f)
     {   /* v12: bdd0_leaf — args = [out] (единственный стек-аргумент листа) */
         int a[1];
         a[0] = (int)(size_t)out_f;
-        battle_capture_bdd0_leaf(0x45c6f0, ctx, a, 1, (int)(size_t)res);
+        int w[3];
+        w[0] = (out_f != NULL) ? *(const int *)out_f : 0;
+        w[1] = (out_f != NULL) ? *(const int *)((const char *)out_f + 4) : 0;
+        w[2] = (out_f != NULL) ? *(const int *)((const char *)out_f + 8) : 0;
+        battle_capture_bdd0_leaf(0x45c6f0, ctx, a, 1, (int)(size_t)res, w, 3);
     }
     return res;
 }
@@ -851,7 +855,7 @@ void *band_head(void *ai)
     } __except (native::av_filter()) {
         res = NULL;
     }
-    battle_capture_bdd0_leaf(0x45c370, ai, NULL, 0, (int)(size_t)res);
+    battle_capture_bdd0_leaf(0x45c370, ai, NULL, 0, (int)(size_t)res, NULL, 0);
     return res;
 }
 
@@ -878,7 +882,7 @@ int band_count(void *band)
     } __except (native::av_filter()) {
         res = 0;
     }
-    battle_capture_bdd0_leaf(0x45af50, band, NULL, 0, res);
+    battle_capture_bdd0_leaf(0x45af50, band, NULL, 0, res, NULL, 0);
     return res;
 }
 
@@ -907,7 +911,7 @@ void *band_cursor(void *ai)
     } __except (native::av_filter()) {
         res = NULL;
     }
-    battle_capture_bdd0_leaf(0x45c730, ai, NULL, 0, (int)(size_t)res);
+    battle_capture_bdd0_leaf(0x45c730, ai, NULL, 0, (int)(size_t)res, NULL, 0);
     return res;
 }
 
@@ -1447,7 +1451,9 @@ void grid_recompute(void *rec, void *pos, void *req, float out3[3])
         int av[2];
         av[0] = (int)(size_t)pos;
         av[1] = (int)(size_t)req;
-        battle_capture_bdd0_leaf(0x45e1d0, rec, av, 2, (int)(size_t)res);
+        int w[3];
+        memcpy(w, out3, 12);              /* тройка, скопированная обёрткой */
+        battle_capture_bdd0_leaf(0x45e1d0, rec, av, 2, (int)(size_t)res, w, 3);
     }
 }
 
@@ -1483,7 +1489,7 @@ int pos3_equal(const void *a, const void *b)
     {
         int av[1];
         av[0] = (int)(size_t)b;
-        battle_capture_bdd0_leaf(0x403e80, a, av, 1, res);
+        battle_capture_bdd0_leaf(0x403e80, a, av, 1, res, NULL, 0);
     }
     return res;
 }
@@ -1532,7 +1538,7 @@ void band_interp_gate(void *band, float p2, int p3, float p4, float *out_f)
         av[1] = p3;
         av[2] = i4;
         memcpy(&rbits, out_f, sizeof(rbits));
-        battle_capture_bdd0_leaf(0x45b150, band, av, 3, rbits);
+        battle_capture_bdd0_leaf(0x45b150, band, av, 3, rbits, NULL, 0);
     }
 }
 
@@ -1579,7 +1585,7 @@ int band_target_moved(void *band, float p1, int p2, float p3)
         av[1] = p2;
         av[2] = i3;
         battle_capture_bdd0_leaf(0x45b3e0, band, av, 3,
-                                 (int)(unsigned char)res);
+                                 (int)(unsigned char)res, NULL, 0);
     }
     return res;
 }

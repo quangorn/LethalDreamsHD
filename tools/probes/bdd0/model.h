@@ -1,0 +1,37 @@
+﻿/* tools/probes/bdd0/model.h — контракт модельного нативного слоя (генератор
+ * синтетического захвата bdd0_synth.exe).
+ *
+ * Модель — НЕ натив: она возвращает детерминированные значения, вычислимые из
+ * снимка (ctx/BattleAI/лента/gs), и записывает каждый вызов листа в поток
+ * bdd0_leaf в ПРОСТРАНСТВЕ ИГРЫ (адреса raw, не shadow). Поэтому записанный
+ * сценарий самосогласован: replay-слой харнесса отдаёт те же значения и
+ * материализует те же указатели.
+ */
+#ifndef BDD0_MODEL_H
+#define BDD0_MODEL_H
+
+#include "harness.h"
+
+/* Сырые (игровые) адреса сценария: модель отдаёт их в `ret` вместо shadow. */
+struct ModelEnv {
+    unsigned self_game;    /* адрес unit */
+    unsigned e0_game;      /* unit+0xe0 */
+    unsigned e0_44_game;
+    unsigned tree_game;
+    unsigned band_game;    /* band_begin */
+    unsigned scratch_game; /* стек-скретч вызывающего (out-тройки) */
+};
+
+struct ModelCfg {
+    int grid_query;        /* 44bbf0: возврат (0 = «сетки нет») */
+    int anchor_null;       /* 458050: возврат NULL */
+    float interp_add;      /* 45b150: ST(0) = arg1 + interp_add */
+    int moved;             /* 45b3e0: возврат */
+};
+
+void model_set(const ModelEnv &env, const ModelCfg &cfg);
+void model_leaf_reset(void);
+int model_leaf_count(void);
+const LeafRec *model_leaf_at(int i);
+
+#endif

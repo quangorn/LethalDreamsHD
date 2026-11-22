@@ -113,9 +113,13 @@ void battle_capture_bdd0_exit(int al, void *esp);
  * LDHOOK_BATTLE_CAPTURE_SNAP=1 — немедленный выход (поведение вызова не
  * меняется). va — VA листа, ecx — его приёмник (ECX), args/nargs — стек-
  * аргументы (float-листья передают биты), ret — EAX/AL/ST(0)-биты, которые
- * читает тело. */
+ * читает тело.
+ *
+ * v12 (аддитивно): `w`/`nw` — dword'ы, которые лист записал ЧЕРЕЗ указатель
+ * (45c6f0 — out-тройка, 45e1d0 — возвращённая тройка), чтобы офлайн-харнесс
+ * воспроизвёл побочную запись, не читая игровую память. NULL/0 — ключа нет. */
 void battle_capture_bdd0_leaf(int va, const void *ecx, const int *args,
-                              int nargs, int ret);
+                              int nargs, int ret, const int *w, int nw);
 
 /* Регистрация результата листа; value — EAX оригинала, words — 5 dword
  * возвращённого объекта (только для CAP_LEAF_PATH, value != 0). */
