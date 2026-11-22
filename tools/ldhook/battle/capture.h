@@ -48,6 +48,26 @@
  * grid-record, 0x44c774), `frame+0x2c..0x34` (`tri0..tri2` — pos-тройка R14)
  * и `frame+0x38` (`a4n` — arg4 458050, 0x44c387 / B75 0x44c6ed). native и порт
  * пишут те же значения, правки тела не требуется.
+ *
+ * v12 (opt-in, env LDHOOK_BATTLE_CAPTURE_SNAP=1; только этот env-флаг, дефолт
+ * выключен) добавляет два рода записей `v:12`:
+ *   `bdd0_in`  — снапшот памяти, которую читает тело 44bdd0, на H1 ДО тела:
+ *                `frame_b64` (вся область кадра 0x168 Б = локалы + param_1/2/3),
+ *                `unit_b64` (0x180 Б от unit; все чтения unit в tick.cpp до
+ *                +0x17f), `ai_b64` (0x80 Б ВСТРОЕННОГО BattleAI по адресу
+ *                unit+0x138 без deref; `ai_ctx` — значение `*(unit+0x138)`,
+ *                game_ctx), лента `band_begin/end/cap/dirty` (BattleAI+0x5c/
+ *                0x60/0x64/0x7c ⇒ unit+0x194/0x198/0x19c/0x1b4) + `band_count`,
+ *                плюс v10-поля p1/p2/p3/u170/gate114;
+ *   `bdd0_leaf` — окно вызовов 10 логических листьев в порядке вызова внутри
+ *                тика (`order` 0-based): va/ecx/args/ret. Точки — те же
+ *                `native::`-обёртки (новых детуров нет). ВАЖНО: это окно, а не
+ *                чистое тело — в него попадают и те же листья, которые зовут
+ *                move.cpp:392 (`grid_anchor`) и target.cpp:817 (`grid_query`)
+ *                внутри bdd0-окна; харнесс сопоставляет по паре va+order в
+ *                пределах seq и не считает поток исчерпывающим для тела.
+ * Остальные роды (`cap`, `res`, `grid`, `eee0_*`, пара `bdd0_cap/res`) и их
+ * версии не меняются: v10/v11-файлы читаются прежними инструментами.
  */
 #ifndef BATTLE_CAPTURE_H
 #define BATTLE_CAPTURE_H
@@ -56,6 +76,9 @@
 
 #define BATTLE_CAPTURE_ENV     "LDHOOK_BATTLE_CAPTURE"
 #define BATTLE_CAPTURE_MAX_ENV "LDHOOK_BATTLE_CAPTURE_MAX"
+/* v12: снапшот входа `bdd0_in` + поток листьев `bdd0_leaf` (дефолт выключен,
+ * обычные прогоны остаются малыми). */
+#define BATTLE_CAPTURE_SNAP_ENV "LDHOOK_BATTLE_CAPTURE_SNAP"
 
 #define CAP_LEAF_PATH    0   /* FUN_0045cb40 — результат поиска пути */
 #define CAP_LEAF_HEUR    1   /* FUN_0045c690 — эвристика */
@@ -83,6 +106,16 @@ void battle_capture_eee0_exit(int code, void *self);
  * v11-слоты читаются от того же base (frame+0x98/0x88/0x2c..0x34/0x38). */
 void battle_capture_bdd0_enter(void *self, void *esp);
 void battle_capture_bdd0_exit(int al, void *esp);
+
+/* v12: leaf-поток тела 44bdd0. Вызывается из `native::`-обёрток 10 логических
+ * листьев (45c6f0, 45c370, 45af50, 45c730, 45b150, 45b3e0, 403e80, 458050,
+ * 45e1d0, 44bbf0) после их нативного вызова; вне тика 44bdd0 и без
+ * LDHOOK_BATTLE_CAPTURE_SNAP=1 — немедленный выход (поведение вызова не
+ * меняется). va — VA листа, ecx — его приёмник (ECX), args/nargs — стек-
+ * аргументы (float-листья передают биты), ret — EAX/AL/ST(0)-биты, которые
+ * читает тело. */
+void battle_capture_bdd0_leaf(int va, const void *ecx, const int *args,
+                              int nargs, int ret);
 
 /* Регистрация результата листа; value — EAX оригинала, words — 5 dword
  * возвращённого объекта (только для CAP_LEAF_PATH, value != 0). */

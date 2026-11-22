@@ -37,6 +37,13 @@ Equal unpaired tails on both sides are not a divergence; a presence/absence
 difference for a seq (cap vs cap+res, present vs missing) is a `pairing`
 divergence (rc 1). The summary lists which seqs were compared cap-only.
 
+Capture v12 adds two record kinds, `bdd0_in` (input snapshot) and `bdd0_leaf`
+(logic-leaf call stream), both with `v:12`. They are ignored by default: the
+diff compares only the `bdd0_cap`/`bdd0_res` pair, exactly as for v10/v11. With
+`--v12` the per-seq counts of the two new kinds are compared as ADVISORY
+(`advisory.v12`, never rc 1), so a candidate that dropped the snapshot or the
+leaf stream is visible without making the outcome diff fail.
+
 rc: 0 - every compared seq is equal and the seq sets match;
     1 - field divergence, pairing mismatch, self.tri, version mismatch,
         or unequal tail counts (advisory.unit alone does not set it);
@@ -62,15 +69,18 @@ FLOAT_FIELDS = ("m0", "m1", "m2", "tri0", "tri1", "tri2")
 # tri* must mirror m0..m2 inside one file; key is not a side.field pair.
 TRI_PAIRS = [("m0", "tri0"), ("m1", "tri1"), ("m2", "tri2")]
 ADV_KEY = "advisory.unit"
+ADV_V12_KEY = "advisory.v12"       # --v12: per-seq bdd0_in/bdd0_leaf counts
 SELF_KEY = "self.tri"
 VER_KEY = "version"
 RANK = dict((key, i) for i, key in enumerate(
     [VER_KEY] + ["res.%s" % f for f in RES_FIELDS + V11_RES_FIELDS]
     + ["cap.%s" % f for f in CAP_FIELDS]
-    + [SELF_KEY, "pairing", ADV_KEY]))
+    + [SELF_KEY, "pairing", ADV_KEY, ADV_V12_KEY]))
+# Advisory keys never count as mismatches.
+ADVISORY_KEYS = (ADV_KEY, ADV_V12_KEY)
 
 USAGE = ("usage: bdd0_ab_diff.py <baseline.jsonl> <candidate.jsonl> "
-         "[--max-show=N] [--quiet]\n"
+         "[--max-show=N] [--quiet] [--v12]\n"
        "       bdd0_ab_diff.py --self-test <file.jsonl>")
 
 HELP = (USAGE + "\n"
@@ -90,7 +100,9 @@ HELP = (USAGE + "\n"
         "a mismatch\n  prints an ADVISORY line and counts as advisory.unit, "
         "and never sets rc 1.\n"
         "  never compared: self, ai, fn, tick. rc: 0 identical, 1 diverged, "
-        "2 format/IO.")
+        "2 format/IO.\n"
+        "  v12 kinds bdd0_in/bdd0_leaf are ignored by default; --v12 compares "
+        "their per-seq\n  counts as advisory.v12 (advisory only, never rc 1).")
 
 
 def read_lines(path):
@@ -220,6 +232,47 @@ def scan(base, cand, idx, side, seqs, counts, events, v11):
                            str(b["unit"]), raws[0], raws[1], "ADVISORY"))
 
 
+def count_v12(path):
+    """--v12: per-seq (bdd0_in count, bdd0_leaf count) of the v12 extras. A
+    malformed v12 record (bad v/seq/order) is a format error (rc 2), so the
+    counts cannot silently pass; a file without v12 kinds yields {}. The v12
+    records are never compared field-by-field."""
+    out = {}
+    for line in read_lines(path):
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        kind = rec.get("kind")
+        if kind not in ("bdd0_in", "bdd0_leaf"):
+            continue
+        if rec.get("v") != 12:
+            raise ValueError("bad v12 v=%r kind=%s in %s"
+                             % (rec.get("v"), kind, path))
+        seq = rec.get("seq")
+        if not is_int(seq):
+            raise ValueError("bad v12 seq=%r in %s" % (seq, path))
+        pair = out.setdefault(seq, [0, 0])
+        if kind == "bdd0_in":
+            pair[0] += 1
+        else:
+            if not is_int(rec.get("order")):
+                raise ValueError("bad bdd0_leaf order=%r at seq=%r in %s"
+                                 % (rec.get("order"), seq, path))
+            pair[1] += 1
+    return dict((k, tuple(v)) for k, v in out.items())
+
+
+def v12_advisory(base_counts, cand_counts, counts, events):
+    """--v12: per-seq count differences of bdd0_in/bdd0_leaf as ADVISORY."""
+    for seq in sorted(set(base_counts) | set(cand_counts)):
+        a = base_counts.get(seq, (0, 0))
+        b = cand_counts.get(seq, (0, 0))
+        if a != b:
+            counts[ADV_V12_KEY] = counts.get(ADV_V12_KEY, 0) + 1
+            events.append((seq, ADV_V12_KEY, "in=%d leaf=%d" % a,
+                           "in=%d leaf=%d" % b, "n/a", "n/a", "ADVISORY"))
+
+
 def self_tri(base, cand, counts, events):
     """v11: tri0..tri2 must mirror m0..m2 inside each file (R14 copies
     unit+0xa4..0xac into the frame triple). A file whose own slots disagree is
@@ -243,10 +296,11 @@ def fmt_seqs(seqs, limit=10):
     return "[%s%s]" % (s, ",...+%d more]" % left if left > 0 else "")
 
 
-def compare(base, cand, max_show, quiet):
+def compare(base, cand, max_show, quiet, v12=None):
     """Returns (rc, lines, events). events is the full list of divergences and
     advisories: (seq, field, base_str, cand_str, base_cap_raw, cand_cap_raw,
-    tag), where tag is DIVERGE or ADVISORY."""
+    tag), where tag is DIVERGE or ADVISORY. v12 is None (ignore the v12 kinds,
+    the default) or a (base_counts, cand_counts) pair from count_v12()."""
     counts, events = {}, []
     v11 = base[2] == 11 and cand[2] == 11
     cap_common = sorted(set(base[0]) & set(cand[0]))
@@ -255,6 +309,8 @@ def compare(base, cand, max_show, quiet):
     scan(base, cand, 1, "res", res_common, counts, events, v11)
     if v11:
         self_tri(base, cand, counts, events)
+    if v12 is not None:
+        v12_advisory(v12[0], v12[1], counts, events)
     if base[2] != cand[2]:
         counts[VER_KEY] = counts.get(VER_KEY, 0) + 1
         events.append((0, VER_KEY, "v%d" % base[2], "v%d" % cand[2],
@@ -284,11 +340,13 @@ def compare(base, cand, max_show, quiet):
                     len(base[0]), len(base[1]),
                     len(cand[0]), len(cand[1]), tail_s, len(issues),
                     base[2], cand[2]))
-    lines.append("SUMMARY: mismatches %s total=%d %s=%d rc=%d"
+    lines.append("SUMMARY: mismatches %s total=%d %s=%d %s=%d rc=%d"
                  % (" ".join("%s.%s=%d" % (side, f, counts.get("%s.%s" % (side, f), 0))
                              for side, fields in SIDE_FIELDS for f in fields),
-                    sum(counts.get(k, 0) for k in RANK if k != ADV_KEY) + len(issues),
-                    ADV_KEY, counts.get(ADV_KEY, 0), rc))
+                    sum(counts.get(k, 0) for k in RANK
+                        if k not in ADVISORY_KEYS) + len(issues),
+                    ADV_KEY, counts.get(ADV_KEY, 0),
+                    ADV_V12_KEY, counts.get(ADV_V12_KEY, 0), rc))
     return rc, lines, events
 
 
@@ -474,6 +532,7 @@ def self_test(path, max_show):
 
 def parse_args(argv):
     files, max_show, quiet, st, show_help = [], 5, False, False, False
+    v12 = False
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -481,6 +540,8 @@ def parse_args(argv):
             st = True
         elif a == "--quiet":
             quiet = True
+        elif a == "--v12":
+            v12 = True
         elif a == "--help":
             show_help = True
         elif a.startswith("--max-show="):
@@ -498,17 +559,17 @@ def parse_args(argv):
     if max_show < 0:
         raise ValueError("max-show must be >= 0")
     if show_help:
-        return [], 5, False, False, True
+        return [], 5, False, False, True, False
     if st and len(files) != 1:
         raise ValueError("--self-test needs exactly one file")
     if not st and len(files) != 2:
         raise ValueError("need baseline and candidate files")
-    return files, max_show, quiet, st, False
+    return files, max_show, quiet, st, False, v12
 
 
 def main(argv):
     try:
-        files, max_show, quiet, st, show_help = parse_args(argv)
+        files, max_show, quiet, st, show_help, v12 = parse_args(argv)
     except ValueError as e:
         print("ERROR: %s" % e)
         print(USAGE)
@@ -521,10 +582,11 @@ def main(argv):
     try:
         base = load(files[0])
         cand = load(files[1])
+        v12c = (count_v12(files[0]), count_v12(files[1])) if v12 else None
     except (OSError, ValueError) as e:
         print("ERROR: %s" % e)
         return 2
-    rc, lines, _ = compare(base, cand, max_show, quiet)
+    rc, lines, _ = compare(base, cand, max_show, quiet, v12c)
     for line in lines:
         print(line)
     return rc

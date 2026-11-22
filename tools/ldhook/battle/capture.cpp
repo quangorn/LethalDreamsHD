@@ -55,6 +55,28 @@
 #define CAP_BDD0_TRI1   0x30
 #define CAP_BDD0_TRI2   0x34
 #define CAP_BDD0_A4     0x38
+/* v12: снапшот входа (kind bdd0_in) и поток логических листьев (bdd0_leaf).
+ * Версия только этих двух родов; пара bdd0_cap/res остаётся CAP_BDD0_VER (11),
+ * cap/res/grid/eee0_* — CAP_VERSION (10). */
+#define CAP_BDD0_SNAP_VER   12
+#define CAP_BDD0_FRAME_SIZE 0x168  /* локалы 0x00..0x15b + param_1/2/3 (0x15c/0x160/0x164) */
+/* unit-блок 0x180: покрывает все чтения unit из tick.cpp (максимум +0x170;
+ * +0x138 — встроенный BattleAI, снимается отдельным блоком ниже). 0x180
+ * сохранён как канонический размер unit-снимка (тот же блок, что cap/eee0
+ * ai_words/occ). */
+#define CAP_BDD0_UNIT_SIZE  0x180
+#define CAP_BDD0_AI_SIZE    0x80   /* BattleAI ВСТРОЕН в unit: unit+0x138..+0x1b7 */
+#define CAP_BDD0_AI_OFF     0x138  /* смещение встроенного BattleAI от unit */
+/* Лента живёт в BattleAI+0x3c; поля по листингу 45af50/45b6a0/45af10:
+ * +0x20 begin, +0x24 end, +0x28 capacity, +0x40 dirty (от BattleAI) ⇒
+ * unit+0x194/0x198/0x19c/0x1b4 — вне unit-блока 0x180, поэтому читаются из
+ * снимка встроенного BattleAI. Элемент 0x18 Б ⇒ count = (end−begin)/0x18. */
+#define CAP_BDD0_BAND_BEGIN 0x5c   /* BattleAI+0x20 */
+#define CAP_BDD0_BAND_END   0x60   /* BattleAI+0x24 */
+#define CAP_BDD0_BAND_CAP   0x64   /* BattleAI+0x28 */
+#define CAP_BDD0_BAND_DIRTY 0x7c   /* BattleAI+0x40 */
+#define CAP_BDD0_BAND_ELEM  0x18
+#define CAP_B64_MAX         (CAP_BDD0_UNIT_SIZE * 4 / 3 + 8)
 
 /* v3: значение узла map2 (PathState*). w[] — сырые dword'ы PathState; ptr[] —
  * 11 указателей LDPos* (pos, parent, nbr[9]); ptr-поля в w[] харнесс подменяет
@@ -87,6 +109,7 @@ typedef struct {
 static int   g_enabled = 0;
 static FILE *g_file = NULL;
 static int   g_max_calls = CAP_MAX_CALLS;
+static int   g_snap = 0;           /* v12: LDHOOK_BATTLE_CAPTURE_SNAP=1 */
 static int   g_seq = 0;            /* monotonic счётчик захваченных вызовов e0a0 */
 static int   g_eee0_seq = 0;       /* v9: независимый счётчик вызовов 45eee0 */
 static int   g_bdd0_seq = 0;       /* v10: независимый счётчик вызовов 44bdd0 */
@@ -174,10 +197,18 @@ static int       g_eee0_b9_chain[1 + CAP_CHAIN_MAX * CAP_CHAIN_WORDS];
 typedef struct {
     int  seq;
     void *self;
+    int  leaf_order;               /* v12: 0-based счётчик bdd0_leaf этого вызова */
 } bdd0_frame;
 
 static bdd0_frame g_bdd0_stack[BDD0_STACK_MAX];
 static int    g_bdd0_sp = 0;       /* 0 — стек пуст */
+
+/* v12: буферы снапшота (один набор: запись на входе синхронная, без вложенности
+ * между блоками) — без malloc в горячем пути. */
+static unsigned char g_snap_frame[CAP_BDD0_FRAME_SIZE];
+static unsigned char g_snap_unit[CAP_BDD0_UNIT_SIZE];
+static unsigned char g_snap_ai[CAP_BDD0_AI_SIZE];
+static char          g_b64[CAP_B64_MAX];
 
 /* Адреса оригинальных листьев (устанавливаются из install_capture_sites). */
 static void *g_fn_cb40 = NULL;
@@ -261,8 +292,14 @@ void battle_capture_init(void)
         return;
     }
     g_enabled = 1;
-    ld_info("battle_capture: %s=%s (max=%d)", BATTLE_CAPTURE_ENV, path,
-            g_max_calls);
+    {
+        const char *sn = getenv(BATTLE_CAPTURE_SNAP_ENV);
+        if (sn != NULL && *sn != '\0' && atoi(sn) != 0) {
+            g_snap = 1;
+        }
+    }
+    ld_info("battle_capture: %s=%s (max=%d snap=%d)", BATTLE_CAPTURE_ENV, path,
+            g_max_calls, g_snap);
 }
 
 int battle_capture_enabled(void)
@@ -1406,6 +1443,148 @@ void battle_capture_eee0_exit(int code, void *self)
     }
 }
 
+/* ------------------- v12: база64 + снапшот входа (bdd0_in) -------------- *
+ * Снапшот читает ровно те области, которые тело 44bdd0 читает (сверено по
+ * battle/tick.cpp: unit+0x34/0x64..0x7f/0x68..0x74/0x84/0xa4..0xac/0xe0/0xfc/
+ * 0x114/0x118/0x128/0x12c/0x170 — все внутри 0x180; frame+0x00/0x10..
+ * 0x18/0x1c/0x20/0x2c..0x38/0x40/0x4c/0x50/0x58/0x60..0xa0/0xa4..0xc0/0xc0/
+ * 0x154/0x15c/0x160/0x164 — все внутри 0x168).
+ * BattleAI ВСТРОЕН в unit по +0x138 (0x80 Б, unit+0x138..+0x1b7) — снимается
+ * базой+смещением без разыменования; `*(unit+0x138)` — это game_ctx (поле
+ * `ai_ctx`, не BattleAI). Поля ленты от BattleAI: +0x5c/+0x60/+0x64/+0x7c.
+ * Каждое разыменование под __try; сбой → trap=1, блок пишется как null. */
+
+static const char cap_b64_tab[65] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static int cap_b64_encode(char *out, const unsigned char *in, int n)
+{
+    int i = 0, o = 0;
+
+    while (i + 2 < n) {
+        unsigned int v = ((unsigned int)in[i] << 16) |
+                         ((unsigned int)in[i + 1] << 8) | in[i + 2];
+        out[o++] = cap_b64_tab[(v >> 18) & 63];
+        out[o++] = cap_b64_tab[(v >> 12) & 63];
+        out[o++] = cap_b64_tab[(v >> 6) & 63];
+        out[o++] = cap_b64_tab[v & 63];
+        i += 3;
+    }
+    if (n - i == 1) {
+        unsigned int v = (unsigned int)in[i] << 16;
+        out[o++] = cap_b64_tab[(v >> 18) & 63];
+        out[o++] = cap_b64_tab[(v >> 12) & 63];
+        out[o++] = '=';
+        out[o++] = '=';
+    } else if (n - i == 2) {
+        unsigned int v = ((unsigned int)in[i] << 16) |
+                         ((unsigned int)in[i + 1] << 8);
+        out[o++] = cap_b64_tab[(v >> 18) & 63];
+        out[o++] = cap_b64_tab[(v >> 12) & 63];
+        out[o++] = cap_b64_tab[(v >> 6) & 63];
+        out[o++] = '=';
+    }
+    out[o] = '\0';
+    return o;
+}
+
+static void cap_write_b64_field(FILE *f, int ok, const unsigned char *p, int n)
+{
+    if (!ok) {
+        fputs("null", f);
+        return;
+    }
+    cap_b64_encode(g_b64, p, n);
+    fputc('"', f);
+    fputs(g_b64, f);
+    fputc('"', f);
+}
+
+static void cap_write_bdd0_in(int seq, void *self, void *esp, int p1, int p2,
+                              int p3, int ai_ctx, int u170,
+                              unsigned int gate114)
+{
+    int frame_ok = 1, unit_ok = 1, ai_ok = 1, trap = 0;
+    unsigned int bb = 0, be = 0, bc = 0, bd = 0;
+    int band_count = 0;
+
+    if (esp != NULL) {
+        __try {
+            memcpy(g_snap_frame, esp, CAP_BDD0_FRAME_SIZE);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            frame_ok = 0;
+            trap = 1;
+        }
+    } else {
+        frame_ok = 0;
+    }
+    if (self != NULL) {
+        __try {
+            memcpy(g_snap_unit, self, CAP_BDD0_UNIT_SIZE);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            unit_ok = 0;
+            trap = 1;
+        }
+        /* BattleAI ВСТРОЕН: блок снимается по адресу unit+0x138 (без deref;
+         * *(unit+0x138) — это game_ctx, пишется отдельно как ai_ctx). */
+        __try {
+            memcpy(g_snap_ai, (const unsigned char *)self + CAP_BDD0_AI_OFF,
+                   CAP_BDD0_AI_SIZE);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            ai_ok = 0;
+            trap = 1;
+        }
+    } else {
+        unit_ok = 0;
+        ai_ok = 0;
+    }
+    if (ai_ok) {
+        memcpy(&bb, g_snap_ai + CAP_BDD0_BAND_BEGIN, sizeof(bb));
+        memcpy(&be, g_snap_ai + CAP_BDD0_BAND_END, sizeof(be));
+        memcpy(&bc, g_snap_ai + CAP_BDD0_BAND_CAP, sizeof(bc));
+        memcpy(&bd, g_snap_ai + CAP_BDD0_BAND_DIRTY, sizeof(bd));
+        if (bb != 0 && be != 0) {
+            band_count = (int)((int)(be - bb) / (int)CAP_BDD0_BAND_ELEM);
+        }
+    }
+
+    fprintf(g_file, "{\"v\":%d,\"kind\":\"bdd0_in\",\"seq\":%d,\"tick\":%d,"
+            "\"unit\":%d,\"fn\":\"44bdd0\",\"self\":%d,\"p1\":%d,\"p2\":%d,"
+            "\"p3\":%d,\"ai_ctx\":%d,\"u170\":%d,\"gate114\":%u,\"frame_b64\":",
+            CAP_BDD0_SNAP_VER, seq, g_tick, g_unit, (int)(size_t)self,
+            p1, p2, p3, ai_ctx, u170, gate114);
+    cap_write_b64_field(g_file, frame_ok, g_snap_frame, CAP_BDD0_FRAME_SIZE);
+    fputs(",\"unit_b64\":", g_file);
+    cap_write_b64_field(g_file, unit_ok, g_snap_unit, CAP_BDD0_UNIT_SIZE);
+    fputs(",\"ai_b64\":", g_file);
+    cap_write_b64_field(g_file, ai_ok, g_snap_ai, CAP_BDD0_AI_SIZE);
+    fprintf(g_file, ",\"band_begin\":%u,\"band_end\":%u,"
+            "\"band_cap\":%u,\"band_dirty\":%u,\"band_count\":%d,\"trap\":%d}\n",
+            bb, be, bc, bd, band_count, trap);
+}
+
+void battle_capture_bdd0_leaf(int va, const void *ecx, const int *args,
+                              int nargs, int ret)
+{
+    bdd0_frame *fr;
+    int order, k;
+
+    if (!g_snap || !g_enabled || g_closed || g_file == NULL || g_bdd0_sp <= 0) {
+        return;                          /* вне тика 44bdd0 / v12 выключен */
+    }
+    fr = &g_bdd0_stack[g_bdd0_sp - 1];
+    order = fr->leaf_order++;
+    fprintf(g_file, "{\"v\":%d,\"kind\":\"bdd0_leaf\",\"seq\":%d,\"order\":%d,"
+            "\"va\":\"%x\",\"ecx\":%d,\"args\":[",
+            CAP_BDD0_SNAP_VER, fr->seq, order, va, (int)(size_t)ecx);
+    for (k = 0; k < nargs; k++) {
+        if (args != NULL) {
+            fprintf(g_file, "%s%d", k ? "," : "", args[k]);
+        }
+    }
+    fprintf(g_file, "],\"ret\":%d}\n", ret);
+}
+
 /* ------------------- v10/v11: per-call FUN_0044bdd0 (диспетчер AI) -------- *
  * Пара `bdd0_cap` (H1 @0x44bdf5, ECX = unit) / `bdd0_res` (H2 @0x44d074)
  * на каждый вызов верхнего диспетчера боевого AI; связывание — по `seq`
@@ -1418,7 +1597,7 @@ void battle_capture_bdd0_enter(void *self, void *esp)
 {
     int seq;
     int p1 = -1, p2 = -1, p3 = 0;
-    int ai_ptr = 0, u170 = -1;
+    int ai_ctx = 0, u170 = -1;   /* ai_ctx = *(unit+0x138) — game_ctx, не BattleAI */
     unsigned int gate114 = 0;
     int trap = 0;
 
@@ -1436,7 +1615,8 @@ void battle_capture_bdd0_enter(void *self, void *esp)
                                                 CAP_BDD0_P3);
         }
         if (self != NULL) {
-            ai_ptr = *(const int *)((const unsigned char *)self + 0x138);
+            /* Первый dword встроенного BattleAI — game_ctx (поле v11-cap `ai`). */
+            ai_ctx = *(const int *)((const unsigned char *)self + 0x138);
             u170 = *(const int *)((const unsigned char *)self + 0x170);
             /* +0x114 — float, который входной гейт сравнивает с [0x4ec37c]
              * (`flds 0x114(%ebp)` @0x44bdf9); пишем биты. */
@@ -1445,18 +1625,22 @@ void battle_capture_bdd0_enter(void *self, void *esp)
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         trap = 1;
-        p1 = -1; p2 = -1; p3 = 0; ai_ptr = 0; u170 = -1; gate114 = 0;
+        p1 = -1; p2 = -1; p3 = 0; ai_ctx = 0; u170 = -1; gate114 = 0;
     }
 
     seq = ++g_bdd0_seq;
     g_bdd0_stack[g_bdd0_sp].seq = seq;
     g_bdd0_stack[g_bdd0_sp].self = self;
+    g_bdd0_stack[g_bdd0_sp].leaf_order = 0;   /* v12: счётчик листьев этого вызова */
     g_bdd0_sp++;
     fprintf(g_file, "{\"v\":%d,\"kind\":\"bdd0_cap\",\"seq\":%d,\"tick\":%d,"
             "\"unit\":%d,\"fn\":\"44bdd0\",\"self\":%d,\"p1\":%d,\"p2\":%d,"
             "\"p3\":%d,\"ai\":%d,\"u170\":%d,\"gate114\":%u,\"trap\":%d}\n",
             CAP_BDD0_VER, seq, g_tick, g_unit, (int)(size_t)self, p1, p2, p3,
-            ai_ptr, u170, gate114, trap);
+            ai_ctx, u170, gate114, trap);
+    if (g_snap) {
+        cap_write_bdd0_in(seq, self, esp, p1, p2, p3, ai_ctx, u170, gate114);
+    }
 }
 
 void battle_capture_bdd0_exit(int al, void *esp)
