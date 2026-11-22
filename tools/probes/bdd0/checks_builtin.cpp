@@ -341,7 +341,12 @@ static const NoncompArg k_noncomparable_args[] = {
     { 0x44cee1, 0x446a80, 11, BDD0_NONCOMP_REASON },
     { 0x44cee1, 0x446a80, 12, BDD0_NONCOMP_REASON },
     { 0x44cee1, 0x446a80, 13, BDD0_NONCOMP_REASON },
-    { 0x44cee1, 0x446a80, 14, BDD0_NONCOMP_REASON }
+    { 0x44cee1, 0x446a80, 14, BDD0_NONCOMP_REASON },
+    /* v13: out-указатели моделируемых нативов — значение аргумента в порте
+     * (shadow-буфер) не сопоставимо с кадровым адресом записи; содержимое
+     * сверяется по потребителям (leaf_args на grid_query), не по указателю. */
+    { 0x44c23b, 0x44abb0, 0, "out-pointer to modelled triple" },
+    { 0x44c240, 0x42d9c0, 0, "out-pointer to modelled triple" }
 };
 
 static int g_noncomp_skipped = 0;

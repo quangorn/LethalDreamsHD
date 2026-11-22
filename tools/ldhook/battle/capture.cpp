@@ -1946,11 +1946,48 @@ static int cap_native_sink_enter(int site, int target, int slot, int kind,
     return g_ns_q_n++;
 }
 
+/* v13 additive: нативы, пишущие THROUGH свой указательный аргумент. Ключ
+ * записи = -(1+off) (отрицательный — отличает от unit-смещений 45eee0).
+ * Порт replay-ит эти значения в свой out-буфер, иначе все потребители тройки
+ * (grid_query @0x44c247/0x44c276) получают нули. */
+static const struct { int site; int target; int arg; int n; } k_out_writes[] = {
+    /* 0x44c240 → 42d9c0: пишет позицию игрока в [arg0..arg0+8] (тройка float). */
+    { 0x44c240u, 0x42d9c0u, 0, 3 }
+};
+
+static void cap_native_out_writes(const ns_q_ent *q, int *ww, int *nww, int *trap)
+{
+    int i, k;
+    for (i = 0; i < (int)(sizeof(k_out_writes) / sizeof(k_out_writes[0])); i++) {
+        int p;
+        if (q->site != (int)k_out_writes[i].site
+            || q->target != (int)k_out_writes[i].target) {
+            continue;
+        }
+        p = (k_out_writes[i].arg < q->nargs) ? q->args[k_out_writes[i].arg] : 0;
+        if (p == 0) continue;
+        for (k = 0; k < k_out_writes[i].n; k++) {
+            int v = 0;
+            __try {
+                v = *(const int *)(p + 4 * k);
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                *trap = 1;
+                continue;
+            }
+            if (*nww + 2 > 32) break;
+            ww[(*nww)++] = -(1 + k);
+            ww[(*nww)++] = v;
+        }
+    }
+}
+
 static void cap_native_sink_exit(int token, int site, int target, int slot,
                                  int kind, int ecx, const int *args, int nargs,
                                  int ret_bits, const int *w, int nw, int trap)
 {
     ns_q_ent q;
+    int ww[32];
+    int nww = 0;
 
     if (token < 0 || token >= g_ns_q_n) return;
     if (token != g_ns_q_n - 1) trap = 1;      /* LIFO рассинхрон */
@@ -1958,8 +1995,10 @@ static void cap_native_sink_exit(int token, int site, int target, int slot,
     g_ns_q_n = token;
     (void)site; (void)target; (void)slot; (void)kind; (void)ecx;
     (void)args; (void)nargs;
+    cap_native_out_writes(&q, ww, &nww, &trap);
     battle_capture_bdd0_native_rec(q.site, q.target, q.slot, q.kind, q.ecx,
-                                   q.args, q.nargs, ret_bits, w, nw, NULL, 0,
+                                   q.args, q.nargs, ret_bits, w, nw,
+                                   (nww > 0) ? ww : NULL, nww,
                                    q.seq, q.order, trap);
 }
 

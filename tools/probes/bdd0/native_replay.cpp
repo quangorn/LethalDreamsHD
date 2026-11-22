@@ -607,13 +607,25 @@ void state_flag_log(void *unit, int flag)
     }
 }
 
-/* 42d9c0 — player pos store: void; тело не перечитывает. */
+/* 42d9c0 — player pos store: void; пишет позицию игрока в [arg0..+8].
+ * v13: записанные значения (`ww` с ключами -1..-3) replay-ются в out-буфер
+ * порта, иначе grid_query @0x44c247/0x44c276 получает нули. */
 void player_pos_set(void *player, void *triple)
 {
     int a[1];
+    int k;
     a[0] = (int)(size_t)triple;
-    (void)nrequest(0, 0x42d9c0, (int)(size_t)player, a, 1);
+    const NativeRec *r = nrequest(0, 0x42d9c0, (int)(size_t)player, a, 1);
     (void)player;
+    if (r != NULL && triple != NULL) {
+        for (k = 0; k + 1 < r->nww; k += 2) {
+            int key = r->ww[k];
+            if (key < 0 && key >= -8) {
+                int v = r->ww[k + 1];
+                memcpy((unsigned char *)triple + 4 * (-key - 1), &v, 4);
+            }
+        }
+    }
 }
 
 /* 45f430 — PathFinder ctor: void; объект кадра потребляет 45e1d0 (replay). */
