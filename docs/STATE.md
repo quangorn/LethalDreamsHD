@@ -196,6 +196,10 @@
 - `[P]` Пропуски проверок по классу (SKIP, не pass): uninit-аргументы (`0x44c71b`), noncomparable by-value
   аргументы `446a80` (`0x44bfa7/0x44c109/0x44c9d5/0x44cee1`), unbound-trap, оборванный хвост захвата
   (`incomplete_tail` — `bdd0/scenario.cpp`).
+- `[P]` Равенство неразвязанных указателей измерено достоверно: сырые адреса игры привязываются к
+  identity-cell (`arena.cpp`: `FX_IDCELL` для `gs+0x14`, пара `{0x44c3fa,0x45c730}` в `k_identity_rets`);
+  база объекта состояния `gs_raw` — из потока `bdd0_native` (`harness.h`, `scenario.cpp`), база `NK_GS`
+  в проверках идёт раньше unit (`checks_builtin.cpp`). Грабля — `docs/PITFALLS.md`.
 - `[P]` Диагностика пути (не проверка): `--path-diff` — recorded/consumed order, первый DIVERGE, gate-контекст.
 - `[U]` Цель порта боя (19.11.2026): читаемая C++-реализация боевой логики и поиска пути
   (слои `44bdd0` → `45eee0` → `e0a0` → `dd70`), нативные вызовы для GUI/плумбинга; fidelity-first,
