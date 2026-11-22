@@ -529,6 +529,7 @@ int main(int argc, char **argv)
     int ran = 0, fails = 0, traps = 0, hangs = 0, gs_missing = 0, leaf_nodes = 0;
     long long sum_wall = 0;
     long long uninit_total = 0;
+    long long noncomp_total = 0;
     int skipped_ticks = 0;
 
     for (size_t ti = 0; ti < sc->ticks.size(); ti++) {
@@ -762,6 +763,7 @@ int main(int argc, char **argv)
         }
 
         bdd0_uninit_reset();
+        bdd0_noncomp_reset();
 #ifdef B0_TRACE_LABELS
         int tick_fails = 0;
 #endif
@@ -813,6 +815,7 @@ int main(int argc, char **argv)
 
         if (opt.path_diff) bdd0_path_diff(sc, &rec, tc, pathj);
         uninit_total += bdd0_uninit_skipped();
+        noncomp_total += bdd0_noncomp_skipped();
         leaf_nodes += arena_leaf_nodes(arena);
         arena_set_current(NULL);
         arena_release(arena);
@@ -825,10 +828,19 @@ int main(int argc, char **argv)
         sum_pass += roll[i].pass;
         sum_skip += roll[i].skip;
     }
+    /* noncomparable_skipped печатается только при ненулевом значении:
+     * список noncomparable объявлен по сайтам, и молчать о нём нужно только
+     * когда он реально сработал */
+    char ncpart[48];
+    ncpart[0] = '\0';
+    if (noncomp_total > 0) {
+        _snprintf_s(ncpart, sizeof(ncpart), _TRUNCATE,
+                    " noncomparable_skipped=%lld", noncomp_total);
+    }
     printf("bdd0_harness summary: capture=%s impl=%s ticks=%d pass=%d skip=%d "
-           "fail=%d traps=%d hangs=%d uninit_skipped=%lld avg_wall_ms=%lld\n",
+           "fail=%d traps=%d hangs=%d uninit_skipped=%lld%s avg_wall_ms=%lld\n",
            sc->name.c_str(), impl->name, ran, sum_pass, sum_skip, fails, traps,
-           hangs, uninit_total, ran ? sum_wall / ran : 0);
+           hangs, uninit_total, ncpart, ran ? sum_wall / ran : 0);
 
     for (size_t k = 0; k < enabled.size(); k++) {
         const CheckDef *cd = check_at(enabled[k]);

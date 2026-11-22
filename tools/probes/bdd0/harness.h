@@ -334,6 +334,11 @@ int bdd0_unmodelled_unit_ai_tick(void);
 void bdd0_uninit_reset(void);
 int bdd0_uninit_skipped(void);
 
+/* v12: аргументы, которые НЕ сравнимы (by-value область кадра вызывающего),
+ * skips по нативным сайтам 0x44bfa7/0x44c109/0x44c9d5/0x44cee1. */
+void bdd0_noncomp_reset(void);
+int bdd0_noncomp_skipped(void);
+
 #ifdef B0_TRACE_LABELS
 /* Label trace (tools/ldhook/battle/tick.cpp): существует только в trace-сборке
  * харнесса (-DB0_TRACE_LABELS=1).  События кольца тика: id метки

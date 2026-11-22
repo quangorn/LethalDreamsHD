@@ -228,6 +228,12 @@ struct UninitArg {
     const char *why;
 };
 
+/* Same shape as UninitArg: an argument that must NOT be compared. */
+struct NoncompArg {
+    int site, va, arg;
+    const char *why;
+};
+
 static const UninitArg k_uninit_args[] = {
     { 0x44c730, 0x44bbf0, 0, "arg[0] uninitialised in native (0x44c71b)" },
     { 0x44c730, 0x44bbf0, 1, "arg[1] uninitialised in native (0x44c71b)" },
@@ -246,6 +252,111 @@ static int g_uninit_skipped = 0;
 
 void bdd0_uninit_reset(void) { g_uninit_skipped = 0; }
 int bdd0_uninit_skipped(void) { return g_uninit_skipped; }
+
+/* ------------------------- noncomparable native args -------------------- *
+ * Sites 0x44bfa7 / 0x44c109 / 0x44c9d5 / 0x44cee1 call `ai_time_update`
+ * (0x446a80, `ret $0x3c`).  The recorder ABI arg[i] = [esp+8+4i] indexes the
+ * 60-byte region opened by `sub $0x3c,%esp`: the caller fills it ONLY by the
+ * self-copy of 0x4040f0 from R+4 (caller-frame stack residue), the callee runs
+ * a destructor loop over R, and arg[10] is overwritten by the callee itself
+ * (`fstps 0x50(%esp)` @0x446ac3).  Nothing in arg[0..14] at these sites is
+ * stable between implementations ⇒ comparing it is noise.  The last pushed
+ * dword sits at [esp+4], is never indexed by the formula, and the callee
+ * zeroes it before reading — it is not a comparison candidate either.
+ * Entries are explicit per (site, index); sites 0x44c109/0x44c9d5/0x44cee1
+ * are declared from the same shape (`sub $0x3c` + 0x4040f0 + call 0x446a80)
+ * and do not occur in the current capture.  The recorded args[] carries arg[0]
+ * only; indices 1..14 declare the rest of the region.
+ * No leaf site has this shape (leaf targets 45c6f0..44bbf0 receive computed
+ * values, not a by-value region), so k_noncomparable_args has no leaf entries
+ * and leaf_args never matches it.
+ */
+#define BDD0_NONCOMP_REASON "byvalue-60B-caller-frame"
+
+static const NoncompArg k_noncomparable_args[] = {
+    /* site 0x44bfa7 */
+    { 0x44bfa7, 0x446a80, 0,  BDD0_NONCOMP_REASON },
+    { 0x44bfa7, 0x446a80, 1,  BDD0_NONCOMP_REASON },
+    { 0x44bfa7, 0x446a80, 2,  BDD0_NONCOMP_REASON },
+    { 0x44bfa7, 0x446a80, 3,  BDD0_NONCOMP_REASON },
+    { 0x44bfa7, 0x446a80, 4,  BDD0_NONCOMP_REASON },
+    { 0x44bfa7, 0x446a80, 5,  BDD0_NONCOMP_REASON },
+    { 0x44bfa7, 0x446a80, 6,  BDD0_NONCOMP_REASON },
+    { 0x44bfa7, 0x446a80, 7,  BDD0_NONCOMP_REASON },
+    { 0x44bfa7, 0x446a80, 8,  BDD0_NONCOMP_REASON },
+    { 0x44bfa7, 0x446a80, 9,  BDD0_NONCOMP_REASON },
+    { 0x44bfa7, 0x446a80, 10, BDD0_NONCOMP_REASON },
+    { 0x44bfa7, 0x446a80, 11, BDD0_NONCOMP_REASON },
+    { 0x44bfa7, 0x446a80, 12, BDD0_NONCOMP_REASON },
+    { 0x44bfa7, 0x446a80, 13, BDD0_NONCOMP_REASON },
+    { 0x44bfa7, 0x446a80, 14, BDD0_NONCOMP_REASON },
+    /* site 0x44c109 */
+    { 0x44c109, 0x446a80, 0,  BDD0_NONCOMP_REASON },
+    { 0x44c109, 0x446a80, 1,  BDD0_NONCOMP_REASON },
+    { 0x44c109, 0x446a80, 2,  BDD0_NONCOMP_REASON },
+    { 0x44c109, 0x446a80, 3,  BDD0_NONCOMP_REASON },
+    { 0x44c109, 0x446a80, 4,  BDD0_NONCOMP_REASON },
+    { 0x44c109, 0x446a80, 5,  BDD0_NONCOMP_REASON },
+    { 0x44c109, 0x446a80, 6,  BDD0_NONCOMP_REASON },
+    { 0x44c109, 0x446a80, 7,  BDD0_NONCOMP_REASON },
+    { 0x44c109, 0x446a80, 8,  BDD0_NONCOMP_REASON },
+    { 0x44c109, 0x446a80, 9,  BDD0_NONCOMP_REASON },
+    { 0x44c109, 0x446a80, 10, BDD0_NONCOMP_REASON },
+    { 0x44c109, 0x446a80, 11, BDD0_NONCOMP_REASON },
+    { 0x44c109, 0x446a80, 12, BDD0_NONCOMP_REASON },
+    { 0x44c109, 0x446a80, 13, BDD0_NONCOMP_REASON },
+    { 0x44c109, 0x446a80, 14, BDD0_NONCOMP_REASON },
+    /* site 0x44c9d5 */
+    { 0x44c9d5, 0x446a80, 0,  BDD0_NONCOMP_REASON },
+    { 0x44c9d5, 0x446a80, 1,  BDD0_NONCOMP_REASON },
+    { 0x44c9d5, 0x446a80, 2,  BDD0_NONCOMP_REASON },
+    { 0x44c9d5, 0x446a80, 3,  BDD0_NONCOMP_REASON },
+    { 0x44c9d5, 0x446a80, 4,  BDD0_NONCOMP_REASON },
+    { 0x44c9d5, 0x446a80, 5,  BDD0_NONCOMP_REASON },
+    { 0x44c9d5, 0x446a80, 6,  BDD0_NONCOMP_REASON },
+    { 0x44c9d5, 0x446a80, 7,  BDD0_NONCOMP_REASON },
+    { 0x44c9d5, 0x446a80, 8,  BDD0_NONCOMP_REASON },
+    { 0x44c9d5, 0x446a80, 9,  BDD0_NONCOMP_REASON },
+    { 0x44c9d5, 0x446a80, 10, BDD0_NONCOMP_REASON },
+    { 0x44c9d5, 0x446a80, 11, BDD0_NONCOMP_REASON },
+    { 0x44c9d5, 0x446a80, 12, BDD0_NONCOMP_REASON },
+    { 0x44c9d5, 0x446a80, 13, BDD0_NONCOMP_REASON },
+    { 0x44c9d5, 0x446a80, 14, BDD0_NONCOMP_REASON },
+    /* site 0x44cee1 (no rep movs source at this site) */
+    { 0x44cee1, 0x446a80, 0,  BDD0_NONCOMP_REASON },
+    { 0x44cee1, 0x446a80, 1,  BDD0_NONCOMP_REASON },
+    { 0x44cee1, 0x446a80, 2,  BDD0_NONCOMP_REASON },
+    { 0x44cee1, 0x446a80, 3,  BDD0_NONCOMP_REASON },
+    { 0x44cee1, 0x446a80, 4,  BDD0_NONCOMP_REASON },
+    { 0x44cee1, 0x446a80, 5,  BDD0_NONCOMP_REASON },
+    { 0x44cee1, 0x446a80, 6,  BDD0_NONCOMP_REASON },
+    { 0x44cee1, 0x446a80, 7,  BDD0_NONCOMP_REASON },
+    { 0x44cee1, 0x446a80, 8,  BDD0_NONCOMP_REASON },
+    { 0x44cee1, 0x446a80, 9,  BDD0_NONCOMP_REASON },
+    { 0x44cee1, 0x446a80, 10, BDD0_NONCOMP_REASON },
+    { 0x44cee1, 0x446a80, 11, BDD0_NONCOMP_REASON },
+    { 0x44cee1, 0x446a80, 12, BDD0_NONCOMP_REASON },
+    { 0x44cee1, 0x446a80, 13, BDD0_NONCOMP_REASON },
+    { 0x44cee1, 0x446a80, 14, BDD0_NONCOMP_REASON }
+};
+
+static int g_noncomp_skipped = 0;
+
+void bdd0_noncomp_reset(void) { g_noncomp_skipped = 0; }
+int bdd0_noncomp_skipped(void) { return g_noncomp_skipped; }
+
+/* Exact (site, va, arg) match: NO site wildcard — the region is defined by the
+ * call site, so a record without a site is not skipped. */
+static const NoncompArg *noncomp_find(int site, int va, int arg)
+{
+    int i;
+    for (i = 0; i < (int)(sizeof(k_noncomparable_args) /
+                           sizeof(k_noncomparable_args[0])); i++) {
+        const NoncompArg *u = &k_noncomparable_args[i];
+        if (u->site == site && u->va == va && u->arg == arg) return u;
+    }
+    return NULL;
+}
 
 /* site may be 0 in older bdd0_leaf records; then match target+arg and let the
  * check report the reduced certainty instead of silently passing. */
@@ -437,7 +548,9 @@ static CheckResult chk_leaf_args(const TickContext &tc)
     nocmp[0] = '\0';
     static char uninit[160];
     uninit[0] = '\0';
-    int mism = 0, ncmp = 0, nno = 0, nuninit = 0;
+    static char noncomp[128];
+    noncomp[0] = '\0';
+    int mism = 0, ncmp = 0, nno = 0, nuninit = 0, nnoncomp = 0;
 
     for (int i = 0; i < tc.log_n; i++) {
         const CallLogEnt &e = tc.log[i];
@@ -480,6 +593,21 @@ static CheckResult chk_leaf_args(const TickContext &tc)
                                     "%s; %s", u->why,
                                     (r->site == 0) ? "site not recorded"
                                                    : "site matched");
+                    }
+                    continue;
+                }
+                /* Тот же путь, что и native_args. Листевых записей в
+                 * k_noncomparable_args нет: ни один leaf-сайт не открывает
+                 * by-value 60-байтной области (см. шапку списка), поэтому
+                 * поиск здесь всегда NULL. */
+                const NoncompArg *nc = noncomp_find(r->site, e.va, f);
+                if (nc != NULL) {
+                    g_noncomp_skipped++;
+                    nnoncomp++;
+                    if (noncomp[0] == '\0') {
+                        _snprintf_s(noncomp, sizeof(noncomp), _TRUNCATE,
+                                    "%s; site 0x%x arg[%d]", nc->why,
+                                    (unsigned)r->site, f);
                     }
                     continue;
                 }
@@ -559,6 +687,9 @@ static CheckResult chk_leaf_args(const TickContext &tc)
     }
     if (nuninit > 0) {
         return CheckResult{ 1, uninit, 1 };
+    }
+    if (nnoncomp > 0) {
+        return CheckResult{ 1, noncomp, 1 };
     }
     if (nno > 0) {
         /* ни одного расхождения, но часть адресов сравнить не с чем */
@@ -746,7 +877,9 @@ static CheckResult chk_native_args(const TickContext &tc)
     first[0] = '\0';
     static char uninit[160];
     uninit[0] = '\0';
-    int mism = 0, ncmp = 0, unbound = 0, nuninit = 0;
+    static char noncomp[128];
+    noncomp[0] = '\0';
+    int mism = 0, ncmp = 0, unbound = 0, nuninit = 0, nnoncomp = 0;
     char unb[128];
     unb[0] = '\0';
 
@@ -803,6 +936,17 @@ static CheckResult chk_native_args(const TickContext &tc)
                     }
                     continue;
                 }
+                const NoncompArg *nc = noncomp_find(r->site, r->va, f);
+                if (nc != NULL) {
+                    g_noncomp_skipped++;
+                    nnoncomp++;
+                    if (noncomp[0] == '\0') {
+                        _snprintf_s(noncomp, sizeof(noncomp), _TRUNCATE,
+                                    "%s; site 0x%x arg[%d]", nc->why,
+                                    (unsigned)r->site, f);
+                    }
+                    continue;
+                }
             }
             int res;
             if (ptr) {
@@ -851,6 +995,9 @@ static CheckResult chk_native_args(const TickContext &tc)
     }
     if (nuninit > 0) {
         return CheckResult{ 1, uninit, 1 };
+    }
+    if (nnoncomp > 0) {
+        return CheckResult{ 1, noncomp, 1 };
     }
     if (unbound > 0) {
         return CheckResult{ 1, whyf(tc, "%d unbound pointer field(s) (%s); "
