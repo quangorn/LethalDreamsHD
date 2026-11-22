@@ -15,6 +15,8 @@
   - Visual Studio / Build Tools с C++ — ищется через vswhere.
 
 Выход: build/ldhook/ldhook.pyd (gitignored-артефакт).
+LDHOOK_B0_BODY=1 — armed-сборка тела B0 (`/DB0_BODY_COMPLETE=1`) →
+build/ldhook/ldhook_armed.pyd; откат = пересборка без флага.
 Запуск — через .bat (Cygwin манглит кавычки/«/»-флаги при передаче в cmd,
 поэтому команда cl пишется в файл и исполняется native cmd).
 """
@@ -90,8 +92,20 @@ def main():
         sys.exit("нет vcvarsall.bat: %s" % vcvars)
 
     os.makedirs(os.path.dirname(OUTDIR), exist_ok=True)
-    out = os.path.join(OUTDIR, "ldhook.pyd")
-    bat = os.path.join(OUTDIR, "build.bat")
+    # Взвод Фазы 5 — флаг сборки, не правка исходника: LDHOOK_B0_BODY=1
+    # даёт /DB0_BODY_COMPLETE=1 и отдельное имя артефакта (откат = пересборка
+    # без флага; рабочий ldhook.pyd остаётся нетронутым). Любое другое значение
+    # (пусто, true, 2) — жёсткая ошибка: не «разоружено» и не «взведено».
+    raw = os.environ.get("LDHOOK_B0_BODY", "0")
+    if raw not in ("0", "1"):
+        sys.exit("LDHOOK_B0_BODY должен быть 0 или 1; получено: %r" % raw)
+    armed = raw == "1"
+    name = "ldhook_armed.pyd" if armed else "ldhook.pyd"
+    out = os.path.join(OUTDIR, name)
+    define = " /DB0_BODY_COMPLETE=1" if armed else ""
+    if armed:
+        print("ARMED: B0_BODY_COMPLETE=1 -> %s" % out)
+    bat = os.path.join(OUTDIR, "build.bat" if not armed else "build_armed.bat")
     win = lambda p: p.replace("/", "\\")  # noqa: E731
     srcs = " ".join('"%s"' % win(s) for s in SOURCES)
     body = [
@@ -102,9 +116,11 @@ def main():
         # cave1; без contraction/reassociation, как требует побитовая identity 4:3).
         # /EHsc — модель обработки исключений для C++ (cl определяет C++ по .cpp,
         # /TP не нужен).
-        'cl /nologo /LD /MT /EHsc /O2 /W3 /fp:precise /I"%s" %s '
-        '/link /LIBPATH:"%s" python22.lib /OUT:ldhook.pyd'
-        % (win(INCLUDE), srcs, win(LIBDIR)),
+        # /DB0_BODY_COMPLETE вставляется в командную строку cl (пустая строка
+        # при default — bat побайтоно тот же, что до флага).
+        'cl /nologo /LD /MT /EHsc /O2 /W3 /fp:precise /I"%s"%s %s '
+        '/link /LIBPATH:"%s" python22.lib /OUT:%s'
+        % (win(INCLUDE), define, srcs, win(LIBDIR), name),
         "exit /b %errorlevel%",
         "",
     ]
