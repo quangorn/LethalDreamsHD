@@ -2,9 +2,9 @@
 
 ## Установленная игра (эталон проверки)
 
-- `game.root` (из config.toml): 5095 файлов (было 5097; `lethaldreams.dll` и `LD-setup.bat`
-  удалены из установки 2026-11-18 по решению пользователя; `LD-setup.bat` есть только в snapshot
-  `6.7z`, в `original.7z` его нет; см. `docs/KNOWLEDGE.md`).
+- `game.root` (из config.toml): **5096 файлов** (`lethaldreams.dll` и `LD-setup.bat` удалены из
+  установки по решению пользователя; `LD-setup.bat` только в snapshot `6.7z`, в `original.7z`
+  его нет — `docs/KNOWLEDGE.md`).
 - EXE md5 `171319bbc170cf6e57c8d36a8ae5f50d`, размер 1191936 — базовая пропатченная версия
  (pristine-EXE того же размера, md5 `7943036fbd12…`). Маппинг: fileoff = VA − 0x400000
  (cave VA 0x4ebf12 = fileoff 966418; 491308 — fileoff первой правки exepatch3).
@@ -105,13 +105,12 @@
 
 ## Замеры проверки (см. docs/VERIFY.md)
 
-Замер 18.11.2026 (`check_state --untouched`, установка 5095 файлов; `lethaldreams.dll` и
-`LD-setup.bat` удалены из установки по решению пользователя):
-PRISTINE 2967, HD_PACK 1379, ALLOWED 728, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0.
-Покрытие allowlist'а (`release/allowlist.json`: `lib/*` 713, корневые `.pyc` 11,
-корневые бинары 5 — `LETHALDREAMS.EXE`, `python22.dll`, `msvcr70.dll`, `msvcp70.dll`,
-`msvcr70d.dll`, `data/scripts/*.pyc` 10, `data/textures/mm_bkg01.btf` 1);
-`hd.cfg` классифицируется как REPO. — артефакт пайплайна, в git не входит
+- `[P]` Замер 22.11.2026 (`--untouched`/`--full` rc 0, установка 5096 файлов): PRISTINE 2966,
+  HD_PACK 1379, ALLOWED 728, CODE 18, EXCLUDED 4, ARCHIVE_BASENAME 1 (`lethaldreams.dll`), UNCOVERED 0.
+- Покрытие allowlist'а (`release/allowlist.json`: `lib/*` 713, корневые `.pyc` 11,
+  корневые бинары 5 — `LETHALDREAMS.EXE`, `python22.dll`, `msvcr70.dll`, `msvcp70.dll`,
+  `msvcr70d.dll`, `data/scripts/*.pyc` 10, `data/textures/mm_bkg01.btf` 1);
+  `hd.cfg` классифицируется как REPO — артефакт пайплайна, в git не входит.
 
 ---
 
@@ -160,7 +159,7 @@ PRISTINE 2967, HD_PACK 1379, ALLOWED 728, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0
   грузятся только при исправленных TLV-заголовках и `rec_bin` без `name_len`-префикса — `docs/KNOWLEDGE.md`,
   `docs/OBSERVATIONS_TEXTURE.md`, `docs/PITFALLS.md`; пайплайн и инструменты — `docs/PIPELINE.md`, `docs/TOOLS.md`.
 
-## ldhook `.pyd` (18–21.11.2026)
+## ldhook `.pyd` (18–22.11.2026)
 
 - `[P]` **EXE установки не трогаем**: установка остаётся на cave `exepatch12` (`171319bb…`), `ldhook.pyd` в поставку
   не входит; `.pyd` (хуки site1/site2/site3, site5/site6 + логгер `hdlog.txt`) — проверенный путь следующих правок движка,
@@ -170,42 +169,31 @@ PRISTINE 2967, HD_PACK 1379, ALLOWED 728, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0
 - `[P]` Site4 (cap итераций) и cap-API (`set_cap`/`cap_stats`/`diag_stats`, env `LDHOOK_CAP`) удалены
   (п. 3.4 плана); site5 — носитель точек H4/H5/H6 (`battle/trace.cpp`). Разбор капа — `docs/PERF_BATTLE.md`.
 - `[P]` Эталон `.pyd` = артефакт `python3 tools/ldhook/build.py` (`build/ldhook/ldhook.pyd`, gitignored);
-  эталон харнесса = `build/ldhook/battle_replay.exe` от `tools/probes/battle_replay_build.py`. md5 не фиксируется.
+  эталоны харнесса = `build/ldhook/battle_replay.exe`, `build/ldhook/bdd0_harness.exe`,
+  `build/ldhook/bdd0_synth.exe` (сборка — `tools/probes/*_build.py`). md5 не фиксируется.
 - `[P]` Контрольный прогон боя — обёртки `tools/probes/battle_169.ps1` (16:9) и `battle_43.ps1` (4:3) над раннером
   `perform_action_in_game.ps1` (20.11.2026): `MenuSec=6`, `-Waves 3`, снимок `shot:summons`; Enter×2 при загрузке
   сейва, Enter на «Атака?», один `key:32` сразу после входа в бой (снимает стартовую паузу боя). Грабля — `docs/PITFALLS.md`.
-- `[P]` Порт боя: Фазы 0–4 закрыты (19–21.11.2026); гейт Фазы 3 — офлайн per-call replay
-  (`battle_replay_diff.py` на capture v8), Фазы 4 — capture v9 + replay `eee0` (решение 4.8),
-  живой A/B — санитарный, решения 3.7/4.8 — `docs/PLAN_BATTLE_AI_CPP.md`.
+- `[P]` Порт боя: Фазы 0–5 закрыты (19–22.11.2026); гейты — офлайн per-call replay: Ф3 capture v8
+  (`battle_replay_diff.py`), Ф4 capture v9 + replay `eee0` (решение 4.8), Ф5 capture v12 + `bdd0_harness`
+  (решения 5.1c/5.1d); живой A/B — санитарный.
 - `[P]` Остаток Фазы 3 (решение 3.8): на части вызовов порт уходит в runaway цикла `e0a0`; листья
   расходятся с первого такого вызова; открытый дефект, перенесён в остаток Фазы 4 (решение 4.8).
-- `[P]` Фаза 4 закрыта: `45eee0` = `s6_unit_ai_tick` (тик юнит-AI, не «движение»), детур
-  `install_tick_hook`, capture v9 + офлайн-replay `eee0`; trace — фиксированные 29 полей 1.7
-  (`code`/`out`, `c1/x1/y1`, `c2/x2/y2`, `trk/bd2`) — `battle/move.cpp`, `battle/trace.cpp`.
-- `[P]` Фаза 5: тело `44bdd0` R1–R22 портировано целиком (`c706304`; R23 нативен), компилируется
-  с `B0_BODY_COMPLETE=1`; scope фиксирован — порт есть слой проводки, 205 state/string/GUI site и
-  9 логических листьев остаются нативными. Гейт — офлайн-replay capture v12 (снимок полей +
-  результаты листьев), живой A/B санитарный: два нативных прогона дают rc 1 (решение 5.1d).
-- `[P]` v12 `bdd0_native`: 157 RECORD-сайтов тела (32 листа = `bdd0_leaf`, 125 = `bdd0_native`;
-  `0x44cbd0` — через H3), 77 NOOP_OK. Таблица сайтов генерируется `tools/probes/gen_native_sites.py`
-  → `battle/native_sites_table.inc`; стубы эмитит `battle/native_sites.cpp`; косвенные — vtable-слоты unit.
-- `[P]` v12 outcome-проверки: `res_match` (al/out/u170), `state_match` (m0..m2) против `bdd0_res`,
-  `native_args` (ecx/args порта против `bdd0_native`, указатели символьно, unbound = SKIP);
-  корпус `tools/probes/bdd0/corpus/` + `bdd0_corpus_run.py` (dropped/trap/order/args/pointer).
-- `[P]` `45eee0` post-state: в `bdd0_native` пишется `ww` — 15 dword BattleAI+0x00..0x38
-  (unit+0x138..0x170; список из 45c330/45eee0), replay применяет к unit; старый захват без `ww`
-  даёт SKIP только для u170-расхождений (`res_match`), не pass.
-- `[P]` Диагностика пути (не проверка): `--path-diff [--path-diff-json f]` — recorded/consumed order,
-  первый DIVERGE, gate-контекст (u170 in/after, gate114, последний ok-вызов); ядро и вердикты не трогает.
-- `[P]` Trap attribution: `arena_fault_unbound` (bind-range → bound; miss_raw/raw dword снимка → unbound);
-  unbound-trap = `handles`, `no_trap`/`bounds` SKIP. Uninit leaf args: site 0x44c730/44bbf0 arg0..2
-  (0x44c71b) → SKIP + `uninit_skipped`.
-- `[P]` Noncomparable native args: sites 0x44bfa7/0x44c109/0x44c9d5/0x44cee1 (цель 0x446a80,
-  `ret 0x3c`) — arg[0..14] лежит в 60-байтной by-value области кадра (`sub $0x3c` + self-copy
-  0x4040f0 из R+4), точное (site,va,arg) → SKIP + `noncomparable_skipped`; leaf-сайтов нет.
-- `[P]` Incomplete tail: `seq` без `bdd0_res` и он последний в захвате ⇒ SKIP всех проверок
-  (`incomplete tail (no res record)`); res отсутствует ниже последнего seq ⇒ FAIL
-  (`missing res record (not tail)`). Реализация: `TickRecord.incomplete_tail` (`bdd0/scenario.cpp`), сводка `incomplete_tail=N`.
+- `[P]` Фаза 4 закрыта: `45eee0` = `s6_unit_ai_tick` (тик юнит-AI, не «движение»), детур `install_tick_hook`
+  (сиг `83 C4 34 C2 10 00`, продолжение `0x45eee5`), trace — 29 полей 1.7 — `battle/move.cpp`, `battle/trace.cpp`.
+- `[P]` Фаза 5 закрыта (22.11.2026): тело `44bdd0` R1–R22 портировано (`battle/ai_tick.cpp`, R23 нативен),
+  детур на H1 (`0x44bdf5`) с возвратом в родной эпилог `0x44d074`; гейт — офлайн-replay на записанном
+  состоянии, пройден (`bdd0_harness --impl port` rc 0); установка не тронута (`--quick` rc 0).
+- `[P]` Scope Фазы 5 (решение 5.1c): порт — слой проводки; state/string/GUI site и 9 логических листьев
+  нативны намеренно; таблица сайтов `bdd0_native` — `tools/probes/gen_native_sites.py` →
+  `battle/native_sites_table.inc`, стубы эмитит `battle/native_sites.cpp`.
+- `[P]` Проверки v12 (`tools/probes/bdd0/checks_builtin.cpp`): `res_match` (al/out/u170), `state_match` (m0..m2),
+  `native_args` (ecx/args против записанного порядка нативов), post-state `45eee0` (`ww` = BattleAI+0x00..0x38);
+  корпус `tools/probes/bdd0/corpus/` + `bdd0_corpus_run.py`.
+- `[P]` Пропуски проверок по классу (SKIP, не pass): uninit-аргументы (`0x44c71b`), noncomparable by-value
+  аргументы `446a80` (`0x44bfa7/0x44c109/0x44c9d5/0x44cee1`), unbound-trap, оборванный хвост захвата
+  (`incomplete_tail` — `bdd0/scenario.cpp`).
+- `[P]` Диагностика пути (не проверка): `--path-diff` — recorded/consumed order, первый DIVERGE, gate-контекст.
 - `[U]` Цель порта боя (19.11.2026): читаемая C++-реализация боевой логики и поиска пути
   (слои `44bdd0` → `45eee0` → `e0a0` → `dd70`), нативные вызовы для GUI/плумбинга; fidelity-first,
   CPU = baseline. Фазы, границы и гейты — `docs/PLAN_BATTLE_AI_CPP.md`.
