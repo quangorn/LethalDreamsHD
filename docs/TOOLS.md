@@ -128,6 +128,16 @@ LD_GAME="<tree>" LD_REPO="<repo>" LD_SCRATCH="<scratch>" \
 - Реестр HIGHDPIAWARE нужен **для каждого scratch-дерева** (окно без него
   виртуализуется); значения для scratch-деревьев тестов — в `docs/STATE.md`.
 
+- Боевой офлайн-харнесс (`tools/probes/bdd0*`): драйвер `bdd0_harness.cpp` (+ каталог `bdd0/`:
+  арена, модель нативов, проверки, сценарий, path-diff), генератор синтетического захвата
+  `bdd0_synth.cpp`, корпус `bdd0/corpus/` + `bdd0_corpus_run.py`, эмиттер таблицы сайтов
+  `gen_native_sites.py` (→ `battle/native_sites_table.inc`) и сверка байтов сайтов
+  `verify_native_sites.py`, self-test эмиттера стубов `leaf_sites_selftest{,_build}`,
+  A/B-дифф захватов `bdd0_ab_diff.py`, вставка меточного trace веток в `battle/tick.cpp`
+  (`bdd0_label_trace.py`, флаг `-DB0_TRACE_LABELS=1`), replay `e0a0` — `battle_replay{,_build}`,
+  сравнения — `battle_replay_diff.py`, `leaf_stream_diff.py`, `statefp_diff.py`, `trace_diff.py`.
+  Семантика проверок — `tools/ldhook/README.md`; канонические прогоны — `docs/PIPELINE.md` (п. 8).
+
 ## exe (tools/exe)
 
 ```

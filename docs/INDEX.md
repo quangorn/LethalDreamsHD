@@ -68,8 +68,8 @@
 | канонические команды и пайплайны | `docs/PIPELINE.md`, `docs/TOOLS.md` |
 | рецепт .pyc и модель патчей (diff/апликатор) | `docs/PATCHES.md` |
 | грабли (съёмка, Frida, cygwin-пути, PowerShell, 7z, кэши, декомпилят) | `docs/PITFALLS.md` |
-| тормоза боя, CPU-профиль, тяжёлые вызовы, план cap-патча `FUN_0045e0a0` | `docs/PERF_BATTLE.md`, `tools/perf/` |
-| порт боевой логики и поиска пути в C++: границы порта, фазы, гейты | `docs/PLAN_BATTLE_AI_CPP.md` |
+| тормоза боя, CPU-профиль, тяжёлые вызовы | `docs/PERF_BATTLE.md`, `tools/perf/` |
+| порт боевой логики и поиска пути в C++: границы порта, фазы, гейты; офлайн-харнесс тика | `docs/PLAN_BATTLE_AI_CPP.md`, `tools/ldhook/README.md` (bdd0-харнесс), `docs/TOOLS.md` («Боевой офлайн-харнесс»), `docs/PIPELINE.md` п. 8 |
 | опровергнутые утверждения и ложные выводы прошлых сессий | `docs/CONTRADICTIONS.md` |
 | переход с cave-патчей на DLL: прокси `python22.dll`, C вместо ассмблера, логгер, лимит `.text` | `docs/PLAN_proxy_dll.md` |
 | что передать новому агенту по `.pyd`-хукам: статус, следующий хук, чек-лист перехода | `docs/archive/HANDOFF_ldhook.md` |

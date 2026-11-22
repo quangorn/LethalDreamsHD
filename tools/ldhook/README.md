@@ -43,6 +43,9 @@ site3 считает FP-последовательность `cave3` (x87: `fild
 | `battle/move.cpp` | `s6_unit_ai_tick` — тик юнит-AI `FUN_0045eee0` (Фаза 4: порт тела + детур). |
 | `battle/tick.{cpp,h} + trace.h` | тик `FUN_0044bdd0` (Фаза 5) и trace-каркас `LDHOOK_BATTLE_TRACE` (формат строки — п. 1.7 плана; API/формат — `trace.h`). |
 | `battle/trace.cpp` | наблюдатели тика H1/H2/H3/H7 + trace-строка (29 полей; H5/H6 — точки site5/порта), общий счётчик `vis` с портом `s6_ai_update`, пиннинг seed'а R1..R3. |
+| `battle/capture.{cpp,h}` | офлайн-захват (`LDHOOK_BATTLE_CAPTURE=<jsonl>`): по-вызовные записи `cap`/`res`/`grid`/`eee0_*`/`bdd0_cap`/`bdd0_res`/`bdd0_in`/`bdd0_leaf`/`bdd0_native`; хуки сайтов нативных вызовов тела `44bdd0` |
+| `battle/native_sites.{cpp,h} + native_sites_table.inc` | таблица RECORD-сайтов не-листовых нативов `44bdd0` (эмитируется `tools/probes/gen_native_sites.py`) и стубы с записью аргументов/результата |
+| `battle/leaf_sites.{cpp,h}` | хуки логических листьев `44bdd0` (`bdd0_leaf`): запись ecx, аргументов и возврата |
 | `fetch_headers.py` | официальный Python 2.2.3 (python.org): `Include/*.h` + `PC/pyconfig.h` → `vendor/py223/include/` (untracked) |
 | `build.py` | MSVC x86 (`/LD /MT /EHsc /O2 /W3 /fp:precise`) по списку источников → `build/ldhook/ldhook.pyd` (gitignored). `/fp:precise` обязателен — битовая identity 4:3 в site1/site3 |
 | `smoke_api.py` | локальный смоук Python-API под `vendor/py223` (без игры): `log`/`set_level`/`stats`/`site6_stats`, уровень 0, TypeError, безопасный скан `.text` |
@@ -199,7 +202,8 @@ python3 tools/probes/leaf_stream_diff.py <capture.jsonl> <res_port.jsonl> [--ext
 `leaf_stream_diff.py` — поэлементное сравнение `res.leaf.path` с
 `res_port.leaf.path` по seq (общий префикс + маркер `EXTRA` хвоста); rc 0/1/2.
 
-Захват v8 (по умолчанию), ключи по версиям: v3 — `ai_words` (скалярный блок
+Версии захвата по родам записей: `CAP_VERSION 10` (`cap`/`res`/`grid`/`eee0_*`),
+`CAP_BDD0_VER 11` (пара `bdd0_cap`/`bdd0_res`), v12 (`bdd0_in`, `bdd0_leaf`). Ключи по версиям: v3 — `ai_words` (скалярный блок
 BattleAI), v4 — `ai_words_after`; v5 — запись `grid` перед первой `cap` (уровни/размеры,
 `cells` (LDPos-вид, метрики, ключи, связи), `rows`, статусы world-дерева, внешние входы
 эвристики, `res.timer`); v6 — значения гейта листьев + стек-арги cb40; v7 — `scale`/`scale_ok`:
@@ -233,3 +237,29 @@ cb40-вызов (count, idx, min/max, key, next, chain, status), replay прим
 ai_after_compared/ai_after_skipped/ai_words_mismatch; rc 0 равно, 1 расхождение, 2 битый вход.
 Скалярный блок сравнивается только при наличии ключа (с v3/v4), отсутствие — сказано в
 строке `CHAIN`. `LD_REPLAY_TRACE=1/2` — лог порта в stderr.
+
+## Офлайн-харнесс тика `44bdd0` (bdd0_harness)
+
+Захват по вызовам тела `44bdd0` (env `LDHOOK_BATTLE_CAPTURE=<jsonl>`, прогон в scratch-дереве,
+не в установке): пара `bdd0_cap` (H1 `0x44bdf5`, ECX = unit) / `bdd0_res` (H2 `0x44d074`),
+снимок входа `bdd0_in`, поток логических листьев `bdd0_leaf`, поток не-листовых нативов
+`bdd0_native` (с `ww` — post-state BattleAI+0x00..0x38 от `45eee0`). Драйвер подставляет
+записанные значения и исполняет порт тика.
+
+```
+python3 tools/probes/gen_native_sites.py [--check|--report]   # таблица сайтов -> battle/native_sites_table.inc
+python3 tools/probes/verify_native_sites.py                    # сверка байтов сайтов в EXE
+python3 tools/probes/bdd0_harness_build.py
+build/ldhook/bdd0_harness.exe <capture.jsonl> --impl port|native [--check NAME] [--no-check NAME]
+    [--from-seq N] [--limit N] [--path-diff [--path-diff-json f]] [--json out] [--budget-ms N] [--budget-calls N]
+python3 tools/probes/bdd0_corpus_run.py      # корпус (positive + corrupt_*), ожидаемые rc
+python3 tools/probes/leaf_sites_selftest_build.py  # self-test эмиттера стубов
+python3 tools/probes/bdd0_ab_diff.py <captureA.jsonl> <captureB.jsonl>     # живой A/B (санитарный)
+```
+
+Проверки (`tools/probes/bdd0/checks_builtin.cpp`): `res_match` (al/out/u170 против `bdd0_res`),
+`state_match` (m0..m2), `native_args`/`native_seq`, `leaf_seq`/`leaf_args`, `handles`, `no_trap`,
+`bounds`; SKIP-классы: uninit-аргументы, noncomparable by-value (`446a80`), unbound-указатели,
+оборванный хвост захвата (`incomplete_tail`). rc 0 — FAIL нет.
+Гейт Фазы 5 (решения 5.1c/5.1d) — `--impl port` rc 0 на реальном захвате; живой A/B — санитарный.
+Синтез корпусных записей — `tools/probes/bdd0_synth.cpp`; модель нативов и арена — `tools/probes/bdd0/`.
