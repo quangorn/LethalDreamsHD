@@ -66,7 +66,7 @@ black-эксперимент: чёрные .btf в установку не вх�
 1. real install `--quick`: на 19.11.2026 — rc 0, нарушений 0 (cursor приведён к base);
    исторически (до 19.11) — 1 DRIFT (cursor) + fix_command, rc 1; снапшот diff 0;
 2. real install `--full`: rc 0, KNOWN-drift, diff 0;
-3. `--untouched`: rc 0 (PRISTINE 2967 / HD_PACK 1379 / ALLOWED 728 / CODE 17 /
+3. `--untouched`: rc 0 (PRISTINE 2966 / HD_PACK 1379 / ALLOWED 728 / CODE 18 /
    EXCLUDED 4 — без code-файлов), diff 0;
 4. fake game (полная копия, sabotaged: gamescript.pyc modified, white.btf deleted,
    zzz_inject.pyc (утрачен: покрытия нет ни в git, ни в приватных архивах сессий Project/1-3.7z, 5.7z, 6.7z, 7.7z, original.7z, hd_pack.7z, python_libs.7z) added): quick rc1 (DRIFT pyc + DRIFT registry), full rc1 — исторический прогон сессии, артефакты в git не входят
@@ -134,10 +134,10 @@ black-эксперимент: чёрные .btf в установку не вх�
   против base-печати `60754a253515…`, и историческая сборка `ui/olmenu.pyc`), `--full` rc 0, `--untouched` rc 0;
   EXE установки `171319bbc170cf6e57c8d36a8ae5f50d` (1191936 B), md5-diff установок = 0.
 - `[P]` (2026-11-19) Оба дрейфа закрыты: `--quick` rc 0, нарушений 0; `hd.cfg` = `3840 2160 32 1`.
-- `[P]` (2026-11-18) Из установки удалены `lethaldreams.dll` (неиспользуемый
-  StarForce/SFORCE-стаб; копия в `backup_orig/` и в `original.7z`) и `LD-setup.bat`
-  (копия только в snapshot `6.7z`). Установка 5095 файлов; `lethaldreams.dll` в
-  `absent_ok`, строка `ld-setup.bat` из allowlist'а снята. Ярусы — новых нарушений нет.
+- `[P]` (2026-11-18) Из установки удалены `lethaldreams.dll` (неиспользуемый StarForce/SFORCE-стаб;
+  копия в `backup_orig/` и в `original.7z`) и `LD-setup.bat` (копия только в snapshot `6.7z`);
+  `lethaldreams.dll` в `absent_ok`, строка `ld-setup.bat` из allowlist'а снята; ярусы — новых
+  нарушений нет. Число файлов установки — замер выше.
 - `[P]` Цепь EXE воспроизведена: pristine `7943036fbd1233a0dbd43228f129cfc7` → exepatch3
   `deed9cf640de1fe31ecec6deacad21bd` → +2 байта `6A 00`→`6A 01` на fileoff 632177..632178
   = baseline `45e93d46aad6ceb3dfc17e86d04e4f82` (`backup/LETHALDREAMS.EXE.pre4`, побайтно)
