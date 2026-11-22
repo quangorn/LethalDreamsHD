@@ -182,9 +182,9 @@ PRISTINE 2967, HD_PACK 1379, ALLOWED 728, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0
 - `[P]` Фаза 4 закрыта: `45eee0` = `s6_unit_ai_tick` (тик юнит-AI, не «движение»), детур
   `install_tick_hook`, capture v9 + офлайн-replay `eee0`; trace — фиксированные 29 полей 1.7
   (`code`/`out`, `c1/x1/y1`, `c2/x2/y2`, `trk/bd2`) — `battle/move.cpp`, `battle/trace.cpp`.
-- `[P]` Фаза 5: аудит 1.3a/1.3b/1.4 пройден (п. 5.0), порядок «листья → R17…»; тела
-  `45b150/45b3e0/458050/45e1d0` не сняты, 9 листьев-портов не реализованы; capture v10
-  пишет `u170`/`al`/`param_1` — `docs/PLAN_BATTLE_AI_CPP.md`, `docs/TASK_phase5_handoff.md`.
+- `[P]` Фаза 5: тело `44bdd0` R1–R22 портировано целиком (`c706304`; R23 нативен), компилируется
+  с `B0_BODY_COMPLETE=1`; scope фиксирован — порт есть слой проводки, 205 state/string/GUI site и
+  9 логических листьев остаются нативными; гейт — capture v10 + живой A/B + ревью (решение 5.1c).
 - `[U]` Цель порта боя (19.11.2026): читаемая C++-реализация боевой логики и поиска пути
   (слои `44bdd0` → `45eee0` → `e0a0` → `dd70`), нативные вызовы для GUI/плумбинга; fidelity-first,
   CPU = baseline. Фазы, границы и гейты — `docs/PLAN_BATTLE_AI_CPP.md`.
