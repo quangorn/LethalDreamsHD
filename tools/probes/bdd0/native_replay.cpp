@@ -147,6 +147,11 @@ static const LeafRec *request(int va, const void *ecx, int nargs, const int *arg
         e.nargs = nargs;
         for (int k = 0; k < 6; k++) e.args[k] = (nargs > k) ? args[k] : 0;
         e.ret = 0;
+#ifdef B0_TRACE_LABELS
+        e.last_label = (int)b0_last_label;
+#else
+        e.last_label = -1;
+#endif
         g_match[g_log_n] = NULL;
         g_aw_nw[g_log_n] = 0;
         g_log_n++;
@@ -283,6 +288,11 @@ static const NativeRec *nrequest(int slot, int va, int ecx, const int *args,
             le->args[i] = (args != NULL && i < le->nargs) ? args[i] : 0;
         }
         g_nmatch[g_nlog_n] = NULL;
+#ifdef B0_TRACE_LABELS
+        le->last_label = (int)b0_last_label;
+#else
+        le->last_label = -1;
+#endif
         g_nlog_n++;
     }
     if (g_not_present) return NULL;

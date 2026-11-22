@@ -47,6 +47,9 @@ VSWHERE = paths.win_path(os.path.join(
 # установкой detour'а H1 в игре (b0_port_enabled), а не содержимым тела R1..R22.
 CFLAGS = ("/nologo /MT /EHsc /O2 /W3 /fp:precise /DBATTLE_REPLAY "
           "/D_CRT_SECURE_NO_WARNINGS /DB0_BODY_COMPLETE=1")
+# B0_TRACE_LABELS: цепочка меток/ветвлений тела (tick.cpp) + печать в харнессе.
+# Только trace-сборка харнесса; обычная сборка (и in-game .pyd) без макроса.
+TRACE_CFLAGS = CFLAGS + " /DB0_TRACE_LABELS=1"
 
 
 def decode(data):
@@ -75,7 +78,7 @@ def main():
     os.makedirs(os.path.dirname(OUTDIR), exist_ok=True)
     win = lambda x: x.replace("/", "\\")  # noqa: E731
 
-    def build(name, sources):
+    def build(name, sources, cflags=CFLAGS, link_extra=""):
         out = os.path.join(OUTDIR, name + ".exe")
         bat = os.path.join(OUTDIR, "build_%s.bat" % name)
         srcs = " ".join('"%s"' % win(paths.win_path(s)) for s in sources)
@@ -83,7 +86,7 @@ def main():
             "@echo off",
             'call "%s" x86' % win(vcvars),
             'cd /d "%s"' % win(OUTDIR),
-            "cl %s %s /link /OUT:%s.exe" % (CFLAGS, srcs, name),
+            "cl %s %s /link %s /OUT:%s.exe" % (cflags, srcs, link_extra, name),
             "exit /b %errorlevel%",
             "",
         ]
@@ -99,6 +102,11 @@ def main():
 
     build("bdd0_harness", HARNESS)
     build("bdd0_synth", SYNTH)
+    if "--trace" in sys.argv:
+        build("bdd0_harness_trace", HARNESS, TRACE_CFLAGS)
+    if "--trace-map" in sys.argv:
+        build("bdd0_harness_trace_map", HARNESS, TRACE_CFLAGS,
+              "/MAP:trace_map.map /BASE:0x400000")
 
 
 if __name__ == "__main__":

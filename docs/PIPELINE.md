@@ -77,6 +77,16 @@ python_libs.7z; тот же мандат applies к истории сессий.
    - `python3 tools/probes/leaf_stream_diff.py <capture.jsonl> <res_port.jsonl>`
    - `python3 tools/probes/trace_diff.py <native.log> <port.log> --align=ordinal`
 
+8. Захват v12 `bdd0_native` (не-листовые RECORD-нативы тела `44bdd0`):
+   - `python3 tools/probes/gen_native_sites.py [--check|--report]` — таблица сайтов из EXE
+     (`battle/native_sites_table.inc`) / список RECORD-NOOP_OK; `python3 tools/probes/verify_native_sites.py` — сверка байтов сайтов.
+   - `python3 tools/probes/bdd0_harness_build.py`; `build/ldhook/bdd0_harness.exe --impl port <capture.jsonl>`.
+   - self-test эмиттера стубов: `python3 tools/probes/leaf_sites_selftest_build.py`.
+   - корпус: `python3 tools/probes/bdd0_corpus_run.py` (positive + dropped/trap/order/args/pointer, ожидаемые rc 0/1/1/1/1/0-с-SKIP).
+   - исход: `--check res_match` (al/out/u170), `--check state_match` (m0..m2), `--check native_args` (ecx/args порта против записи).
+   - диагностика пути (не проверка): `--path-diff [--path-diff-json out.jsonl] [--from-seq N --limit 1]` —
+     side-by-side recorded/consumed order, первый DIVERGE и gate-контекст.
+
 
 ## btf-пайплайн (курсоры/иконки)
 

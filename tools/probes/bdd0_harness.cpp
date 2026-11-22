@@ -29,8 +29,25 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <fstream>
 
 #include "bdd0/harness.h"
+
+/* --------------------------- label trace -------------------------------- *
+ * --trace-labels / --trace-labels-json печатают цепочку меток и ветвлений тела
+ * на тик.  Весь код трассировки живёт только в trace-сборке
+ * (-DB0_TRACE_LABELS=1 вместе с tick.cpp); в обычной сборке флаги не
+ * распознаются, trace-функции — пустые макросы, и бинарь харнесса не меняется.
+ * События кольца тика: id метки (< B0_EXIT_BASE), id выхода
+ * (B0_EXIT_BASE..B0_COND_NAME_BASE), событие условия (бит 31 — событие
+ * условия, бит 30 — ветка взята, младшие биты — номер гейта). */
+#ifdef B0_TRACE_LABELS
+static int g_traceLabels = 0;
+static std::string g_traceJsonPath;
+#else
+#define g_traceLabels 0
+#define g_traceJsonPath std::string()
+#endif
 
 /* ------------------------------ base64 ---------------------------------- */
 static const char b64_tab[65] =
@@ -163,6 +180,10 @@ static int usage(void)
           "       [--check NAME]... [--no-check NAME] [--from-seq N] [--limit N]\n"
           "       [--json out.jsonl] [--verbose] [--budget-ms N] [--budget-calls N]\n",
           stderr);
+#ifdef B0_TRACE_LABELS
+    fputs("       [--trace-labels] [--trace-labels-json out.jsonl]"
+          " (label/branch trace of the ported body)\n", stderr);
+#endif
     return 2;
 }
 
@@ -189,6 +210,13 @@ static int parse_args(int argc, char **argv, Options &o)
             o.path_diff = 1;
         } else if (strcmp(a, "--verbose") == 0) {
             o.verbose = 1;
+#ifdef B0_TRACE_LABELS
+        } else if (strcmp(a, "--trace-labels") == 0) {
+            g_traceLabels = 1;
+        } else if (strcmp(a, "--trace-labels-json") == 0 && i + 1 < argc) {
+            g_traceLabels = 1;
+            g_traceJsonPath = argv[++i];
+#endif
         } else if (strcmp(a, "--budget-ms") == 0 && i + 1 < argc) {
             bdd0_budget_set(atoi(argv[++i]), -1);
         } else if (strcmp(a, "--budget-calls") == 0 && i + 1 < argc) {
@@ -257,6 +285,151 @@ static void write_report(FILE *f, const char *scenario, const TickRecord &rec,
             json_esc(impl).c_str(), json_esc(check).c_str(), rec.seq);
     (void)capture;
 }
+
+#ifdef B0_TRACE_LABELS
+static std::ofstream g_traceJson;
+/* События кольца текущего тика (снимаются сразу после исполнения тела). */
+static std::vector<unsigned> g_traceEvents;
+
+static const char *label_name(int id)
+{
+    if (id >= 0 && id < B0_COND_NAME_BASE) return b0_label_names[id];
+    return "?";
+}
+
+/* id выхода тела из событий кольца (-1 — trap/hang: выхода не было). */
+static int trace_exit_id(void)
+{
+    int exit_id = -1;
+    for (size_t k = 0; k < g_traceEvents.size(); k++) {
+        unsigned e = g_traceEvents[k];
+        if (e & 0x80000000u) continue;
+        if (e >= B0_EXIT_BASE && e < B0_COND_NAME_BASE) exit_id = (int)e;
+    }
+    return exit_id;
+}
+
+/* Цепочка меток, ветвления (условие + Taken/Not-Taken + метка, на которой
+ * условие) и вызовы (site/va/slot + последняя посещённая метка).  Печатаются
+ * только в trace-сборке; в обычной сборке тела g_traceEvents пуст. */
+static void print_label_trace(int seq, const char *implname, int pass, int al,
+                              unsigned long pc, unsigned long fault,
+                              const char *handle_why)
+{
+    if (!g_traceLabels) return;
+    if (pc != 0) {
+        unsigned long base = (unsigned long)(size_t)GetModuleHandleA(NULL);
+        printf("  trap: pc=base+0x%05x fault=0x%08x\n", pc - base, fault);
+        if (handle_why != NULL && handle_why[0] != '\0') {
+            printf("  unbound: %s\n", handle_why);
+        }
+    }
+    int nlab = 0;
+    for (size_t k = 0; k < g_traceEvents.size(); k++) {
+        unsigned e = g_traceEvents[k];
+        if (!(e & 0x80000000u) && e < B0_EXIT_BASE) nlab++;
+    }
+    int exit_id = trace_exit_id();
+    printf("bdd0 trace seq %d impl %s: %d labels, exit %s, al=%d, %s\n",
+           seq, implname, nlab,
+           (exit_id >= 0) ? label_name(exit_id) : "none (trap/hang)",
+           al, pass ? "pass" : "FAIL");
+    fputs("  chain:", stdout);
+    for (size_t k = 0; k < g_traceEvents.size(); k++) {
+        unsigned e = g_traceEvents[k];
+        if (e & 0x80000000u) continue;
+        if (e >= B0_EXIT_BASE && e < B0_COND_NAME_BASE) {
+            printf(">exit:%s", label_name((int)e));
+        } else {
+            printf(">%s", label_name((int)e));
+        }
+    }
+    printf("\n");
+    int lbl = -1;
+    for (size_t k = 0; k < g_traceEvents.size(); k++) {
+        unsigned e = g_traceEvents[k];
+        if (!(e & 0x80000000u)) {
+            if (e < B0_EXIT_BASE) lbl = (int)e;
+            continue;
+        }
+        int cid = (int)(e & 0x0fffffffu);
+        int taken = (e & 0x40000000u) ? 1 : 0;
+        printf("  branch [%s] %s at %s\n", b0_cond_names[cid],
+               taken ? "TAKEN" : "NOT-TAKEN",
+               (lbl >= 0) ? label_name(lbl) : "?");
+    }
+    int nn = 0, nl = 0;
+    const NativeCallLogEnt *nlog = bdd0_native_calllog(&nn);
+    const CallLogEnt *llog = bdd0_calllog(&nl);
+    int i = 0, j = 0;
+    while (i < nn || j < nl) {
+        int leaf_first;
+        if (j >= nl) leaf_first = 0;
+        else if (i >= nn) leaf_first = 1;
+        else leaf_first = (llog[j].call_seq < nlog[i].call_seq);
+        if (leaf_first) {
+            const LeafRec *r = bdd0_leaf_record_at(j);
+            printf("  call #%d leaf va=0x%06x site=0x%06x label=%s\n",
+                   j, llog[j].va, (r != NULL) ? r->site : 0,
+                   (llog[j].last_label >= 0)
+                       ? label_name(llog[j].last_label) : "-");
+            j++;
+        } else {
+            const NativeRec *r = bdd0_native_record_at(i);
+            printf("  call #%d native va=0x%06x site=0x%06x slot=0x%02x label=%s\n",
+                   i, nlog[i].va, (r != NULL) ? r->site : nlog[i].site,
+                   nlog[i].slot,
+                   (nlog[i].last_label >= 0)
+                       ? label_name(nlog[i].last_label) : "-");
+            i++;
+        }
+    }
+}
+
+static void write_label_trace_json(int seq, const char *implname, int pass, int al)
+{
+    if (g_traceJsonPath.empty() || !g_traceLabels) return;
+    if (!g_traceJson.is_open()) return;
+    g_traceJson << "{\"kind\":\"label_trace\",\"seq\":" << seq
+                << ",\"impl\":\"" << json_esc(implname)
+                << "\",\"pass\":" << (pass ? 1 : 0)
+                << ",\"al\":" << al << ",\"labels\":[";
+    int first = 1;
+    for (size_t k = 0; k < g_traceEvents.size(); k++) {
+        unsigned e = g_traceEvents[k];
+        if (e & 0x80000000u) continue;
+        if (e >= B0_COND_NAME_BASE) continue;
+        g_traceJson << (first ? "\"" : ",\"") << json_esc(label_name((int)e)) << "\"";
+        first = 0;
+    }
+    g_traceJson << "],\"branches\":[";
+    first = 1;
+    int lbl = -1;
+    for (size_t k = 0; k < g_traceEvents.size(); k++) {
+        unsigned e = g_traceEvents[k];
+        if (!(e & 0x80000000u)) {
+            if (e < B0_EXIT_BASE) lbl = (int)e;
+            continue;
+        }
+        int cid = (int)(e & 0x0fffffffu);
+        int taken = (e & 0x40000000u) ? 1 : 0;
+        g_traceJson << (first ? "[" : ",[") << "\"" << json_esc(b0_cond_names[cid])
+                    << "\",\"" << (taken ? "TAKEN" : "NOT-TAKEN")
+                    << "\",\"" << json_esc((lbl >= 0) ? label_name(lbl) : "?")
+                    << "\"]";
+        first = 0;
+    }
+    g_traceJson << "],\"exit\":";
+    int exit_id = trace_exit_id();
+    if (exit_id >= 0) g_traceJson << "\"" << json_esc(label_name(exit_id)) << "\"";
+    else g_traceJson << "null";
+    g_traceJson << "}\n";
+    g_traceJson.flush();
+}
+#else
+#define print_label_trace(seq, implname, pass, al, pc, fault, why) ((void)0)
+#define write_label_trace_json(seq, implname, pass, al) ((void)0)
+#endif
 
 int main(int argc, char **argv)
 {
@@ -333,6 +506,20 @@ int main(int argc, char **argv)
             return 2;
         }
     }
+#ifdef B0_TRACE_LABELS
+    if (!g_traceJsonPath.empty()) {
+        g_traceJson.open(g_traceJsonPath.c_str(),
+                         std::ios::out | std::ios::trunc);
+        if (!g_traceJson) {
+            fprintf(stderr, "cannot write label trace: %s\n",
+                    g_traceJsonPath.c_str());
+            if (pathj != NULL) fclose(pathj);
+            if (rf != stdout) fclose(rf);
+            scenario_free(sc);
+            return 2;
+        }
+    }
+#endif
 
     AddVectoredExceptionHandler(1, bdd0_veh);
 
@@ -407,6 +594,9 @@ int main(int argc, char **argv)
             if (impl->prepare != NULL) impl->prepare(arena);
 
             g_armed = 1;
+#ifdef B0_TRACE_LABELS
+            unsigned ringStart = (unsigned)b0_ring_i;
+#endif
             LARGE_INTEGER f0, t0, t1;
             QueryPerformanceFrequency(&f0);
             QueryPerformanceCounter(&t0);
@@ -429,6 +619,17 @@ int main(int argc, char **argv)
                                   (f0.QuadPart ? f0.QuadPart : 1));
             al = tr.al & 0xff;
             if (impl->release != NULL) impl->release(arena);
+#ifdef B0_TRACE_LABELS
+            g_traceEvents.clear();
+            if (g_traceLabels) {
+                const unsigned *ring = b0_trace_ring();
+                int n = (int)((unsigned)b0_ring_i - ringStart);
+                for (int k = 0; k < n; k++) {
+                    g_traceEvents.push_back(
+                        ring[(ringStart + k) % B0_TRACE_RING]);
+                }
+            }
+#endif
         } else {
             /* replay записанного исхода: тело не исполняется */
             al = rec.has_res ? (rec.res_al & 0xff) : 0;
@@ -561,6 +762,9 @@ int main(int argc, char **argv)
         }
 
         bdd0_uninit_reset();
+#ifdef B0_TRACE_LABELS
+        int tick_fails = 0;
+#endif
         for (size_t k = 0; k < enabled.size(); k++) {
             const CheckDef *cd = check_at(enabled[k]);
             CheckResult r;
@@ -591,11 +795,21 @@ int main(int argc, char **argv)
             } else {
                 ru.fail++;
                 fails++;
+#ifdef B0_TRACE_LABELS
+                tick_fails++;
+#endif
                 write_report(rf, sc->name.c_str(), rec, impl->name, cd->name,
                              r.why != NULL ? r.why : "", al, u170, out_val,
                              wall_ms, tc.leaf_calls, opt.capture, opt.capture);
             }
         }
+
+        /* цепочка меток и ветвлений тика: печатается после проверок, чтобы
+         * было видно, каким выходом тела закончился тик и чем он не прошёл */
+        print_label_trace(rec.seq, impl->name, tick_fails == 0, al,
+                          g_trap_pc, g_trap_fault,
+                          (rec.trap ? "" : tc.trap_why));
+        write_label_trace_json(rec.seq, impl->name, tick_fails == 0, al);
 
         if (opt.path_diff) bdd0_path_diff(sc, &rec, tc, pathj);
         uninit_total += bdd0_uninit_skipped();
@@ -668,6 +882,9 @@ int main(int argc, char **argv)
 
     if (rf != stdout) fclose(rf);
     if (pathj != NULL) fclose(pathj);
+#ifdef B0_TRACE_LABELS
+    g_traceJson.close();
+#endif
     scenario_free(sc);
     return fails > 0 ? 1 : 0;
 }

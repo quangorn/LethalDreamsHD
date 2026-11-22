@@ -56,6 +56,299 @@
 #include "../ldhook_internal.h"
 #include "battle.h"
 #include "native.h"
+/* === BEGIN LABEL TRACE === */
+/* Label trace, gated by -DB0_TRACE_LABELS=1.
+ * B0_LBL(id): label id -> ring; B0_TST(gate, cond): condition + direction as one
+ * event (bit31 = condition event, bit30 = branch taken, low bits = gate);
+ * B0_EXIT(128+k): exit of the body.  Without the flag all three expand to
+ * nothing, so tick.obj is byte-identical and the in-game build is unaffected.
+ * b0_last_label feeds the native/leaf call stamps of native_replay.cpp. */
+#if B0_TRACE_LABELS
+#define B0_TRACE_RING 2048
+static volatile unsigned g_b0_ring[B0_TRACE_RING];
+volatile int b0_trace_on = 1;
+volatile unsigned b0_last_label = 0;
+volatile int b0_tick_len = 0;
+volatile int b0_ring_i = 0;
+const unsigned *b0_trace_ring(void) { return (const unsigned *)g_b0_ring; }
+/* arrays of pointers, not const arrays: a top-level const object has internal
+ * linkage in C++, so the harness could not link against them. */
+const char *b0_label_names[] = {
+    "b3",
+    "b12",
+    "b15",
+    "b22",
+    "b23",
+    "b28",
+    "b29",
+    "b30",
+    "b31",
+    "b34",
+    "b39",
+    "b40",
+    "b41",
+    "b42",
+    "b46",
+    "b47",
+    "b49",
+    "b73_cursor_tail",
+    "b75",
+    "b76",
+    "b77_join",
+    "b80",
+    "b81",
+    "b85_r13",
+    "b87_r13",
+    "b88_r14",
+    "b89_r15",
+    "b94_r15",
+    "b95_r15",
+    "b96_r16",
+    "b97_r16",
+    "b99_r16",
+    "b100_join",
+    "b101_r16",
+    "b102_r16",
+    "b103_r17",
+    "b109_r18",
+    "b111_r18",
+    "b112_r18",
+    "b116_r18",
+    "b119_r18",
+    "b121_r19",
+    "b122_r19",
+    "b128_r20",
+    "b131_r20",
+    "b132_r20",
+    "b134_r20",
+    "b138_r21",
+    "b141_r21",
+    "b142_r21",
+    "b143_r22",
+    "b144_r22",
+    "b148_r22",
+    "b151_r22",
+    "b154_r22",
+    "b74_cursor_tail",
+    "b0_exit_44d061",
+    "b61_r9",
+    "b63_r9",
+    "b66",
+    "b67_r10",
+    "b70_r10",
+    "b72_r11",
+    "b55",
+    "b59",
+    "b16",
+    "b19",
+    "b20",
+    "b135_join",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "b40_ret_0",
+    "b100_join_ret_0",
+    "b112_r18_ret_0",
+    "b148_r22_ret_1",
+    "b151_r22_ret_1",
+    "b0_exit_44d061_ret_0",
+    "b135_join_ret_0",
+    "__except_handler_ret_0",
+};
+const char *b0_cond_names[] = {
+    "*(const unsigned char *)(frame + 0x15c) == 0",
+    "b0_gate_41_jnz(*(const float *)(unit + 0x114), 0.0f)",
+    "*(const unsigned char *)(unit + 0x118) != 0",
+    "force != 0",
+    "b0_gate_44_jp(*(const float *)((const unsigned char *)res + 4), out[0]) || b0_gate_44_jp(*(const float *)((const unsigned char *)res + 8), out[1]) || b0_gate_44_jp(*(const float *)((const unsigned char *)res + 12), out[2])",
+    "*(const int *)(unit + 0x170) != 1",
+    "head == NULL",
+    "count > 1",
+    "*(const int *)res != 3",
+    "b0_gate_41_jnp(phase, *(const float *)(unit + 0xfc))",
+    "(unsigned char)native::string_obj_cmp(v, player) == 0",
+    "native::player_get(unit, *(int *)(frame + 0)) == NULL",
+    "*(const int *)res == 3",
+    "b0_gate_41_jp(phase, *(const float *)(unit_x + 0xfc))",
+    "native::player_get(unit_x, *(int *)(frame + 0)) == NULL",
+    "flags_obj == NULL",
+    "(*(const unsigned char *)flags_obj & 0x2) != 0",
+    "(*(const unsigned char *)flags_obj & 0x4) == 0",
+    "*(const unsigned char *)(unit_x + 0x34) == 0",
+    "*(const int *)res == 3",
+    "*(const int *)res == 0",
+    "b0_gate_41_jp(phase, 3.0f)",
+    "grid == 0",
+    "native::player_get(unit_x, *(const int *)(frame + 0)) == NULL",
+    "flags_obj == NULL",
+    "(*(const unsigned char *)flags_obj & 0x2) != 0",
+    "(*(const unsigned char *)flags_obj & 0x4) == 0",
+    "*(const unsigned char *)(unit_x + 0x34) == 0",
+    "p3 != NULL",
+    "*(const unsigned char *)(frame + 0x15c) != 0",
+    "ctx != NULL",
+    "(v & 8u) == 0",
+    "head == NULL",
+    "ebx != 0",
+    "ctx != NULL",
+    "(v & 8u) != 0",
+    "head == NULL",
+    "count <= 1",
+    "*(const int *)res != 3",
+    "ebx != (unsigned int)edi",
+    "grid != 0",
+    "(ebx & 0x8u) == 0",
+    "anchor != NULL",
+    "native::player_get(unit_x, *(const int *)(frame + 0)) == NULL",
+    "flags_obj == NULL",
+    "(*(const unsigned char *)flags_obj & 0x2) != 0",
+    "(*(const unsigned char *)flags_obj & 0x4) == 0",
+    "*(const int *)res == 3",
+    "b0_gate_41_jp(*(const float *)(frame + 0x1c), *(const float *)(unit_x + 0xfc))",
+    "native::player_get(unit_x, *(const int *)(frame + 0)) == NULL",
+    "flags_obj == NULL",
+    "(*(const unsigned char *)flags_obj & 0x2) != 0",
+    "(*(const unsigned char *)flags_obj & 0x4) == 0",
+    "*(const unsigned char *)(unit_x + 0x34) == 0",
+    "p3 != NULL",
+    "cl != 0",
+    "*(const int *)(unit_x + 0x170) != edi",
+    "native::player_get(unit_x, *(const int *)(frame + 0)) == NULL",
+    "flags_obj == NULL",
+    "(*(const unsigned char *)flags_obj & 0x2) != 0",
+    "(*(const unsigned char *)flags_obj & 0x4) == 0",
+    "*(const unsigned char *)(unit_x + 0x34) != 0",
+    "p3 != NULL",
+    "*(const int *)(unit_x + 0x170) != 2",
+    "*(const unsigned char *)(unit_x + 0x34) == 0",
+    "*(const int *)(unit_x + 0x170) != 3",
+    "*(const unsigned char *)(unit_x + 0x34) == 0",
+    "*(const int *)(unit_x + 0x170) != 4",
+    "head != NULL",
+    "count > 1",
+    "b0_gate_41_jp(phase, *(const float *)(unit_x + 0xfc))",
+    "!r19_state3",
+    "native::player_get(unit_x, *(const int *)(frame + 0)) == NULL",
+    "(*(const unsigned char *)flags_obj & 0x2) != 0",
+    "(*(const unsigned char *)flags_obj & 0x4) == 0",
+    "*(const unsigned char *)(unit_x + 0x34) == 0",
+    "native::player_get(unit_x, *(const int *)(frame + 0)) == NULL",
+    "(*(const unsigned char *)flags_obj & 0x2) != 0",
+    "(*(const unsigned char *)flags_obj & 0x4) == 0",
+    "*(const unsigned char *)(unit_x + 0x34) == 0",
+    "head == NULL",
+    "count <= 1",
+    "b0_gate_41_jnz(*(const float *)(unit_x + 0x114), 0.0f)",
+    "*(const unsigned int *)(unit_x + 0x84) == 0",
+    "p3 != NULL",
+    "p3 != NULL",
+    "p3 != NULL",
+    "*(const unsigned char *)(unit_x + 0x34) == 0",
+    "(unsigned char)native::band_target_moved(head, band_triple[0], b0_float_bits(band_triple[1]), band_triple[2]) == 0",
+    "*(const unsigned char *)(unit_x + 0x34) == 0",
+    "*(const int *)(unit_x + 0x170) == 1",
+    "b0_gate_41_jp(gate, 3.0f)",
+    "*(const unsigned char *)(unit_x + 0x34) == 0",
+    "(unsigned char)native::band_target_moved(head, band_triple[0], b0_float_bits(band_triple[1]), band_triple[2]) == 0",
+    "*(const unsigned char *)(unit_x + 0x34) == 0",
+    "native::band_cursor(unit + 0x138) != *(void *const *)((const unsigned char *)res + 0x14)",
+    "!native::pos3_equal(out, (const unsigned char *)res + 4)",
+    "*(const unsigned char *)(unit + 0x34) == 0",
+    "*(const int *)(unit + 0x170) != 1",
+    "b0_gate_41_jp(gate, 4.0f)",
+    "flags_obj == NULL",
+    "(*(const unsigned char *)flags_obj & 0x2) != 0",
+    "(*(const unsigned char *)flags_obj & 0x4) == 0",
+    "*(const unsigned char *)(unit_x + 0x34) == 0",
+    "p3 != NULL",
+};
+static void b0_lbl(int id)
+{
+    b0_last_label = (unsigned)id;
+    b0_tick_len++;
+    g_b0_ring[b0_ring_i % B0_TRACE_RING] = (unsigned)id;
+    b0_ring_i++;
+}
+static int b0_tst(int gate, int cond)
+{
+    b0_tick_len++;
+    g_b0_ring[b0_ring_i % B0_TRACE_RING] = (unsigned)gate | 0x80000000u |
+        (cond ? 0x40000000u : 0u);
+    b0_ring_i++;
+    return cond;
+}
+static void b0_exit(int id)
+{
+    b0_tick_len++;
+    g_b0_ring[b0_ring_i % B0_TRACE_RING] = (unsigned)id;
+    b0_ring_i++;
+}
+#define B0_LBL(id) b0_lbl(id)
+#define B0_TST(gate, cond) b0_tst((gate), (cond))
+#define B0_EXIT(id) b0_exit(id)
+#else
+#define B0_LBL(id) ((void)0)
+#define B0_TST(gate, cond) (cond)
+#define B0_EXIT(id) ((void)0)
+#endif
+/* === END LABEL TRACE === */
+
 
 /* B0_BODY_COMPLETE — 0: тело R1..R22 портировано полностью, но детур остаётся
  * разоружённым — взвод (эта проверка) отдельное решение, не часть порта.
@@ -195,12 +488,12 @@ static int b0_body_r1_r2(void *unit_, unsigned char *frame)
 
     /* B0 (0x44bdf5..0x44bdf8) — вход после нативного пролога: param_1 == 0 →
      * пропуск B1/B2 (0x44bdf7 je 0x44be58). */
-    if (*(const unsigned char *)(frame + 0x15c) == 0) {
+    if (B0_TST(0, (*(const unsigned char *)(frame + 0x15c) == 0)))  {
         goto b3;                                        /* 0x44bdf7 */
     }
 
     /* B1 (0x44bdf9..0x44be0a) — гейт пригодности тика: `[unit+0x114] > 0.0f`. */
-    if (b0_gate_41_jnz(*(const float *)(unit + 0x114), 0.0f)) {
+    if (B0_TST(1, (b0_gate_41_jnz(*(const float *)(unit + 0x114), 0.0f))))  {
         goto b3;                                        /* 0x44be0a jne 0x44be58 */
     }
 
@@ -219,8 +512,9 @@ static int b0_body_r1_r2(void *unit_, unsigned char *frame)
     native::world_notify_snapshot(unit, snap_buf);      /* 0x44be55 call *0x28(%edx) */
 
 b3:
+B0_LBL(0);
     /* B3/B4 (0x44be58..0x44be69) — флаг `[unit+0x118]` → bit3 слота param_2. */
-    if (*(const unsigned char *)(unit + 0x118) != 0) {
+    if (B0_TST(2, (*(const unsigned char *)(unit + 0x118) != 0)))  {
         *(unsigned int *)(frame + 0x160) |= 8u;         /* 0x44be62 orl $8,0x160(%esp) */
     }
 
@@ -237,7 +531,7 @@ b3:
         *(unsigned int *)(frame + 0x2c) = p[0];         /* 0x44be80/0x44be86 */
         *(unsigned int *)(frame + 0x30) = p[1];         /* 0x44be83/0x44be8a */
         *(unsigned int *)(frame + 0x34) = p[2];         /* 0x44be86/0x44be8e */
-        if (force != 0) {
+        if (B0_TST(3, (force != 0)))  {
             goto b12;                                   /* 0x44be92 jne 0x44bf07 */
         }
     }
@@ -247,40 +541,39 @@ b3:
      * Порядок: 45c6f0 → 442570(0) → первое сравнение. */
     native::ctx_pos_get(unit + 0x138, out);             /* 0x44be9e..0x44bea1 */
     res = native::game_state_get(unit, 0);              /* 0x44bea6..0x44beac */
-    if (b0_gate_44_jp(*(const float *)((const unsigned char *)res + 4), out[0]) ||
-        b0_gate_44_jp(*(const float *)((const unsigned char *)res + 8), out[1]) ||
-        b0_gate_44_jp(*(const float *)((const unsigned char *)res + 12), out[2])) {
+    if (B0_TST(4, (b0_gate_44_jp(*(const float *)((const unsigned char *)res + 4), out[0]) || b0_gate_44_jp(*(const float *)((const unsigned char *)res + 8), out[1]) || b0_gate_44_jp(*(const float *)((const unsigned char *)res + 12), out[2]))))  {
         goto b12;                           /* 0x44bec0 / 0x44becd / 0x44beda */
     }
 
     /* B9 (0x44bedc..0x44bee3) — код тика == 1. */
-    if (*(const int *)(unit + 0x170) != 1) {
+    if (B0_TST(5, (*(const int *)(unit + 0x170) != 1)))  {
         goto b12;                                       /* 0x44bee3 jne 0x44bf07 */
     }
 
     /* B10/B11 (0x44bee5..0x44bf06) — голова ленты (дважды) и её длина;
      * count > 1 → ранний выход «успех» (B148, R22). */
     head = native::band_head(unit + 0x138);             /* 0x44bee5..0x44bee7 */
-    if (head == NULL) {
+    if (B0_TST(6, (head == NULL)))  {
         goto b12;                                       /* 0x44beec/0x44beee je */
     }
     head = native::band_head(unit + 0x138);             /* 0x44bef0..0x44bef2 */
     count = native::band_count(head);                   /* 0x44bef7..0x44bef9 */
-    if (count > 1) {
+    if (B0_TST(7, (count > 1)))  {
         goto b148_r22;                                  /* 0x44befe/0x44bf01 jg 0x44d02e */
     }
 
 b12:
+B0_LBL(1);
     /* B12 (0x44bf07..0x44bf18) — фаза battle должна быть 3. */
     res = native::game_state_get(unit, 0);              /* 0x44bf07..0x44bf0b */
-    if (*(const int *)res != 3) {                       /* 0x44bf10/0x44bf13 jne 0x44c08b */
+    if (B0_TST(8, (*(const int *)res != 3)))  {                       /* 0x44bf10/0x44bf13 jne 0x44c08b */
         goto b22;
     }
 
     /* B13 (0x44bf19..0x44bf2d) — `phase_time <= [unit+0xfc]` (упорядоченное):
      * jnp взят → B15; иначе ( больше или unordered) → B14. */
     native::phase_time(unit, &phase);                   /* 0x44bf1e call *0x2c(%eax) */
-    if (b0_gate_41_jnp(phase, *(const float *)(unit + 0xfc))) {
+    if (B0_TST(9, (b0_gate_41_jnp(phase, *(const float *)(unit + 0xfc)))))  {
         goto b15;                                       /* 0x44bf2c jnp 0x44bf54 */
     }
 
@@ -292,12 +585,13 @@ b12:
     {
         void *player = *(void **)((unsigned char *)res + 0x10);   /* 0x44bf37 */
         void *v = native::player_get(unit, (int)(INT_PTR)player); /* 0x44bf3d..0x44bf40 */
-        if ((unsigned char)native::string_obj_cmp(v, player) == 0) {  /* 0x44bf43..0x44bf4c */
+        if (B0_TST(10, ((unsigned char)native::string_obj_cmp(v, player) == 0)))  {  /* 0x44bf43..0x44bf4c */
             goto b22;                                   /* 0x44bf4e je 0x44c08b */
         }
     }
 
 b15:
+B0_LBL(2);
     /* B15 (0x44bf54..0x44bfb7) — msg-строка (ctor → 0x3c-байтовая копия →
      * ai_time_update), затем vtable+0x40 без явного аргумента.
      * Натив адресует temps через ESP после `sub 0x3c` (esp1 = frame−0x3c):
@@ -321,21 +615,23 @@ b15:
      * МОДЕЛЬ: слот читается как вход; in/out-запись callee не наблюдаема.
      * ПЕРЕПРОВЕРИТЬ, когда дизасм R3/листьев (тело callee vtable+0x40) станет
      * видимым — тогда решается, in/out это или чистый вход. */
-    if (native::player_get(unit, *(int *)(frame + 0)) == NULL) {   /* 0x44bfb4 */
+    if (B0_TST(11, (native::player_get(unit, *(int *)(frame + 0)) == NULL)))  {   /* 0x44bfb4 */
         goto b20;                                       /* 0x44bfb6 je 0x44c017 */
     }
     goto b16;                                           /* fall-through 0x44bfb8 */
 
 b22:
+B0_LBL(3);
     /* 0x44c08b..0x44c09c — B22 (R3): общий вход ветки `state != 3` и провала
      * B14. `442570(unit,0)`; `[result] == 3` → B31 (R5), иначе fall → R4. */
     res = native::game_state_get(unit, 0);              /* 0x44c08f */
-    if (*(const int *)res == 3) {                       /* 0x44c094/0x44c097 */
+    if (B0_TST(12, (*(const int *)res == 3)))  {                       /* 0x44c094/0x44c097 */
         goto b31;                                       /* je 0x44c1ed → R5 */
     }
     goto b23;                                           /* fall 0x44c09d → R4 */
 
 b23:
+B0_LBL(4);
     /* B23 (0x44c09d..0x44c0b5) — вход ветки `state != 3` (fall B22). EBP на
      * этом пути не сдвинут (cursor-блок B21 не исполнялся), поэтому EBP-
      * адресация идёт через unit_x == unit.
@@ -343,7 +639,7 @@ b23:
      * взято ⟺ NOT(phase ≤ threshold) (больше или unordered) → цепочка
      * state==3 (B31, R5). Направление обратно гейту B13 (`JNP`). */
     native::phase_time(unit_x, &phase);                 /* 0x44c09d..0x44c0a2 */
-    if (b0_gate_41_jp(phase, *(const float *)(unit_x + 0xfc))) {
+    if (B0_TST(13, (b0_gate_41_jp(phase, *(const float *)(unit_x + 0xfc)))))  {
         goto b31;                                       /* 0x44c0b0 jp 0x44c1ed */
     }
 
@@ -361,42 +657,45 @@ b23:
     *(unsigned int *)(frame + 0x80) = 0;                /* 0x44c0f7 */
     native::msg_copy(msg_dst, frame + 0x4c);            /* 0x44c102 */
     native::ai_time_update(unit_x, msg_dst);            /* 0x44c109 */
-    if (native::player_get(unit_x, *(int *)(frame + 0)) == NULL) {
+    if (B0_TST(14, (native::player_get(unit_x, *(int *)(frame + 0)) == NULL)))  {
         goto b29;                                       /* 0x44c118 je 0x44c179 */
     }
 
     /* B25 (0x44c11a..0x44c134) — цепочка ×1 (те же 3 листа, что R3 B16),
      * NULL-гейт → B29. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44c11a..0x44c12d */
-    if (flags_obj == NULL) {
+    if (B0_TST(15, (flags_obj == NULL)))  {
         goto b29;                                       /* 0x44c134 je 0x44c179 */
     }
 
     /* B26 (0x44c136..0x44c151) — цепочка ×2, `TESTB $2,(%eax)`: бит → B28. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44c136..0x44c149 */
-    if ((*(const unsigned char *)flags_obj & 0x2) != 0) {
+    if (B0_TST(16, ((*(const unsigned char *)flags_obj & 0x2) != 0)))  {
         goto b28;                                       /* 0x44c151 jne 0x44c170 */
     }
 
     /* B27 (0x44c153..0x44c16e) — цепочка ×3, `TESTB $4,(%eax)`: бит снят → B29. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44c153..0x44c166 */
-    if ((*(const unsigned char *)flags_obj & 0x4) == 0) {
+    if (B0_TST(17, ((*(const unsigned char *)flags_obj & 0x4) == 0)))  {
         goto b29;                                       /* 0x44c16e je 0x44c179 */
     }
 
 b28:
+B0_LBL(5);
     /* B28 (0x44c170..0x44c178) — cursor/mode update с аргументом 0x40. */
     native::cursor_mode_update(unit_x, 0x40);           /* 0x44c170..0x44c174 */
 
 b29:
+B0_LBL(6);
     /* B29 (0x44c179..0x44c183) — msg-флаг `unit+0x34`: 0 → join; иначе
      * fall в R5 B30 (`0x44c184`, cursor-блок B). */
-    if (*(const unsigned char *)(unit_x + 0x34) == 0) {
+    if (B0_TST(18, (*(const unsigned char *)(unit_x + 0x34) == 0)))  {
         goto b135_join;                                 /* 0x44c17e je 0x44cee6 */
     }
     goto b30;                                           /* fall 0x44c184 → R5 */
 
 b30:
+B0_LBL(7);
     /* B30 (0x44c184..0x44c1ec) — string/log-блок B (в disasm4 «cursor block B»;
      * 0x4ec064 = OutputDebugStringA, как B21). Клон B21 с литералом 0x4eedec и
      * байтами trylevel 4→5→4→3; в нативе все четыре — по `[ESP+0x154]` при
@@ -426,17 +725,18 @@ b30:
     goto b135_join;                                     /* 0x44c1e8 jmp 0x44cee6 */
 
 b31:
+B0_LBL(8);
     /* B31 (0x44c1ed..0x44c1fe) — вход из B22 (R3) и B23 (R4): там EBP не
      * сдвинут (cursor-блоки B21/B30 на этих путях не исполнялись), поэтому
      * unit_x == unit. Состояние ==3 → B42 (band-loop, R7). */
     res = native::game_state_get(unit_x, 0);            /* 0x44c1ed..0x44c1f1 */
-    if (*(const int *)res == 3) {                       /* 0x44c1f6 */
+    if (B0_TST(19, (*(const int *)res == 3)))  {                       /* 0x44c1f6 */
         goto b42;                                       /* 0x44c1f9 je 0x44c344 */
     }
 
     /* B32 (0x44c1ff..0x44c210) — состояние ==0 → B42. */
     res = native::game_state_get(unit_x, 0);            /* 0x44c1ff..0x44c203 */
-    if (*(const int *)res == 0) {                       /* 0x44c208 */
+    if (B0_TST(20, (*(const int *)res == 0)))  {                       /* 0x44c208 */
         goto b42;                                       /* 0x44c20b je 0x44c344 */
     }
 
@@ -444,12 +744,13 @@ b31:
      * 3.0f (0x40400000, bit-exact): `TEST AH,0x41; JP` ⟺ NOT(phase ≤ 3.0f)
      * (больше или unordered) → B42; иначе fall → B34 (R6). */
     native::phase_time(unit_x, &phase);                 /* 0x44c216 */
-    if (b0_gate_41_jp(phase, 3.0f)) {                   /* 0x44c219..0x44c224 */
+    if (B0_TST(21, (b0_gate_41_jp(phase, 3.0f))))  {                   /* 0x44c219..0x44c224 */
         goto b42;                                       /* 0x44c224 jp 0x44c344 */
     }
     goto b34;                                           /* fall 0x44c22a → R6 */
 
 b34:
+B0_LBL(9);
     /* R6 (0x44c22a..0x44c306) — grid-probe B34..B40.
      * unit_x на входе: в 0x44c22a попадает только fall B33 (0x44c224 jp не
      * взят); B31/B32 достижимы из B22 (0x44c08b) и B23 (0x44c09d), где сдвига
@@ -476,52 +777,57 @@ b34:
     grid = native::grid_query(unit_x, b0_float_bits(cur_triple[0]),
                               b0_float_bits(cur_triple[1]),
                               b0_float_bits(cur_triple[2]), 0);  /* 0x44c276 */
-    if (grid == 0) {                    /* 0x44c27d `test; jbe` (unsigned ⇒ ==0) */
+    if (B0_TST(22, (grid == 0)))  {                    /* 0x44c27d `test; jbe` (unsigned ⇒ ==0) */
         goto b42;
     }
 
     /* B35 (0x44c283..0x44c29c) — assert/log только при grid > 0. */
     native::log_assert(unit_x, native::literal(0x51cc50), 0xa); /* 0x44c283..0x44c28c */
     /* 0x44c296 — геттер без push: callee читает [esp+4] = [frame] (модель B15). */
-    if (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL) {
+    if (B0_TST(23, (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL)))  {
         goto b40;                                       /* 0x44c29b je 0x44c2fc */
     }
 
     /* B36 (0x44c29d..0x44c2b8) — цепочка ×1, NULL → B40. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44c29d..0x44c2b5 */
-    if (flags_obj == NULL) {
+    if (B0_TST(24, (flags_obj == NULL)))  {
         goto b40;                                       /* 0x44c2b7 je */
     }
 
     /* B37 (0x44c2b9..0x44c2d5) — цепочка ×2, `TESTB $2`: бит → B39. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44c2b9..0x44c2d1 */
-    if ((*(const unsigned char *)flags_obj & 0x2) != 0) {
+    if (B0_TST(25, ((*(const unsigned char *)flags_obj & 0x2) != 0)))  {
         goto b39;                                       /* 0x44c2d4 jne */
     }
 
     /* B38 (0x44c2d6..0x44c2f2) — цепочка ×3, `TESTB $4`: бит снят → B40. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44c2d6..0x44c2ee */
-    if ((*(const unsigned char *)flags_obj & 0x4) == 0) {
+    if (B0_TST(26, ((*(const unsigned char *)flags_obj & 0x4) == 0)))  {
         goto b40;                                       /* 0x44c2f1 je */
     }
 
 b39:
+B0_LBL(10);
     /* B39 (0x44c2f3..0x44c2fb) — cursor/mode update с аргументом 0x40. */
     native::cursor_mode_update(unit_x, 0x40);           /* 0x44c2f3..0x44c2f7 */
 
 b40:
+B0_LBL(11);
     /* B40 (0x44c2fc..0x44c306) — msg-флаг `unit+0x34`: 0 → выход 0x44d061
      * (out-guard param_3 = 0, AL = 0); иначе fall → B41 (R7). */
-    if (*(const unsigned char *)(unit_x + 0x34) == 0) {
+    if (B0_TST(27, (*(const unsigned char *)(unit_x + 0x34) == 0)))  {
         void *p3 = *(void **)(frame + 0x164);           /* 0x44d061 out-guard */
-        if (p3 != NULL) {
+        if (B0_TST(28, (p3 != NULL)))  {
             *(int *)p3 = 0;
         }
+        B0_EXIT(128);
         return 0;                                       /* 0x44d072 xor al,al */
     }
+    B0_EXIT(128);
     goto b41;                                           /* fall 0x44c307 */
 
 b41:
+B0_LBL(12);
     /* B41 (0x44c307..0x44c343) — string-блок C; единственный вход — fall B40
      * (R6), где EBP ещё не сдвинут.
      * Натив: `push 0x4eed90` → ctor `[esp+0x14]` (= frame+0x10); затем
@@ -546,6 +852,7 @@ b41:
     goto b73_cursor_tail;                               /* 0x44c33f jmp 0x44c6b6 */
 
 b42:
+B0_LBL(13);
     /* B42 (0x44c344..0x44c34e) — вход band-loop. Сюда ведут B31/B32 (0x44c1f9/
      * 0x44c20b), B33 (0x44c224 jp) и B34 `jbe` (0x44c27d) — на ВСЕХ этих путях
      * `ADD EBP,0x18` не исполнялся (сдвиги B21/B30 уходят в `0x44cee6`, B41 —
@@ -555,7 +862,7 @@ b42:
      * слот дальше не пишется ⇒ пересчёт эквивалентен.
      * `[esp+0x15c]` = param_1 (cmd-флаг): ≠0 → B49. */
     ebx = *(const unsigned int *)(frame + 0x160) & 8u;  /* = EBX из B5 */
-    if (*(const unsigned char *)(frame + 0x15c) != 0) {
+    if (B0_TST(29, (*(const unsigned char *)(frame + 0x15c) != 0)))  {
         goto b49;                                       /* 0x44c34d jne 0x44c393 */
     }
 
@@ -565,15 +872,16 @@ b42:
         void *ctx = *(void **)(unit_x + 0x138);         /* 0x44c34f */
         unsigned int v = 0;
 
-        if (ctx != NULL) {
+        if (B0_TST(30, (ctx != NULL)))  {
             v = *(const unsigned int *)ctx;             /* 0x44c35f */
         }
-        if ((v & 8u) == 0) {
+        if (B0_TST(31, ((v & 8u) == 0)))  {
             goto b47;                                   /* 0x44c363 je 0x44c36d */
         }
     }
 
 b46:
+B0_LBL(14);
     /* B46 (0x44c365) — байт param_1 = 0 (clear cmd-флаг перед loop head).
      * Метка = точка back-edge R10 B70 (`0x44c66d je 0x44c365`): повторный вход
      * в единственный цикл тела идёт СЮДА, т.е. всегда со снятым cmd-флагом.
@@ -581,10 +889,11 @@ b46:
     *(unsigned char *)(frame + 0x15c) = 0;
 
 b47:
+B0_LBL(15);
     /* B47 (0x44c36d..0x44c37b) — курсор ленты (45c730, ECX = &ctx); NULL →
      * B75 (R11). */
     head = native::band_cursor(unit_x + 0x138);         /* 0x44c36f */
-    if (head == NULL) {
+    if (B0_TST(32, (head == NULL)))  {
         goto b75;                                       /* 0x44c376 je 0x44c6ed */
     }
 
@@ -598,8 +907,9 @@ b47:
     goto b76;                                           /* 0x44c38e jmp 0x44c6f5 */
 
 b49:
+B0_LBL(16);
     /* B49 (0x44c393..0x44c39a) — EBX ≠ 0 → flags-join B77 (R11). */
-    if (ebx != 0) {
+    if (B0_TST(33, (ebx != 0)))  {
         goto b77_join;                                  /* 0x44c395 jne 0x44c715 */
     }
 
@@ -609,17 +919,17 @@ b49:
         void *ctx = *(void **)(unit_x + 0x138);         /* 0x44c39b */
         unsigned int v = 0;
 
-        if (ctx != NULL) {
+        if (B0_TST(34, (ctx != NULL)))  {
             v = *(const unsigned int *)ctx;             /* 0x44c3ab */
         }
-        if ((v & 8u) != 0) {
+        if (B0_TST(35, ((v & 8u) != 0)))  {
             goto b77_join;                              /* 0x44c3af jne 0x44c715 */
         }
     }
 
     /* B53 (0x44c3b5..0x44c3c3) — голова ленты (45c370); NULL → B77. */
     head = native::band_head(unit_x + 0x138);           /* 0x44c3b7 */
-    if (head == NULL) {
+    if (B0_TST(36, (head == NULL)))  {
         goto b77_join;                                  /* 0x44c3be je 0x44c715 */
     }
 
@@ -628,11 +938,11 @@ b49:
      * иначе B77; fall → B55 (R8). */
     head = native::band_head(unit_x + 0x138);           /* 0x44c3c6 */
     count = native::band_count(head);                   /* 0x44c3cd */
-    if (count <= 1) {
+    if (B0_TST(37, (count <= 1)))  {
         goto b77_join;                                  /* 0x44c3d5 jle 0x44c715 */
     }
     res = native::game_state_get(unit_x, 0);            /* 0x44c3df */
-    if (*(const int *)res != 3) {
+    if (B0_TST(38, (*(const int *)res != 3)))  {
         goto b77_join;                                  /* 0x44c3e7 jne 0x44c715 */
     }
     goto b55;                                           /* fall 0x44c3ed → R8 */
@@ -651,6 +961,7 @@ b49:
  *  - B77..B81: входы R7 B49/B52/B53/B54 (+B76 fall), R8 B55, R9 B66 — на
  *    всех EBP НЕ сдвинут, поэтому `[EBP]` = vptr unit и ECX = unit. */
 b73_cursor_tail:
+B0_LBL(17);
     /* B73 (0x44c6b6..0x44c6ca) — общий cursor-tail: EAX = строка из 413060
      * (`MOV ECX,EAX; CALL 49ad70` — c_str) → `PUSH EAX; CALL IAT 0x4ec064`
      * (OutputDebugStringA, stdcall снимает аргумент) → `MOV BL,[esp+0x154]`
@@ -661,11 +972,13 @@ b73_cursor_tail:
     goto b74_cursor_tail;                               /* fall 0x44c6cb */
 
 b75:
+B0_LBL(18);
     /* B75 (0x44c6ed..0x44c6f4) — anchor `[esp+0x38]` = 0; fall B76. */
     *(unsigned int *)(frame + 0x38) = 0;
     goto b76;                                           /* fall 0x44c6f5 */
 
 b76:
+B0_LBL(19);
     /* B76 (0x44c6f5..0x44c714) — `45c6f0(ECX = ESI = &unit+0x138,
      * out = frame+0x20)`; три dword результата → pos-тройка
      * `frame+0x2c/0x30/0x34`. fall → B77. */
@@ -674,11 +987,12 @@ b76:
     /* fall → b77_join */
 
 b77_join:
+B0_LBL(20);
     /* B77 (0x44c715..0x44c71a) — flags-join. `XOR EDI,EDI`; `CMP EBX,EDI;
      * JNE 0x44c73d`. EDI=0 моделируется локальной (его читают R12 B82 —
      * заполнение record-слотов — и R14: `PUSH EDI` ×4 в 442570). */
     edi = 0;
-    if (ebx != (unsigned int)edi) {
+    if (B0_TST(39, (ebx != (unsigned int)edi)))  {
         goto b80;                                       /* 0x44c719 jne 0x44c73d */
     }
 
@@ -694,21 +1008,23 @@ b77_join:
     grid = native::grid_query(unit_x, b0_float_bits(world_triple[0]),
                               b0_float_bits(world_triple[1]),
                               b0_float_bits(world_triple[2]), 0); /* 0x44c72e..0x44c730 */
-    if (grid != 0) {                    /* 0x44c735/0x44c737 `jbe` (unsigned ⇒ ==0) */
+    if (B0_TST(40, (grid != 0)))  {                    /* 0x44c735/0x44c737 `jbe` (unsigned ⇒ ==0) */
         /* B79 (0x44c739..0x44c73c) — grid ≠ 0: `XOR EBX,EBX` → B81. */
         ebx = 0;
         goto b81;                                       /* 0x44c73b jmp 0x44c744 */
     }
 
 b80:
+B0_LBL(21);
     /* B80 (0x44c73d..0x44c743) — EBX := param_2 (`frame+0x160`): единственная
      * запись слота — B4 `orl $8` (CONTRADICTIONS #16). */
     ebx = *(const unsigned int *)(frame + 0x160);
 
 b81:
+B0_LBL(22);
     /* B81 (0x44c744..0x44c74c) — `TEST BL,0x8`: бит снят → B102 (R16,
      * sentinel-тройка −10000.0f); иначе fall → B82 (R12, grid-anchor 458050). */
-    if ((ebx & 0x8u) == 0) {
+    if (B0_TST(41, ((ebx & 0x8u) == 0)))  {
         goto b102_r16;                                  /* 0x44c74a jz 0x44cb07 */
     }
 
@@ -757,7 +1073,7 @@ b81:
                                 (int *)(frame + 0x3f),
                                 unit_x);                /* 0x44c7da */
     *(void **)(frame + 0x98) = anchor;                  /* 0x44c7e1 (и при NULL) */
-    if (anchor != NULL) {
+    if (B0_TST(42, (anchor != NULL)))  {
         goto b88_r14;                                   /* 0x44c7ea jne 0x44c878 */
     }
 
@@ -766,19 +1082,20 @@ b81:
      * callee читает свой [esp+4] = верх ESP вызывающего = frame = слот
      * сохранённого EDI пролога (та же модель, что B15/B24/B35). NULL → join. */
     native::log_assert(unit_x, native::literal(0x51cc50), 0xa); /* 0x44c7f0..0x44c7f7 */
-    if (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL) {
+    if (B0_TST(43, (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL)))  {
         goto b100_join;                                 /* 0x44c806 je 0x44cad2 */
     }
 
     /* B84 (0x44c80c..0x44c82b) — flags-цепочка (`push 1` → vtable+0x40 →
      * 42da60 → 435d50 = b0_player_flag_chain); NULL → join, иначе fall → B85. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44c80c..0x44c81f */
-    if (flags_obj == NULL) {
+    if (B0_TST(44, (flags_obj == NULL)))  {
         goto b100_join;                                 /* 0x44c826 je 0x44cad2 */
     }
     goto b85_r13;                                       /* fall 0x44c82c → R13 */
 
 b85_r13:
+B0_LBL(23);
     /* --- R13 (`0x44c82c..0x44c877`): flags-цепочка tail anchor-NULL пути --- *
      * Единственный вход — fall B84 (`0x44c826 je` не взят), т.е. R13 на входе
      * в точности там, где и R12: `ADD EBP,0x18` не исполнялся (сдвиги
@@ -789,18 +1106,19 @@ b85_r13:
      * → 435d50 = b0_player_flag_chain); `TESTB $2,(%eax)`: бит взят → B87.
      * NULL-guard в R13 нет: цепочка B84 защищена гейтом `0x44c826`. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44c82c..0x44c841 */
-    if ((*(const unsigned char *)flags_obj & 0x2) != 0) {
+    if (B0_TST(45, ((*(const unsigned char *)flags_obj & 0x2) != 0)))  {
         goto b87_r13;                                   /* 0x44c847 jne 0x44c86a */
     }
 
     /* B86 (0x44c849..0x44c864) — цепочка ×2, `TESTB $4,(%eax)`: бит снят →
      * dtor-join `0x44cad2`; иначе fall → B87. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44c849..0x44c85e */
-    if ((*(const unsigned char *)flags_obj & 0x4) == 0) {
+    if (B0_TST(46, ((*(const unsigned char *)flags_obj & 0x4) == 0)))  {
         goto b100_join;                                 /* 0x44c864 je 0x44cad2 */
     }
 
 b87_r13:
+B0_LBL(24);
     /* B87 (0x44c86a..0x44c877) — cursor/mode update с аргументом 0x40, затем
      * `JMP 0x44cad2`. Оба входа: B85 JNZ и B86 fall. Все выходы R13 — через
      * dtor-join (AL=0), return-значение порта = 0. */
@@ -818,6 +1136,7 @@ b87_r13:
  * ESI переприсваивается: `LEA ESI,[EBP+0xa4]` @0x44c8cf (ctx больше не нужен);
  * модель — запись/чтение идёт прямо по `unit_x+0xa4..0xac`. */
 b88_r14:
+B0_LBL(25);
     /* B88 (0x44c878..0x44c96f). */
     r14_tri[0] = r14_tri[1] = r14_tri[2] = 0.0f;
     /* 0x44c878..0x44c88b — world-notify(&slot frame+0xc0), затем vtable+0x40
@@ -862,12 +1181,13 @@ b88_r14:
     /* 0x44c95f..0x44c96a — состояние == 3 → B101 (dtor-join → R17), иначе
      * fall → R15 B89. */
     res = native::game_state_get(unit_x, edi);              /* 0x44c962 */
-    if (*(const int *)res == 3) {
+    if (B0_TST(47, (*(const int *)res == 3)))  {
         goto b101_r16;                                      /* 0x44c96a je 0x44caee */
     }
     goto b89_r15;                                           /* fall 0x44c970 */
 
 b89_r15:
+B0_LBL(26);
     /* --- R15: string-клон + `446a80` + цепочки + `448c30` (0x44c970..0x44ca4b) *
      * Единственный вход — fall R14 B88. На этом пути EBP не сдвинут (сдвиги
      * B21/B30/B41/B58/B62/B65/B69/B72 уходят из flags-join), поэтому `[EBP+…]`
@@ -875,8 +1195,7 @@ b89_r15:
      * B89 (0x44c970..0x44c984) — `FLDS [frame+0x1c]` (фаза из FSTP R14),
      * `FCOMPS [unit+0xfc]`, `TEST AH,0x41; JP 0x44caee`: взято ⟺ больше или
      * unordered → B101; fall → B90. */
-    if (b0_gate_41_jp(*(const float *)(frame + 0x1c),
-                      *(const float *)(unit_x + 0xfc))) {
+    if (B0_TST(48, (b0_gate_41_jp(*(const float *)(frame + 0x1c), *(const float *)(unit_x + 0xfc)))))  {
         goto b101_r16;                                      /* 0x44c97f jp 0x44caee */
     }
 
@@ -901,43 +1220,46 @@ b89_r15:
     *(unsigned int *)(frame + 0x80) = 0;                /* 0x44c9c3 */
     native::msg_copy(msg_dst, frame + 0x4c);            /* 0x44c9ce */
     native::ai_time_update(unit_x, msg_dst);            /* 0x44c9d3..0x44c9d5 */
-    if (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL) {
+    if (B0_TST(49, (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL)))  {
         goto b95_r15;                                   /* 0x44c9e2 je 0x44ca45 */
     }
 
     /* B91 (0x44c9e6..0x44ca01) — цепочка ×1 (`push 1` → vtable+0x40 → 42da60 →
      * 435d50); `TEST EAX` → NULL → B95. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44c9e6..0x44c9f9 */
-    if (flags_obj == NULL) {
+    if (B0_TST(50, (flags_obj == NULL)))  {
         goto b95_r15;                                   /* 0x44ca00 je 0x44ca45 */
     }
 
     /* B92 (0x44ca02..0x44ca1e) — цепочка ×2, `TESTB $2,(%eax)`: бит → B94. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44ca02..0x44ca15 */
-    if ((*(const unsigned char *)flags_obj & 0x2) != 0) {
+    if (B0_TST(51, ((*(const unsigned char *)flags_obj & 0x2) != 0)))  {
         goto b94_r15;                                   /* 0x44ca1d jne 0x44ca3c */
     }
 
     /* B93 (0x44ca1f..0x44ca3b) — цепочка ×3, `TESTB $4,(%eax)`: бит снят → B95. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44ca1f..0x44ca32 */
-    if ((*(const unsigned char *)flags_obj & 0x4) == 0) {
+    if (B0_TST(52, ((*(const unsigned char *)flags_obj & 0x4) == 0)))  {
         goto b95_r15;                                   /* 0x44ca3a je 0x44ca45 */
     }
 
 b94_r15:
+B0_LBL(27);
     /* B94 (0x44ca3c..0x44ca44) — cursor/mode update с аргументом 0x40. */
     native::cursor_mode_update(unit_x, 0x40);           /* 0x44ca3c..0x44ca40 */
 
 b95_r15:
+B0_LBL(28);
     /* B95 (0x44ca45..0x44ca4b) — msg-флаг байта `unit+0x34` (EBP не сдвинут):
      * 0 → B97 (R16, out-write, пропуск cursor-блока); иначе fall → B96 (R16,
      * cursor-блок I). Оба выхода — R16. */
-    if (*(const unsigned char *)(unit_x + 0x34) == 0) {
+    if (B0_TST(53, (*(const unsigned char *)(unit_x + 0x34) == 0)))  {
         goto b97_r16;                                   /* 0x44ca4a je 0x44cab0 */
     }
     goto b96_r16;                                       /* fall 0x44ca4c */
 
 b96_r16:
+B0_LBL(29);
     /* --- R16: cursor-хвост → out-код → dtors (`0x44ca4c..0x44cb38`) ------ *
      * Блоки: B96 `..0x44caaf`, B97/B98 `..0x44cac0`, B99 `..0x44cad1`,
      * B100 `..0x44caed` (join), B101 `..0x44cb06`, B102 `..0x44cb38`.
@@ -979,24 +1301,27 @@ b96_r16:
     native::string_dtor(frame + 0x10);                  /* 0x44ca9f..0x44caab */
 
 b97_r16:
+B0_LBL(30);
     /* B97/B98 (0x44cab0..0x44cac0) — out-код: `TEST [frame+0x164]` (param_3,
      * ESP=frame) → NULL ⇒ B99, иначе `*param_3 = 1`. */
     {
         void *p3 = *(void **)(frame + 0x164);
 
-        if (p3 != NULL) {
+        if (B0_TST(54, (p3 != NULL)))  {
             *(int *)p3 = 1;                             /* 0x44cabb */
         }
     }
     goto b99_r16;                                       /* fall 0x44cac1 */
 
 b99_r16:
+B0_LBL(31);
     /* B99 (0x44cac1..0x44cad1) — dtor поля msg-объекта (`frame+0x58` =
      * `frame+0x4c + 0xc`), trylevel byte 0x12 перед вызовом; fall → B100. */
     frame[0x154] = 0x12;                                /* 0x44cac5 */
     native::msg_string_dtor(frame + 0x58);              /* 0x44cac1..0x44cacd */
 
 b100_join:
+B0_LBL(32);
     /* B100 (0x44cad2..0x44caed) — dtor-join: входы R12 B83/B84 (JZ), R13
      * B86/B87 (JZ/jmp), B99 fall. ESP = frame на всех входах. dtor объекта
      * PathFinder `frame+0xcc` (тот же, что ctor 45f430 в B82 и приёмник
@@ -1004,9 +1329,12 @@ b100_join:
      * AL=0) — out-guard `0x44d061` не исполняется. */
     *(unsigned int *)(frame + 0x154) = 0xffffffffu;     /* 0x44cad9 */
     native::pathfinder_dtor(frame + 0xcc);              /* 0x44cad2..0x44cae4 */
+    B0_EXIT(129);
     return 0;                                           /* 0x44cae9 jmp 0x44d072 */
 
 b101_r16:
+B0_LBL(33);
+    B0_EXIT(129);
     /* B101 (0x44caee..0x44cb06) — входы R14 B88 JZ (`state == 3`) и R15 B89
      * JP (фаза > порога/unordered). Тот же dtor + trylevel −1, затем
      * `JMP 0x44cb39` → R17. */
@@ -1015,6 +1343,7 @@ b101_r16:
     goto b103_r17;                                      /* 0x44cb05 jmp 0x44cb39 */
 
 b102_r16:
+B0_LBL(34);
     /* B102 (0x44cb07..0x44cb38) — sentinel «нет валидной точки»: тройка
      * `frame+0x10/0x14/0x18` = 0xc61c4000, затем без guard в
      * `unit+0xa4..0xac`. Литерал — **−10000.0f** (0xc61c4000; «−9990» в
@@ -1029,6 +1358,7 @@ b102_r16:
     *(unsigned int *)(unit_x + 0xac) = *(const unsigned int *)(frame + 0x18); /* 0x44cb2f..0x44cb36 */
     /* fall 0x44cb39 */
 b103_r17:
+B0_LBL(35);
     /* --- R17: tick core — per-tick запись → `45eee0` → `[unit+0x170]==0`
      * лог (`0x44cb39..0x44cc18`, B103..B108) ---------------------------- *
      * Входы: B101 `0x44cb05 jmp` ×2 (R14 state==3 / R15 JP) и B102 fall.
@@ -1060,7 +1390,7 @@ b103_r17:
         /* 0x44cb46..0x44cb68: DL=CL; NEG DL; SBB EDX,EDX; AND EDX,0x80 —
          * bit7 = (CL != 0); далее `OR EBX`, `OR 0x63` (@0x44cb6e/0x44cb70). */
         flags = ebx | 0x63u;
-        if (cl != 0) {
+        if (B0_TST(55, (cl != 0)))  {
             flags |= 0x80u;
         }
         /* 0x44cb73 `TEST CL,CL` — ZF живёт до ветви 0x44cb9e. */
@@ -1082,7 +1412,7 @@ b103_r17:
     }
     /* B106 (0x44cbd5..0x44cbdd) — dispatch по `[unit+0x170]` (сравнение с
      * EDI=0); возврат `45eee0` в EAX не читается. */
-    if (*(const int *)(unit_x + 0x170) != edi) {
+    if (B0_TST(56, (*(const int *)(unit_x + 0x170) != edi)))  {
         goto b116_r18;                                  /* 0x44cbdd jne 0x44cc84 */
     }
 
@@ -1090,19 +1420,20 @@ b103_r17:
      * БЕЗ push: callee читает свой [esp+4] = верх ESP вызывающего = frame =
      * слот сохранённого EDI пролога (модель B15/B24/B35). NULL → B112. */
     native::log_assert(unit_x, native::literal(0x51cc50), 0xa); /* 0x44cbe3..0x44cbec */
-    if (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL) {
+    if (B0_TST(57, (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL)))  {
         goto b112_r18;                                  /* 0x44cbfb je 0x44cc5c */
     }
 
     /* B108 (0x44cbfd..0x44cc17) — цепочка флагов (`push 1` → vtable+0x40 →
      * 42da60 → 435d50); NULL → B112, иначе fall → R18 B109. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44cbfd..0x44cc10 */
-    if (flags_obj == NULL) {
+    if (B0_TST(58, (flags_obj == NULL)))  {
         goto b112_r18;                                  /* 0x44cc17 je 0x44cc5c */
     }
     goto b109_r18;                                      /* fall 0x44cc19 → R18 */
 
 b109_r18:
+B0_LBL(36);
     /* --- R18: dispatch-каскад 2/3 (`0x44cc19..0x44cd09`) ------------------ *
      * Входы: B109 — fall R17 B108 (0x44cc17 je не взят), B112 — B110 `je`
      * (0x44cc51) и R17 B108 `je` (0x44cc17), B116 — R17 B106 `jne`
@@ -1118,25 +1449,27 @@ b109_r18:
      * (`vtable[+0x40](unit,1)` → 42da60 → 435d50): `TESTB $2` → B111,
      * иначе `TESTB $4`; бит снят → B112. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44cc19..0x44cc31 */
-    if ((*(const unsigned char *)flags_obj & 0x2) != 0) {
+    if (B0_TST(59, ((*(const unsigned char *)flags_obj & 0x2) != 0)))  {
         goto b111_r18;                                  /* 0x44cc34 jne 0x44cc53 */
     }
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44cc36..0x44cc4e */
-    if ((*(const unsigned char *)flags_obj & 0x4) == 0) {
+    if (B0_TST(60, ((*(const unsigned char *)flags_obj & 0x4) == 0)))  {
         goto b112_r18;                                  /* 0x44cc51 je 0x44cc5c */
     }
 
 b111_r18:
+B0_LBL(37);
     /* B111 (0x44cc53..0x44cc57) — cursor/mode update 0x40, fall → B112. */
     native::cursor_mode_update(unit_x, 0x40);           /* 0x44cc53..0x44cc57 */
 
 b112_r18:
+B0_LBL(38);
     /* B112/B113 (0x44cc5c..0x44cc68) — msg-гейт `unit+0x34`: ненулевой →
      * debug-строка `0x4eec24` ("PathFinder.GetResult() == PF_NOT_FOUND\n").
      * CALL `*0x4ec064` — это IAT **OutputDebugStringA** (CONTRADICTIONS #15:
      * LoadCursorFromFileA лежит на 0x4ec264 и в R18 не вызывается); литерал
      * идёт прямо в WinAPI как char*, без string-машины. */
-    if (*(const unsigned char *)(unit_x + 0x34) != 0) {
+    if (B0_TST(61, (*(const unsigned char *)(unit_x + 0x34) != 0)))  {
         native::output_debug_string_a(native::literal(0x4eec24)); /* 0x44cc63..0x44cc68 */
     }
     /* B114/B115 (0x44cc6e..0x44cc7f) — out-guard param_3:
@@ -1146,22 +1479,25 @@ b112_r18:
     {
         void *p3 = *(void **)(frame + 0x164);
 
-        if (p3 != NULL) {
+        if (B0_TST(62, (p3 != NULL)))  {
             *(int *)p3 = 0;                             /* 0x44cc7d */
         }
     }
+    B0_EXIT(130);
     return 0;                                           /* 0x44cc7f jmp 0x44d072 */
 
 b116_r18:
+B0_LBL(39);
+    B0_EXIT(130);
     /* B116 (0x44cc84..0x44cc87) — `CMP EAX,2`; EAX = `[unit+0x170]`,
      * прочитанный R17 B106 (0x44cbd5) и не перетираемый до этого места
      * (переход 0x44cbdd — прямой). EDI = 0. */
-    if (*(const int *)(unit_x + 0x170) != 2) {
+    if (B0_TST(63, (*(const int *)(unit_x + 0x170) != 2)))  {
         goto b119_r18;                                  /* 0x44cc87 jne 0x44ccfa */
     }
 
     /* B117 (0x44cc89..0x44cc8e) — msg-гейт `unit+0x34`: 0 → B119. */
-    if (*(const unsigned char *)(unit_x + 0x34) == 0) {
+    if (B0_TST(64, (*(const unsigned char *)(unit_x + 0x34) == 0)))  {
         goto b119_r18;                                  /* 0x44cc8e je 0x44ccfa */
     }
 
@@ -1186,18 +1522,20 @@ b116_r18:
     native::string_dtor(frame + 0x10);                  /* 0x44cce6..0x44ccf5 */
 
 b119_r18:
+B0_LBL(40);
     /* B119/B120 (0x44ccfa..0x44cd09) — код `[unit+0x170]` против 3, затем
      * msg-гейт. Оба провала → R19 B122 (0x44cd74, середина R19 — вход в
      * проверку кода 4); успех → fall 0x44cd0a (R19 B121, cursor K2). */
-    if (*(const int *)(unit_x + 0x170) != 3) {
+    if (B0_TST(65, (*(const int *)(unit_x + 0x170) != 3)))  {
         goto b122_r19;                                  /* 0x44cd01 jne 0x44cd74 */
     }
-    if (*(const unsigned char *)(unit_x + 0x34) == 0) {
+    if (B0_TST(66, (*(const unsigned char *)(unit_x + 0x34) == 0)))  {
         goto b122_r19;                                  /* 0x44cd08 je 0x44cd74 */
     }
     goto b121_r19;                                      /* fall 0x44cd0a → R19 */
 
 b121_r19:
+B0_LBL(41);
     /* --- R19 B121 (0x44cd0a..0x44cd72, GUI): cursor-блок K2 ------------- *
      * Единственный вход — fall B120 (0x44cd08 `je` не взят). `ADD EBP,0x18` в
      * блоке НЕТ (только `lea 0x18(%ebp),%edx` — arg2 413060), поэтому EBP на
@@ -1221,9 +1559,10 @@ b121_r19:
     /* fall 0x44cd74 → B122 (каскад того же кода) */
 
 b122_r19:
+B0_LBL(42);
     /* --- R19 B122..B126 (0x44cd74..0x44cdf1, LOGIC+GUI): code==4 -------- *
      * Входы: fall B121 и `jne/je` R18 B119/B120 (0x44cd01/0x44cd08). */
-    if (*(const int *)(unit_x + 0x170) != 4) {
+    if (B0_TST(67, (*(const int *)(unit_x + 0x170) != 4)))  {
         goto b144_r22;                                  /* 0x44cd7b jne 0x44cfea */
     }
 
@@ -1231,10 +1570,10 @@ b122_r19:
      * head == NULL → только float-гейт (count пропущен); count > 1
      * (`CMP EAX,1; JG`, знаковое) → R22 B144. */
     head = native::band_head(unit_x + 0x138);           /* 0x44cd83 */
-    if (head != NULL) {
+    if (B0_TST(68, (head != NULL)))  {
         head = native::band_head(unit_x + 0x138);       /* 0x44cd8e */
         count = native::band_count(head);               /* 0x44cd95 */
-        if (count > 1) {
+        if (B0_TST(69, (count > 1)))  {
             goto b144_r22;                              /* 0x44cd9d jg 0x44cfea */
         }
     }
@@ -1243,7 +1582,7 @@ b122_r19:
      * `[unit+0xfc]`: `TEST AH,0x41; JP` ⟺ больше или unordered (PITFALLS
      * «x87-маска 0x41 + JP», CONTRADICTIONS #14) → R21 B138. */
     native::phase_time(unit_x, &phase);                 /* 0x44cda8 */
-    if (b0_gate_41_jp(phase, *(const float *)(unit_x + 0xfc))) {
+    if (B0_TST(70, (b0_gate_41_jp(phase, *(const float *)(unit_x + 0xfc)))))  {
         goto b138_r21;                                  /* 0x44cdb6 jp 0x44cf10 */
     }
 
@@ -1258,13 +1597,14 @@ b122_r19:
     res = native::game_state_get(unit_x, 0);            /* 0x44cdd4 */
     r19_state3 = (*(const int *)res == 3) ? 1 : 0;      /* 0x44cdd9 */
     *(unsigned int *)(frame + 0x50) = 1;                /* 0x44cde0 */
-    if (!r19_state3) {
+    if (B0_TST(71, (!r19_state3)))  {
         goto b128_r20;                                  /* 0x44cde8 jne 0x44cdf2 */
     }
     *(unsigned int *)(frame + 0x50) = 4;                /* 0x44cdea */
     goto b128_r20;                                      /* fall 0x44cdf2 → R20 */
 
 b128_r20:
+B0_LBL(43);
     /* --- R20: state-копия + цепочки + cursor K3 + builder/timer ----------- *
      * `0x44cdf2..0x44cee5`, B128..B134. Входы: B127 fall и B128 `jne`
      * (R19 B126 `0x44cde8`). На обоих EBP не сдвинут (`ADD EBP,0x18` есть
@@ -1283,31 +1623,33 @@ b128_r20:
     memcpy(frame + 0x60, res, 32);                      /* 0x44ce05 rep movsl ×8 */
     *(unsigned int *)(frame + 0x80) = 0;                /* 0x44ce09 */
     /* vtable+0x40 БЕЗ push: callee читает [esp+4] = frame (модель B15/B24/B35). */
-    if (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL) {
+    if (B0_TST(72, (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL)))  {
         goto b132_r20;                                  /* 0x44ce19 je 0x44ce5e */
     }
 
     /* B129 (0x44ce1b..0x44ce36) — цепочка ×1 (`push 1`), `TESTB $2`:
      * бит взят → B131. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44ce1b..0x44ce33 */
-    if ((*(const unsigned char *)flags_obj & 0x2) != 0) {
+    if (B0_TST(73, ((*(const unsigned char *)flags_obj & 0x2) != 0)))  {
         goto b131_r20;                                  /* 0x44ce36 jne 0x44ce55 */
     }
 
     /* B130 (0x44ce38..0x44ce53) — цепочка ×2, `TESTB $4`: бит снят → B132. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44ce38..0x44ce50 */
-    if ((*(const unsigned char *)flags_obj & 0x4) == 0) {
+    if (B0_TST(74, ((*(const unsigned char *)flags_obj & 0x4) == 0)))  {
         goto b132_r20;                                  /* 0x44ce53 je 0x44ce5e */
     }
 
 b131_r20:
+B0_LBL(44);
     /* B131 (0x44ce55..0x44ce5c) — cursor/mode update с аргументом 0x40. */
     native::cursor_mode_update(unit_x, 0x40);           /* 0x44ce55..0x44ce59 */
 
 b132_r20:
+B0_LBL(45);
     /* B132 (0x44ce5e..0x44ce64) — msg-флаг `unit+0x34`: 0 → B134 (пропуск
      * cursor-блока). */
-    if (*(const unsigned char *)(unit_x + 0x34) == 0) {
+    if (B0_TST(75, (*(const unsigned char *)(unit_x + 0x34) == 0)))  {
         goto b134_r20;                                  /* 0x44ce63 je 0x44cec9 */
     }
 
@@ -1328,6 +1670,7 @@ b132_r20:
     native::string_dtor(frame + 0x10);                  /* 0x44ceb8..0x44cec4 */
 
 b134_r20:
+B0_LBL(46);
     /* B134 (0x44cec9..0x44cee5) — builder-копия msg + таймер. Натив:
      * `SUB ESP,0x3c` (буфер by-value), src = `frame+0x4c` (msg-объект R19
      * B126), dst = ESP; `[frame+0x1c]` = ESP; `4040f0` (ret 4), затем
@@ -1339,6 +1682,7 @@ b134_r20:
     goto b135_join;                                     /* fall 0x44cee6 → R21 */
 
 b138_r21:
+B0_LBL(47);
     /* --- R21 B138..B142 (0x44cf10..0x44cf77, GUI): фаза code==4 ---------- *
      * Вход — только R19 B125 `0x44cdb6 jp` (фаза > `[unit+0xfc]` или
      * unordered). ESP на входе = frame. EBP не сдвинут на всём пути
@@ -1347,37 +1691,40 @@ b138_r21:
      * ECX = EAX-клоббер каждого вызова, EBX пишется только в R20 B133. */
     /* B138 (0x44cf10..0x44cf1a) — vtable+0x40 БЕЗ push: callee читает
      * `[esp+4]` = frame[0] (модель B15/B24/B35/B88). NULL → B142. */
-    if (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL) {
+    if (B0_TST(76, (native::player_get(unit_x, *(const int *)(frame + 0)) == NULL)))  {
         goto b142_r21;                                  /* 0x44cf1a je 0x44cf5f */
     }
 
     /* B139 (0x44cf1c..0x44cf37) — цепочка ×1 (`push 1`), `TESTB $2`:
      * бит взят → B141. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44cf1c..0x44cf2f */
-    if ((*(const unsigned char *)flags_obj & 0x2) != 0) {
+    if (B0_TST(77, ((*(const unsigned char *)flags_obj & 0x2) != 0)))  {
         goto b141_r21;                                  /* 0x44cf37 jne 0x44cf56 */
     }
 
     /* B140 (0x44cf39..0x44cf54) — цепочка ×2, `TESTB $4`: бит снят → B142. */
     flags_obj = b0_player_flag_chain(unit_x);           /* 0x44cf39..0x44cf4c */
-    if ((*(const unsigned char *)flags_obj & 0x4) == 0) {
+    if (B0_TST(78, ((*(const unsigned char *)flags_obj & 0x4) == 0)))  {
         goto b142_r21;                                  /* 0x44cf54 je 0x44cf5f */
     }
 
 b141_r21:
+B0_LBL(48);
     /* B141 (0x44cf56..0x44cf5a) — cursor/mode update с аргументом 0x40. */
     native::cursor_mode_update(unit_x, 0x40);           /* 0x44cf56..0x44cf5a */
 
 b142_r21:
+B0_LBL(49);
     /* B142 (0x44cf5f..0x44cf77) — лог `0x51cc50`/0xa, затем msg-гейт
      * `unit+0x34`: 0 → out-guard `0x44d061` (AL=0); иначе fall → R22 B143. */
     native::log_assert(unit_x, native::literal(0x51cc50), 0xa); /* 0x44cf5f..0x44cf68 */
-    if (*(const unsigned char *)(unit_x + 0x34) == 0) {
+    if (B0_TST(79, (*(const unsigned char *)(unit_x + 0x34) == 0)))  {
         goto b0_exit_44d061;                            /* 0x44cf72 je 0x44d061 */
     }
     goto b143_r22;                                      /* fall 0x44cf78 → R22 B143 */
 
 b143_r22:
+B0_LBL(50);
     /* --- R22 B143 (0x44cf78..0x44cfe8): cursor-блок K -------------------- *
      * Единственный вход — fall R21 B142 (0x44cf78). ESP на входе = frame.
      * Отличие от прочих cursor-блоков: строка A — `frame+0x40` (0x44cf7d/
@@ -1401,6 +1748,7 @@ b143_r22:
     goto b0_exit_44d061;                                /* 0x44cfe8 jmp 0x44d061 */
 
 b144_r22:
+B0_LBL(51);
     /* --- R22 B144..B156 (0x44cfea..0x44d071): финальные гейты, AL --------- *
      * Входы B144: R19 B122 `jne` (0x44cd7b, code∉{0,2,3,4}) и R19 B124 `jg`
      * (0x44cd9d, code==4 и count>1). На обоих EBP не сдвинут (сдвиги
@@ -1414,24 +1762,24 @@ b144_r22:
      * B144/B145 (0x44cfea..0x44d006) — head, затем count; head == NULL →
      * B154, count ≤ 1 (знаковое `JLE`) → B154. */
     head = native::band_head(unit_x + 0x138);           /* 0x44cfec */
-    if (head == NULL) {
+    if (B0_TST(80, (head == NULL)))  {
         goto b154_r22;                                  /* 0x44cff3 je 0x44d058 */
     }
     head = native::band_head(unit_x + 0x138);           /* 0x44cff7 */
     count = native::band_count(head);                   /* 0x44cffe */
-    if (count <= 1) {
+    if (B0_TST(81, (count <= 1)))  {
         goto b154_r22;                                  /* 0x44d006 jle 0x44d058 */
     }
 
     /* B145 (0x44d008..0x44d019) — `FLD [unit+0x114]; FCOMPS 0.0f;
      * TEST AH,0x41; JNZ 0x44d043`: взят ⟺ NOT([unit+0x114] > 0.0f)
      * (маска C3|C0, PITFALLS) → B151. */
-    if (b0_gate_41_jnz(*(const float *)(unit_x + 0x114), 0.0f)) {
+    if (B0_TST(82, (b0_gate_41_jnz(*(const float *)(unit_x + 0x114), 0.0f))))  {
         goto b151_r22;                                  /* 0x44d019 jne 0x44d043 */
     }
 
     /* B146 (0x44d01b..0x44d023) — ptr-гейт `[unit+0x84]`: 0 → B151. */
-    if (*(const unsigned int *)(unit_x + 0x84) == 0) {
+    if (B0_TST(83, (*(const unsigned int *)(unit_x + 0x84) == 0)))  {
         goto b151_r22;                                  /* 0x44d023 je 0x44d043 */
     }
 
@@ -1439,31 +1787,38 @@ b144_r22:
     native::state_flag_log(unit_x, 0);                  /* 0x44d029 */
 
 b148_r22:
+B0_LBL(52);
     /* B148..B150 (0x44d02e..0x44d041) — вход и из R2 B11 (`0x44bf01 jg
      * 0x44d02e`, count>1 — `448ee0` пропускается): out=1, AL=1 и
      * `JMP 0x44d074` (обход `XOR AL,AL`). */
     {
         void *p3 = *(void **)(frame + 0x164);
 
-        if (p3 != NULL) {
+        if (B0_TST(84, (p3 != NULL)))  {
             *(int *)p3 = 1;                             /* 0x44d039 */
         }
     }
+    B0_EXIT(131);
     return 1;                                           /* 0x44d03f mov $1,%al */
 
 b151_r22:
+B0_LBL(53);
+    B0_EXIT(131);
     /* B151..B153 (0x44d043..0x44d056) — гейт не пройден (фаза ≠ 0.0f или
      * `[unit+0x84]==0`): out=0, AL=1. */
     {
         void *p3 = *(void **)(frame + 0x164);
 
-        if (p3 != NULL) {
+        if (B0_TST(85, (p3 != NULL)))  {
             *(int *)p3 = 0;                             /* 0x44d04e */
         }
     }
+    B0_EXIT(132);
     return 1;                                           /* 0x44d054 mov $1,%al */
 
 b154_r22:
+B0_LBL(54);
+    B0_EXIT(132);
     /* B154..B156 (0x44d058..0x44d071) — нет пригодной band-цели (head NULL
      * или count ≤ 1): `448ee0(unit, 1)`, затем out-guard `0x44d061`
      * (out=0) и `XOR AL,AL` ⇒ AL=0. */
@@ -1471,6 +1826,7 @@ b154_r22:
     goto b0_exit_44d061;                                /* fall 0x44d061 */
 
 b74_cursor_tail:
+B0_LBL(55);
     /* B74 (0x44c6cb..0x44c6ec) — общий хвост cursor-блока: dtor строки
      * `frame+0x20`, dword trylevel = −1, dtor `frame+0x10`, затем
      * `JMP 0x44d061` (out-guard, AL=0). Входы: fall B73 (B41/B62/B65/B69/B72)
@@ -1481,17 +1837,20 @@ b74_cursor_tail:
     goto b0_exit_44d061;                                /* 0x44c6e8 jmp 0x44d061 */
 
 b0_exit_44d061:
+B0_LBL(56);
     /* 0x44d061..0x44d072 — out-guard param_3 = 0, затем `XOR AL,AL`. */
     {
         void *p3 = *(void **)(frame + 0x164);
 
-        if (p3 != NULL) {
+        if (B0_TST(86, (p3 != NULL)))  {
             *(int *)p3 = 0;                             /* 0x44d06c */
         }
     }
+    B0_EXIT(133);
     return 0;                                           /* 0x44d072 xor al,al */
 
 /* --- R9: band-loop тело B (`0x44c4dd..0x44c5b0`, LOGIC) ---------------- *
+ B0_EXIT(133);
  * Входы — только из R8 B60: `JP` @0x44c4db не взят (45b150 == 4.0f) → B61
  * (0x44c4dd), взят (45b150 > 4.0f или unordered) → B63 (0x44c525).
  * unit_x на ОБОИХ входах НЕ сдвинут: единственный путь сюда — B55..B60, а
@@ -1503,8 +1862,9 @@ b0_exit_44d061:
  * `CMP [EBP+0x170],EDI`. Модель: сравнение с константой 1 (B77 затем
  * `XOR EDI,EDI`; других чтений EDI в R9 нет). */
 b61_r9:
+B0_LBL(57);
     /* B61 (0x44c4dd..0x44c4e7) — msg-гейт `unit+0x34`: 0 → exit 0x44d061. */
-    if (*(const unsigned char *)(unit_x + 0x34) == 0) {
+    if (B0_TST(87, (*(const unsigned char *)(unit_x + 0x34) == 0)))  {
         goto b0_exit_44d061;                            /* 0x44c4e2 je 0x44d061 */
     }
 
@@ -1526,6 +1886,7 @@ b61_r9:
     goto b73_cursor_tail;                               /* 0x44c520 jmp 0x44c6b6 */
 
 b63_r9:
+B0_LBL(58);
     /* B63 (0x44c525..0x44c55c) — вторая тройка (result+4..0xc) на стек
      * (`sub 0xc`, указатель — `[esp+0x28]` ⇒ frame+0x1c), 45c370 → лента,
      * 45b3e0(ECX = лента, arg1..arg3 = dword'ы тройки; `RET $0xc` ⇒ после
@@ -1534,14 +1895,12 @@ b63_r9:
     memcpy(band_triple, (const unsigned char *)res + 4, 12); /* 0x44c52e..0x44c544 */
     *(void **)(frame + 0x1c) = band_triple;             /* 0x44c549 mov %esp,0x28(%esp) */
     head = native::band_head(unit_x + 0x138);           /* 0x44c54d */
-    if ((unsigned char)native::band_target_moved(head, band_triple[0],
-                                                 b0_float_bits(band_triple[1]),
-                                                 band_triple[2]) == 0) {
+    if (B0_TST(88, ((unsigned char)native::band_target_moved(head, band_triple[0], b0_float_bits(band_triple[1]), band_triple[2]) == 0)))  {
         goto b66;                                       /* 0x44c55b je 0x44c5a5 */
     }
 
     /* B64 (0x44c55d..0x44c567) — msg-гейт `unit+0x34`: 0 → exit 0x44d061. */
-    if (*(const unsigned char *)(unit_x + 0x34) == 0) {
+    if (B0_TST(89, (*(const unsigned char *)(unit_x + 0x34) == 0)))  {
         goto b0_exit_44d061;                            /* 0x44c562 je 0x44d061 */
     }
 
@@ -1560,9 +1919,10 @@ b63_r9:
     goto b73_cursor_tail;                               /* 0x44c5a0 jmp 0x44c6b6 */
 
 b66:
+B0_LBL(59);
     /* B66 (0x44c5a5..0x44c5b0) — `CMP [EBP+0x170],1`: равно → flags-join B77
      * (R11), иначе fall → B67 (R10). */
-    if (*(const int *)(unit_x + 0x170) == 1) {
+    if (B0_TST(90, (*(const int *)(unit_x + 0x170) == 1)))  {
         goto b77_join;                                  /* 0x44c5ab je 0x44c715 */
     }
     goto b67_r10;                                       /* fall 0x44c5b1 */
@@ -1576,6 +1936,7 @@ b66:
  * Единственный back-edge тела: B70 `je 0x44c365` → метка `b46` (R7), т.е.
  * повторный вход в цикл идёт через `[frame+0x15c] = 0`. */
 b67_r10:
+B0_LBL(60);
     /* B67 (0x44c5b1..0x44c5f0) — triple = result+4..0xc на стек (указатель
      * `[esp+0x28]` ⇒ frame+0x1c); 45c370 → лента; 45b150 (ECX = лента,
      * arg1..arg3 = triple, `RET $0xc`) → ST0; `FCOMPS [0x4eede8]` = 3.0f;
@@ -1588,12 +1949,12 @@ b67_r10:
     native::band_interp_gate(head, band_triple[0],
                              b0_float_bits(band_triple[1]), band_triple[2],
                              &gate);                    /* 0x44c5e0 */
-    if (b0_gate_41_jp(gate, 3.0f)) {
+    if (B0_TST(91, (b0_gate_41_jp(gate, 3.0f))))  {
         goto b70_r10;                                   /* 0x44c5f0 jp 0x44c637 */
     }
 
     /* B68 (0x44c5f2..0x44c5fc) — msg-гейт `unit+0x34`: 0 → exit 0x44d061. */
-    if (*(const unsigned char *)(unit_x + 0x34) == 0) {
+    if (B0_TST(92, (*(const unsigned char *)(unit_x + 0x34) == 0)))  {
         goto b0_exit_44d061;                            /* 0x44c5f7 je 0x44d061 */
     }
 
@@ -1616,6 +1977,7 @@ b67_r10:
     goto b73_cursor_tail;                               /* 0x44c635 jmp 0x44c6b6 */
 
 b70_r10:
+B0_LBL(61);
     /* B70 (0x44c637..0x44c672) — повторная сборка triple (result+4..0xc,
      * указатель `[esp+0x28]` ⇒ frame+0x1c); 45c370 → лента; 45b3e0 (ECX =
      * лента, arg1..arg3 = triple, `RET $0xc`) → AL. На сайте тестируется
@@ -1625,20 +1987,19 @@ b70_r10:
     memcpy(band_triple, (const unsigned char *)res + 4, 12); /* 0x44c640..0x44c656 */
     *(void **)(frame + 0x1c) = band_triple;             /* 0x44c65b mov %esp,0x28(%esp) */
     head = native::band_head(unit_x + 0x138);           /* 0x44c65f */
-    if ((unsigned char)native::band_target_moved(head, band_triple[0],
-                                                 b0_float_bits(band_triple[1]),
-                                                 band_triple[2]) == 0) {
+    if (B0_TST(93, ((unsigned char)native::band_target_moved(head, band_triple[0], b0_float_bits(band_triple[1]), band_triple[2]) == 0)))  {
         goto b46;                     /* 0x44c66d je 0x44c365 — back-edge в R7 B46 */
     }
 
     /* B71 (0x44c673..0x44c67d) — msg-гейт `unit+0x34`: 0 → exit 0x44d061;
      * иначе fall → B72 (R11). */
-    if (*(const unsigned char *)(unit_x + 0x34) == 0) {
+    if (B0_TST(94, (*(const unsigned char *)(unit_x + 0x34) == 0)))  {
         goto b0_exit_44d061;                            /* 0x44c678 je 0x44d061 */
     }
     goto b72_r11;                                       /* fall 0x44c67e → R11 */
 
 b72_r11:
+B0_LBL(62);
     /* B72 (0x44c67e..0x44c6b5) — log-block H, литерал 0x4eec68; клон B62 ради
      * 413060-формы: ctor объекта A (`frame+0x10`); `ADD EBP,0x18`;
      * `MOV EBX,0x10`; dword trylevel (0x44c69f `[esp+0x160]` при esp = frame−0xc
@@ -1657,6 +2018,7 @@ b72_r11:
     goto b73_cursor_tail;                               /* fall 0x44c6b6 */
 
 b55:
+B0_LBL(63);
     /* B55 (0x44c3ed..0x44c407) — band-loop тело A: курсор ленты должен
      * указывать на pos-поле result (`[result+0x14]`, адресное поле).
      * unit_x на входе НЕ сдвинут: единственный вход — fall B54 (0x44c3ed),
@@ -1664,8 +2026,7 @@ b55:
      * уходят `jmp 0x44cee6`, B41 — `jmp 0x44c6b6`), т.е. unit_x == unit.
      * `push 0; CALL 442570` → EDI = result. */
     res = native::game_state_get(unit, 0);              /* 0x44c3ed..0x44c3f1 */
-    if (native::band_cursor(unit + 0x138) !=
-        *(void *const *)((const unsigned char *)res + 0x14)) {
+    if (B0_TST(95, (native::band_cursor(unit + 0x138) != *(void *const *)((const unsigned char *)res + 0x14))))  {
         goto b77_join;                                  /* 0x44c402 jne 0x44c715 */
     }
 
@@ -1675,12 +2036,12 @@ b55:
      * (позиция не совпала) → B59. */
     res = native::game_state_get(unit, 0);              /* 0x44c408..0x44c40c */
     native::ctx_pos_get(unit + 0x138, out);             /* 0x44c41a..0x44c41c */
-    if (!native::pos3_equal(out, (const unsigned char *)res + 4)) {
+    if (B0_TST(96, (!native::pos3_equal(out, (const unsigned char *)res + 4))))  {
         goto b59;                                       /* 0x44c42a je 0x44c489 */
     }
 
     /* B57 (0x44c42c..0x44c436) — msg-гейт `unit+0x34`: 0 → выход 0x44d061. */
-    if (*(const unsigned char *)(unit + 0x34) == 0) {
+    if (B0_TST(97, (*(const unsigned char *)(unit + 0x34) == 0)))  {
         goto b0_exit_44d061;                            /* 0x44c431 je 0x44d061 */
     }
 
@@ -1704,9 +2065,10 @@ b55:
     goto b74_cursor_tail;                               /* 0x44c484 jmp 0x44c6cb */
 
 b59:
+B0_LBL(64);
     /* B59 (0x44c489..0x44c49b) — код `unit+0x170` против 1; EDI := 1
      * (живёт до R9 B66). ≠1 → B67 (R10). unit_x здесь не сдвинут. */
-    if (*(const int *)(unit + 0x170) != 1) {
+    if (B0_TST(98, (*(const int *)(unit + 0x170) != 1)))  {
         goto b67_r10;                                   /* 0x44c496 jne 0x44c5b1 */
     }
 
@@ -1722,40 +2084,43 @@ b59:
     native::band_interp_gate(head, band_triple[0],
                              b0_float_bits(band_triple[1]), band_triple[2],
                              &gate);                    /* 0x44c4c9..0x44c4cb */
-    if (b0_gate_41_jp(gate, 4.0f)) {
+    if (B0_TST(99, (b0_gate_41_jp(gate, 4.0f))))  {
         goto b63_r9;                                    /* 0x44c4db jp 0x44c525 */
     }
     goto b61_r9;                                        /* fall 0x44c4dd → R9 */
 
 
 b16:
+B0_LBL(65);
     /* B16 (0x44bfb8..0x44bfd3) — цепочка ×1, NULL-гейт → B20. */
     flags_obj = b0_player_flag_chain(unit);             /* 0x44bfb8..0x44bfcb */
-    if (flags_obj == NULL) {
+    if (B0_TST(100, (flags_obj == NULL)))  {
         goto b20;                                       /* 0x44bfd2 je 0x44c017 */
     }
 
     /* B17 (0x44bfd4..0x44bff0) — цепочка ×2, `TESTB $2,(%eax)`: взятый бит →
      * B19 (448c30), иначе — B18. */
     flags_obj = b0_player_flag_chain(unit);             /* 0x44bfd4..0x44bfe7 */
-    if ((*(const unsigned char *)flags_obj & 0x2) != 0) {
+    if (B0_TST(101, ((*(const unsigned char *)flags_obj & 0x2) != 0)))  {
         goto b19;                                       /* 0x44bfef jne 0x44c00e */
     }
 
     /* B18 (0x44bff1..0x44c00d) — цепочка ×3, `TESTB $4,(%eax)`: бит снят →
      * B20, иначе fall → B19. */
     flags_obj = b0_player_flag_chain(unit);             /* 0x44bff1..0x44c004 */
-    if ((*(const unsigned char *)flags_obj & 0x4) == 0) {
+    if (B0_TST(102, ((*(const unsigned char *)flags_obj & 0x4) == 0)))  {
         goto b20;                                       /* 0x44c00c je 0x44c017 */
     }
 
 b19:
+B0_LBL(66);
     /* B19 (0x44c00e..0x44c016) — cursor/mode update с аргументом 0x40. */
     native::cursor_mode_update(unit, 0x40);             /* 0x44c00e..0x44c012 */
 
 b20:
+B0_LBL(67);
     /* B20 (0x44c017..0x44c021) — msg-флаг `unit+0x34`: 0 → join `0x44cee6`. */
-    if (*(const unsigned char *)(unit_x + 0x34) == 0) {  /* 0x44c017..0x44c01c */
+    if (B0_TST(103, (*(const unsigned char *)(unit_x + 0x34) == 0)))  {  /* 0x44c017..0x44c01c */
         goto b135_join;                                 /* je 0x44cee6 */
     }
 
@@ -1785,6 +2150,7 @@ b20:
     goto b135_join;                                     /* 0x44c086 jmp 0x44cee6 */
 
 b135_join:
+B0_LBL(68);
     /* --- R21 B135..B137 (0x44cee6..0x44cf0b, GUI): join-хвост ------------- *
      * Входы: R3 B20 `je` (0x44c01c), R3 B21 `jmp` (0x44c086), R4 B29 `je`
      * (0x44c17e), R4 B30 `jmp` (0x44c1e8), R20 B134 fall. На всех ESP = frame
@@ -1797,23 +2163,27 @@ b135_join:
     {
         void *p3 = *(void **)(frame + 0x164);
 
-        if (p3 != NULL) {
+        if (B0_TST(104, (p3 != NULL)))  {
             *(int *)p3 = 1;                             /* 0x44cef1 movl $1,(%eax) */
         }
     }
     *(unsigned int *)(frame + 0x154) = 0xffffffffu;     /* 0x44cefb..0x44cf02 (dword) */
     native::msg_string_dtor(frame + 0x58);              /* 0x44cef7..0x44cf06 */
+    B0_EXIT(134);
     return 0;                                           /* 0x44cf0b jmp 0x44d072 */
 
     } __except (EXCEPTION_EXECUTE_HANDLER) {
+        B0_EXIT(135);
         return 0;            /* SEH-рамка 0x44bdd0, как s6_ai_update */
     }
 }
 
 /* Точка входа порта (ABI натива: ECX = unit, 3 стек-аргумента, RET 0xc).
+ B0_EXIT(134);
  * Тело — под B0_BODY_COMPLETE (R1..R22 портированы); пока макрос не взведён,
  * функция возвращает 0 и детур разоружён (b0_port_enabled). Тело остаётся
  * скомпилированным и типизированным — `(void)&` ниже, чтобы /W3 не снял его
+ B0_EXIT(135);
  * как неиспользуемый. */
 int b0_battle_ai_dispatch(void *unit, unsigned char *frame)
 {

@@ -24,10 +24,12 @@
  *   (game_ctx); тело читает `*(u32)game_ctx` (бит3) в B43/B50.
  *
  * Каждое звено получает shadow-объект (node_e0 0x240, node_e044 0x240, tree
- * 0x40, ctx 0x20) и поле указателя ПЕРЕПИСЫВАЕТСЯ на него — так та же цепочка
- * разыменований в порте даёт записанное значение. Таблица k_fixups — данные,
- * а не разбросанный код; отсутствующие в захвате поля помечаются как
- * unmapped handle (проверка handles), а не подставляются тихо.
+ * 0x40, ctx 0x20) и поле указателя ПЕРЕПИСЫВАЕТСЯ на него; сырой адрес звена
+ * ПРИВЯЗЫВАЕТСЯ к своему shadow-объекту (binds), чтобы он не считался
+ * неразвязанным. Таблица k_fixups — данные, а не разбросанный код; поле лежит
+ * в области, где его реально читает тело (`ai` — view на unit+0x138, отдельной
+ * области "ai" нет), отсутствующие в захвате поля помечаются как unmapped
+ * handle (проверка handles), а не подставляются тихо.
  *
  * Блоки frame/unit/ai/band/gs копируются из base64-снимков как есть (мусор
  * стека тоже), плюс `self` из записи связывает адреса пространства игры с
@@ -296,7 +298,7 @@ static const PtrFixup k_fixups[] = {
     { "unit+0xe0",                  "unit",  0xe0,  "e0",     FX_E0 },
     { "[unit+0xe0]+0x44",           "node_e0", 0x44, "e0_44", FX_E044 },
     { "[[unit+0xe0]+0x44]+0x238",   "node_e044", 0x238, "tree", FX_TREE },
-    { "unit+0x138 (BattleAI.game_ctx)", "ai", 0x00, "ai_ctx", FX_CTX }
+    { "unit+0x138 (BattleAI.game_ctx)", "unit", BDD0_AI_OFF, "ai_ctx", FX_CTX }
 };
 
 static unsigned read_u32(const unsigned char *p)
@@ -389,15 +391,24 @@ Arena *arena_build(const TickRecord *rec)
             continue;
         }
         if (fx.target == FX_CTX) {
-            /* game_ctx: NULL guard в теле (B43/B50) — 0 остаётся 0. */
+            /* game_ctx: NULL guard в теле (B43/B50) — 0 остаётся 0.
+             * Сырой адрес из unit+0x138 привязывается к shadow-объекту ctx,
+             * первый dword shadow = gctx0 из захвата. Без gctx0 — miss
+             * (handles FAIL): живой нулевой объект сделал бы разыменование
+             * «проверенным». */
             unsigned raw = read_u32(slot);
-            if (raw != 0) {
-                unsigned char *ctx = arena_region_w(a, "ctx");
-                write_u32(slot, (unsigned)(size_t)ctx);
-                if (rec->has_gctx0) write_u32(ctx, rec->gctx0);
-            } else {
+            if (raw == 0) {
                 write_u32(slot, 0);
+                continue;
             }
+            Reg *cr = reg_find(a, "ctx");
+            if (cr == NULL || !rec->has_gctx0) {
+                miss(a, fx.what, raw);      /* сырой указатель остаётся непривязанным */
+                continue;
+            }
+            bind_add(a, raw, cr->base, cr->len);
+            write_u32(cr->base, rec->gctx0);
+            write_u32(slot, (unsigned)(size_t)cr->base);
             continue;
         }
         /* цепочка unit+0xe0: без записи в захвате поле не материализуем —

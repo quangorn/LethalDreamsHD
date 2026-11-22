@@ -54,12 +54,15 @@ struct NativeRec {
 };
 
 /* v12: запрос порта на не-листовой натив (для native_args).  site/order
- * заполняются после сопоставления с записью bdd0_native. */
+ * заполняются после сопоставления с записью bdd0_native.  last_label — id метки
+ * тела, последней посещённой перед этим вызовом (-1 в не-trace сборке). */
 struct NativeCallLogEnt {
     int order, site, va, slot, ecx, nargs, args[8];
     int call_seq;              /* глобальный номер запроса (leaf+native) */
+    int last_label;
     NativeCallLogEnt()
-        : order(0), site(0), va(0), slot(0), ecx(0), nargs(0), call_seq(0)
+        : order(0), site(0), va(0), slot(0), ecx(0), nargs(0), call_seq(0),
+          last_label(-1)
     {
         for (int i = 0; i < 8; i++) args[i] = 0;
     }
@@ -152,6 +155,7 @@ struct CallLogEnt {
     int args[6];
     int ret;
     int call_seq;              /* глобальный номер запроса (leaf+native) */
+    int last_label;            /* id метки тела перед вызовом (-1 не-trace) */
 };
 
 /* --------------------------- контракт проверок ---------------------------- */
@@ -329,5 +333,23 @@ int bdd0_unmodelled_unit_ai_tick(void);
 /* v12: uninitialised native arguments skipped by leaf_args/native_args. */
 void bdd0_uninit_reset(void);
 int bdd0_uninit_skipped(void);
+
+#ifdef B0_TRACE_LABELS
+/* Label trace (tools/ldhook/battle/tick.cpp): существует только в trace-сборке
+ * харнесса (-DB0_TRACE_LABELS=1).  События кольца тика: id метки
+ * (< B0_EXIT_BASE), id выхода (B0_EXIT_BASE..B0_COND_NAME_BASE), событие
+ * условия (бит 31 — событие условия, бит 30 — ветка взята, младшие биты —
+ * номер гейта).  Имена меток/условий — b0_label_names[]/b0_cond_names[]. */
+#define B0_EXIT_BASE 128
+#define B0_COND_NAME_BASE 256
+#define B0_TRACE_RING 2048
+extern volatile int b0_trace_on;
+extern volatile unsigned b0_last_label;
+extern volatile int b0_tick_len;
+extern volatile int b0_ring_i;
+extern const unsigned *b0_trace_ring(void);
+extern const char *b0_label_names[];
+extern const char *b0_cond_names[];
+#endif
 
 #endif /* BDD0_HARNESS_H */

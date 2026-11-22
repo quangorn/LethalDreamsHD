@@ -186,6 +186,20 @@ PRISTINE 2967, HD_PACK 1379, ALLOWED 728, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0
   с `B0_BODY_COMPLETE=1`; scope фиксирован — порт есть слой проводки, 205 state/string/GUI site и
   9 логических листьев остаются нативными. Гейт — офлайн-replay capture v12 (снимок полей +
   результаты листьев), живой A/B санитарный: два нативных прогона дают rc 1 (решение 5.1d).
+- `[P]` v12 `bdd0_native`: 157 RECORD-сайтов тела (32 листа = `bdd0_leaf`, 125 = `bdd0_native`;
+  `0x44cbd0` — через H3), 77 NOOP_OK. Таблица сайтов генерируется `tools/probes/gen_native_sites.py`
+  → `battle/native_sites_table.inc`; стубы эмитит `battle/native_sites.cpp`; косвенные — vtable-слоты unit.
+- `[P]` v12 outcome-проверки: `res_match` (al/out/u170), `state_match` (m0..m2) против `bdd0_res`,
+  `native_args` (ecx/args порта против `bdd0_native`, указатели символьно, unbound = SKIP);
+  корпус `tools/probes/bdd0/corpus/` + `bdd0_corpus_run.py` (dropped/trap/order/args/pointer).
+- `[P]` `45eee0` post-state: в `bdd0_native` пишется `ww` — 15 dword BattleAI+0x00..0x38
+  (unit+0x138..0x170; список из 45c330/45eee0), replay применяет к unit; старый захват без `ww`
+  даёт SKIP только для u170-расхождений (`res_match`), не pass.
+- `[P]` Диагностика пути (не проверка): `--path-diff [--path-diff-json f]` — recorded/consumed order,
+  первый DIVERGE, gate-контекст (u170 in/after, gate114, последний ok-вызов); ядро и вердикты не трогает.
+- `[P]` Trap attribution: `arena_fault_unbound` (bind-range → bound; miss_raw/raw dword снимка → unbound);
+  unbound-trap = `handles`, `no_trap`/`bounds` SKIP. Uninit leaf args: site 0x44c730/44bbf0 arg0..2
+  (0x44c71b) → SKIP + `uninit_skipped`.
 - `[U]` Цель порта боя (19.11.2026): читаемая C++-реализация боевой логики и поиска пути
   (слои `44bdd0` → `45eee0` → `e0a0` → `dd70`), нативные вызовы для GUI/плумбинга; fidelity-first,
   CPU = baseline. Фазы, границы и гейты — `docs/PLAN_BATTLE_AI_CPP.md`.

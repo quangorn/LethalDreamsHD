@@ -231,7 +231,15 @@ struct UninitArg {
 static const UninitArg k_uninit_args[] = {
     { 0x44c730, 0x44bbf0, 0, "arg[0] uninitialised in native (0x44c71b)" },
     { 0x44c730, 0x44bbf0, 1, "arg[1] uninitialised in native (0x44c71b)" },
-    { 0x44c730, 0x44bbf0, 2, "arg[2] uninitialised in native (0x44c71b)" }
+    { 0x44c730, 0x44bbf0, 2, "arg[2] uninitialised in native (0x44c71b)" },
+    /* 0x44be15..0x44be55 (`SUB ESP,0x20` + 32-byte snapshot copy at [ESP],
+     * `CALL *[EDX+0x28]`): the copy writes dwords at buffer offsets 0x00..0x17
+     * and a dword at 0x1c, single bytes at 0x18/0x19.  Bytes 0x1a, 0x1b — the
+     * high half of arg[6] — are never written, so arg[6] carries stack junk
+     * there (native 0x0ffa0100 vs the port's 0x00000100). */
+    { 0x44be55, 0x4491b0, 6, "arg[6] uninitialised in native (0x44be15..0x44be55: "
+                              "bytes 0x1a/0x1b of the snapshot buffer are never "
+                              "written)" }
 };
 
 static int g_uninit_skipped = 0;
