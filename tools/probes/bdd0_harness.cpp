@@ -204,6 +204,23 @@ struct Rollup {
     Rollup() : pass(0), fail(0), skip(0) {}
 };
 
+/* Тик с недостоверным входом/исходом: ни одна проверка не получает pass,
+ * все помечаются SKIP с одной причиной (счётчики — в сводке). */
+static void skip_all_checks(const std::vector<int> &enabled,
+                            std::vector<Rollup> &roll,
+                            std::map<std::string, int> &skip_why,
+                            const char *reason)
+{
+    for (size_t k = 0; k < enabled.size(); k++) {
+        const CheckDef *cd = check_at(enabled[k]);
+        roll[enabled[k]].skip++;
+        char key[256];
+        _snprintf_s(key, sizeof(key), _TRUNCATE, "%s: %s", cd->name, reason);
+        skip_why[std::string(key)]++;
+    }
+}
+
+
 static void write_report(FILE *f, const char *scenario, const TickRecord &rec,
                          const char *impl, const char *check, const char *why,
                          int al, int u170, int out, long long wall_ms,
@@ -310,6 +327,34 @@ int main(int argc, char **argv)
         TickRecord &rec = sc->ticks[ti];
         if (opt.from_seq > 0 && rec.seq < opt.from_seq) { skipped_ticks++; continue; }
         if (opt.limit >= 0 && ran >= opt.limit) break;
+
+        /* (1) снимок снят при сбое: ни одно поле не считается достоверным,
+         *     реализация не исполняется, ни одна проверка не даёт pass. */
+        if (rec.trap) {
+            ran++;
+            skip_all_checks(enabled, roll, skip_why,
+                            "input trap=1 (capture incomplete)");
+            if (opt.verbose) {
+                fprintf(rf, "{\"kind\":\"tick_skip\",\"scenario\":\"%s\","
+                            "\"seq\":%d,\"impl\":\"%s\","
+                            "\"why\":\"input trap=1\"}\n",
+                        json_esc(sc->name.c_str()).c_str(), rec.seq, impl->name);
+            }
+            continue;
+        }
+        /* (2) тело не исполняется, а записанный исход помечен trap=1: это не
+         *     данные для калибровки — весь тик SKIP. */
+        if (!impl->runs_body && rec.res_trap) {
+            ran++;
+            skip_all_checks(enabled, roll, skip_why, "outcome trap=1");
+            if (opt.verbose) {
+                fprintf(rf, "{\"kind\":\"tick_skip\",\"scenario\":\"%s\","
+                            "\"seq\":%d,\"impl\":\"%s\","
+                            "\"why\":\"outcome trap=1\"}\n",
+                        json_esc(sc->name.c_str()).c_str(), rec.seq, impl->name);
+            }
+            continue;
+        }
 
         Arena *arena = arena_build(&rec);
         if (arena == NULL) {
@@ -452,6 +497,12 @@ int main(int argc, char **argv)
         tc.handle_miss_why = arena_handle_miss_why(arena);
         tc.leaf_violation = bdd0_leaf_violations();
         tc.leaf_violation_why = bdd0_leaf_violation_why();
+        if (!tc.leaf_violation && sc->leaf_missing_n > 0) {
+            /* маркер захвата: сайт не захукался → поток листьев мог быть
+             * неполон, «листья не понадобились» доказательством не является */
+            tc.leaf_violation = 1;
+            tc.leaf_violation_why = sc->leaf_missing_why.c_str();
+        }
         static char ctx_why[192];
         tc.why_buf = ctx_why;
         tc.why_cap = sizeof(ctx_why);
@@ -561,6 +612,18 @@ int main(int argc, char **argv)
         printf("  game_state=gs_present in %d ticks, gs_absent(zeros) STUB in "
                "%d ticks (contract_min degraded there)\n",
                ran - gs_missing, gs_missing);
+    }
+    if (sc->input_trap > 0) {
+        printf("  input_trap=%d (bdd0_in trap=1: snapshot not trusted, ticks "
+               "skipped)\n", sc->input_trap);
+    }
+    if (sc->outcome_trap > 0) {
+        printf("  outcome_trap=%d (bdd0_res trap=1: recorded outcome not "
+               "trusted)\n", sc->outcome_trap);
+    }
+    if (sc->leaf_missing_n > 0) {
+        printf("  leaf_missing=%d (%s)\n", sc->leaf_missing_n,
+               sc->leaf_missing_why.c_str());
     }
     printf("  leaf_nodes=%d (opaque sentinels for unbound leaf pointers; "
            "0 = every leaf pointer was materialised)\n", leaf_nodes);

@@ -99,6 +99,13 @@ static const LeafRec *request(int va, const void *ecx, int nargs, const int *arg
         return NULL;
     }
     const LeafRec *r = &g_v[g_i];
+    if (r->trap) {
+        /* запись снята после сбоя/рассинхрона: ret/args/w в ней недостоверны.
+         * Не потребляем её и не отдаём значения — поток разошёлся. */
+        viol("leaf #%d trap=1 va=0x%x (seq %d): capture record is unreliable",
+             g_i, r->va, g_seq);
+        return NULL;
+    }
     if (r->va != va) {
         viol("leaf #%d: requested va=0x%x, recorded va=0x%x (seq %d)",
              g_i, va, r->va, g_seq);

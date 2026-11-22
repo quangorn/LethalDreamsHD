@@ -52,6 +52,7 @@
 #include "battle/trace.h"
 #include "battle/native.h"
 #include "battle/capture.h"
+#include "battle/leaf_sites.h"
 #include "ldhook_internal.h"
 
 /* ------------------------------------------------------------------ */
@@ -652,6 +653,37 @@ static void install_capture_sites(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* v12: хуки на CALL-САЙТЫ 10 логических листьев внутри 44bdd0 (только при
+ * LDHOOK_BATTLE_CAPTURE_SNAP=1). Зачем: bdd0_leaf раньше писали только
+ * `native::`-обёртки, а НАТИВНОЕ тело 44bdd0 их не зовёт — нативный прогон
+ * не давал ни одного листа. Сайт — 5-байтовый `call rel32`; он заменяется
+ * таким же `call rel32` на per-site naked-обработчик (battle/leaf_sites.cpp),
+ * который пишет аргументы, исполняет ОРИГИНАЛ с тем же кадром/регистрами и
+ * снимает результат в continuation. Пролог листа не переносится вовсе.
+ * Каждый сайт проверяется байтами (E8 + rel32 == ожидаемый лист); пропуск
+ * пишется в захват как `leaf_missing`.                                  */
+/* ------------------------------------------------------------------ */
+
+static void install_leaf_call_sites(void)
+{
+    char why[256];
+    int n;
+
+    if (!battle_capture_enabled()) {
+        return;
+    }
+    if (!battle_capture_snap_enabled()) {
+        ld_info("install_leaf_call_sites: %s not set -> call-site hooks NOT installed",
+                BATTLE_CAPTURE_SNAP_ENV);
+        return;
+    }
+    why[0] = '\0';
+    n = leaf_site_install_all(native::fn, why, (int)sizeof(why));
+    ld_info("install_leaf_call_sites: %d/%d call sites -> naked handlers (%s)",
+            n, leaf_site_count(), why);
+}
+
+/* ------------------------------------------------------------------ */
 /* Trace-наблюдатели тика (H1/H2/H3/H7) — при LDHOOK_BATTLE_TRACE=1 ИЛИ
  * LDHOOK_BATTLE_CAPTURE=1 (capture берёт tick/unit от H1, но trace-строку
  * не пишет). H4 (0x45e0a0) отдельного детура не получает: сброс счётчиков
@@ -1010,6 +1042,7 @@ extern "C" __declspec(dllexport) void initldhook(void)
         if (!s6_on) {
             install_capture_sites();   /* только native e0a0 зовёт листья */
         }
+        install_leaf_call_sites();     /* v12: bdd0_leaf на нативном теле */
         install_seed_sites();
     }
     ld_seed_whrandom();

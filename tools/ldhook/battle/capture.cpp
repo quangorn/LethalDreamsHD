@@ -22,6 +22,7 @@
 #include "../ldhook_internal.h"
 #include "battle.h"
 #include "capture.h"
+#include "leaf_sites.h"
 #include "native.h"
 
 #define CAP_MAX_CALLS   400        /* дефолтный предел пар cap/res */
@@ -168,7 +169,8 @@ static int  g_grid_written = 0;
 static volatile unsigned long g_timer_ms = 0;   /* из трамплина c5a0 */
 
 static void     *g_this = NULL;
-static void     *g_out_code = NULL;
+/* v12: регистрация sink хуков call-сайтов (определение ниже). */
+static void cap_leaf_sink_register(void);static void     *g_out_code = NULL;
 static int       g_filter = 0;
 static cap_pos   g_cmp = { -1, -1 };
 static int       g_cmp_addr = 0;     /* LDPos* цели — identity-гейт e0a0 */
@@ -312,6 +314,7 @@ void battle_capture_init(void)
             g_snap = 1;
         }
     }
+    cap_leaf_sink_register();
     ld_info("battle_capture: %s=%s (max=%d snap=%d)", BATTLE_CAPTURE_ENV, path,
             g_max_calls, g_snap);
 }
@@ -1639,31 +1642,155 @@ static void cap_write_bdd0_in(int seq, void *self, void *esp, int p1, int p2,
     cap_write_b64_field(g_file, unit_ok, g_snap_unit, CAP_BDD0_UNIT_SIZE);
     fputs(",\"ai_b64\":", g_file);
     cap_write_b64_field(g_file, ai_ok, g_snap_ai, CAP_BDD0_AI_SIZE);
+    /* v12: элементы ленты (band_count*0x18 Б) — без них офлайн-харнесс не
+     * материализует чтения ленты в теле (arena.cpp, view "band"). */
+    fputs(",\"band_b64\":", g_file);
+    if (band_n > 0) {
+        cap_b64_encode(g_b64_big, g_snap_band, band_n * CAP_BDD0_BAND_ELEM);
+        fputc('"', g_file);
+        fputs(g_b64_big, g_file);
+        fputc('"', g_file);
+    } else {
+        fputs("null", g_file);
+    }
+    /* v12: объект состояния игры FUN_00442570 (0x20 Б; тело зовёт аксессор
+     * 4+ раз за тик) — ключ `gs_b64` (иначе contract_min считается по нулям). */
+    fputs(",\"gs_b64\":", g_file);
+    cap_write_b64_field(g_file, gs_ok, g_snap_gs, CAP_BDD0_GS_SIZE);
+    /* v12: сырая цепочка разыменований снимка — ровно те ключи, что читает
+     * arena.cpp (k_fixups): unit+0xe0 → [+0x44] → [+0x238], и game_ctx[0].
+     * Ключи пишутся ТОЛЬКО когда цепочка реально снята (иначе has_chain=0 и
+     * handles честно называет причину, а не выдаёт нули за данные). */
+    if (e0_v != 0) {
+        fprintf(g_file, ",\"e0\":%u,\"e0_44\":%u,\"tree\":%u",
+                e0_v, e044_v, tree_v);
+    }
+    if (gctx0_ok) {
+        fprintf(g_file, ",\"gctx0\":%d", gctx0);
+    }
     fprintf(g_file, ",\"band_begin\":%u,\"band_end\":%u,"
-            "\"band_cap\":%u,\"band_dirty\":%u,\"band_count\":%d,\"trap\":%d}\n",
-            bb, be, bc, bd, band_count, trap);
+            "\"band_cap\":%u,\"band_dirty\":%u,\"band_count\":%d,"
+            "\"gs_ok\":%d,\"trap\":%d}\n",
+            bb, be, bc, bd, band_count, gs_ok, trap);
+}
+
+void battle_capture_bdd0_leaf_rec(int va, const void *ecx, const int *args,
+                                  int nargs, int ret, const int *w, int nw,
+                                  int seq, int order, int trap)
+{
+    int k;
+
+    if (g_file == NULL) {
+        return;
+    }
+    fprintf(g_file, "{\"v\":%d,\"kind\":\"bdd0_leaf\",\"seq\":%d,\"order\":%d,"
+            "\"va\":\"%x\",\"ecx\":%d,\"args\":[",
+            CAP_BDD0_SNAP_VER, seq, order, va, (int)(size_t)ecx);
+    for (k = 0; k < nargs; k++) {
+        if (args != NULL) {
+            fprintf(g_file, "%s%d", k ? "," : "", args[k]);
+        }
+    }
+    fprintf(g_file, "],\"ret\":%d", ret);
+    /* v12: dword'ы, записанные листом через указатель (45c6f0 out-тройка,
+     * 45e1d0 тройка по возврату) — харнесс подменяет ими побочную запись. */
+    if (w != NULL && nw > 0) {
+        fputs(",\"w\":[", g_file);
+        for (k = 0; k < nw; k++) {
+            fprintf(g_file, "%s%d", k ? "," : "", w[k]);
+        }
+        fputc(']', g_file);
+    }
+    fprintf(g_file, ",\"trap\":%d}\n", trap);
 }
 
 void battle_capture_bdd0_leaf(int va, const void *ecx, const int *args,
                               int nargs, int ret, const int *w, int nw)
 {
     bdd0_frame *fr;
-    int order, k;
+    int order;
 
     if (!g_snap || !g_enabled || g_closed || g_file == NULL || g_bdd0_sp <= 0) {
         return;                          /* вне тика 44bdd0 / v12 выключен */
     }
     fr = &g_bdd0_stack[g_bdd0_sp - 1];
     order = fr->leaf_order++;
-    fprintf(g_file, "{\"v\":%d,\"kind\":\"bdd0_leaf\",\"seq\":%d,\"order\":%d,"
-            "\"va\":\"%x\",\"ecx\":%d,\"args\":[",
-            CAP_BDD0_SNAP_VER, fr->seq, order, va, (int)(size_t)ecx);
-    for (k = 0; k < nargs; k++) {
-        if (args != NULL) {
-            fprintf(g_file, "%s%d", k ? "," : "", args[k]);
-        }
+    battle_capture_bdd0_leaf_rec(va, ecx, args, nargs, ret, w, nw,
+                                 fr->seq, order, 0);
+}
+
+/* v12: sink хуков call-сайтов (battle/leaf_sites.cpp). Порядок `order`
+ * выдаётся на ВХОДЕ листа (порядок вызова, а не возврата) — вложенные листья
+ * (458050/45e1d0) не переставляют поток. Пара seq/order живёт в LIFO:
+ * token = индекс записи этого вызова 44bdd0. */
+static int  g_leaf_q_seq[BDD0_STACK_MAX];
+static int  g_leaf_q_order[BDD0_STACK_MAX];
+static int  g_leaf_q_n = 0;
+
+static int cap_leaf_sink_enter(int va, int ecx, const int *args, int nargs)
+{
+    bdd0_frame *fr;
+
+    (void)va;
+    (void)ecx;
+    (void)args;
+    (void)nargs;
+    if (!g_snap || !g_enabled || g_closed || g_file == NULL || g_bdd0_sp <= 0) {
+        return -1;
     }
-    fprintf(g_file, "],\"ret\":%d}\n", ret);
+    if (g_leaf_q_n >= BDD0_STACK_MAX) {
+        return -1;
+    }
+    fr = &g_bdd0_stack[g_bdd0_sp - 1];
+    g_leaf_q_seq[g_leaf_q_n] = fr->seq;
+    g_leaf_q_order[g_leaf_q_n] = fr->leaf_order++;
+    return g_leaf_q_n++;
+}
+
+static void cap_leaf_sink_exit(int token, int va, int ecx, const int *args,
+                               int nargs, int ret_bits, const int *w, int nw,
+                               int trap)
+{
+    int seq, order;
+
+    if (token < 0 || token >= g_leaf_q_n) {
+        return;
+    }
+    if (token != g_leaf_q_n - 1) {
+        trap = 1;                        /* рассинхрон LIFO — помечаем запись */
+    }
+    g_leaf_q_n = token;
+    seq = g_leaf_q_seq[token];
+    order = g_leaf_q_order[token];
+    battle_capture_bdd0_leaf_rec(va, (const void *)(size_t)ecx, args, nargs,
+                                 ret_bits, w, nw, seq, order, trap);
+}
+
+/* Пропущенный сайт (не `call rel32` / чужой rel32 / нет адреса) — маркер в
+ * захвате: харнесс видит пробел в потоке листьев, а не молчаливое отсутствие. */
+static void cap_leaf_sink_missing(int site_va, int target_va, const char *why)
+{
+    if (!g_enabled || g_closed || g_file == NULL) {
+        return;
+    }
+    fprintf(g_file, "{\"v\":%d,\"kind\":\"leaf_missing\",\"site\":\"%x\","
+            "\"va\":\"%x\",\"why\":\"%s\"}\n",
+            CAP_BDD0_SNAP_VER, site_va, target_va,
+            (why != NULL) ? why : "");
+}
+
+static const leaf_sink g_leaf_sink = {
+    cap_leaf_sink_enter, cap_leaf_sink_exit, cap_leaf_sink_missing
+};
+
+static void cap_leaf_sink_register(void)
+{
+    leaf_sites_set_sink(&g_leaf_sink);
+}
+
+int battle_capture_snap_enabled(void)
+{
+    return g_snap;
 }
 
 /* ------------------- v10/v11: per-call FUN_0044bdd0 (диспетчер AI) -------- *
@@ -1714,6 +1841,12 @@ void battle_capture_bdd0_enter(void *self, void *esp)
     g_bdd0_stack[g_bdd0_sp].self = self;
     g_bdd0_stack[g_bdd0_sp].leaf_order = 0;   /* v12: счётчик листьев этого вызова */
     g_bdd0_sp++;
+    /* v12: новый вызов 44bdd0 — LIFO листьев прошлого вызова не должен
+     * переноситься (несбалансированный вход/выход после SEH-размотки). */
+    if (g_bdd0_sp == 1) {
+        g_leaf_q_n = 0;
+        leaf_sites_reset();
+    }
     fprintf(g_file, "{\"v\":%d,\"kind\":\"bdd0_cap\",\"seq\":%d,\"tick\":%d,"
             "\"unit\":%d,\"fn\":\"44bdd0\",\"self\":%d,\"p1\":%d,\"p2\":%d,"
             "\"p3\":%d,\"ai\":%d,\"u170\":%d,\"gate114\":%u,\"trap\":%d}\n",

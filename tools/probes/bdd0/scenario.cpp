@@ -248,7 +248,7 @@ static void read_block(const JVal &v, const char *key, unsigned char *dst,
 
 /* --------------------------------- загрузка ------------------------------ */
 struct ResRec {
-    int al, out, u170, has;
+    int al, out, u170, has, trap;
     unsigned m[3];
 };
 
@@ -262,6 +262,7 @@ static void apply_in(TickRecord &t, const JVal &v, int *bad)
     t.p3 = (int)jint_opt(v, "p3", 0);
     t.u170_in = (int)jint_opt(v, "u170", 0);
     t.gate114 = (unsigned)jint_opt(v, "gate114", 0);
+    t.trap = (int)jint_opt(v, "trap", 0);   /* снимок снят при сбое */
     t.self_raw = (unsigned)jint_opt(v, "self", 0);
     t.band_raw = (unsigned)jint_opt(v, "band_begin", 0);
     int exact = 0;
@@ -305,6 +306,7 @@ static void apply_in(TickRecord &t, const JVal &v, int *bad)
 static void apply_res(ResRec &r, const JVal &v)
 {
     r.has = 1;
+    r.trap = (int)jint_opt(v, "trap", 0);
     r.al = (int)jint_opt(v, "al", 0);
     r.out = (int)jint_opt(v, "out", -1);
     r.u170 = (int)jint_opt(v, "u170", 0);
@@ -325,6 +327,7 @@ static void apply_leaf(LeafRec &l, const JVal &v)
     }
     l.ecx = (int)jint_opt(v, "ecx", 0);
     l.ret = (int)jint_opt(v, "ret", 0);
+    l.trap = (int)jint_opt(v, "trap", 0);   /* старые записи поля не имеют */
     const JVal *args = jget(v, "args");
     if (args != NULL && args->t == JVal::ARR) {
         for (size_t i = 0; i < args->a.size() && l.nargs < 6; i++) {
@@ -393,12 +396,28 @@ Scenario *load_capture(const char *path)
                 /* сценарий: ключ scenario, если он есть в записи */
                 std::string sn = jstr_opt(v, "scenario");
                 if (!sn.empty()) sc->name = sn;
+                if (t.trap) sc->input_trap++;
                 sc->ticks.push_back(t);
                 sc->snap_records++;
             } else if (kind == "bdd0_res") {
                 ResRec r;
                 apply_res(r, v);
                 res_by_seq[(int)jint_opt(v, "seq", 0)] = r;
+            } else if (kind == "leaf_missing") {
+                /* сайт листа не захукался на захвате: поток может быть неполон
+                 * для ВСЕХ seq — запоминаем причину, leaf_seq её назовёт. */
+                std::string site = jstr_opt(v, "site");
+                std::string va = jstr_opt(v, "va");
+                std::string why = jstr_opt(v, "why");
+                sc->leaf_missing_n++;
+                if (sc->leaf_missing_why.empty()) {
+                    char buf[220];
+                    _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+                                "capture leaf_missing: site 0x%s (leaf 0x%s) "
+                                "not hooked: %s", site.c_str(), va.c_str(),
+                                why.empty() ? "?" : why.c_str());
+                    sc->leaf_missing_why = buf;
+                }
             } else if (kind == "bdd0_leaf") {
                 if (ver < 12) continue;
                 LeafRec l;
@@ -442,6 +461,8 @@ Scenario *load_capture(const char *path)
         std::map<int, ResRec>::const_iterator it = res_by_seq.find(t.seq);
         if (it != res_by_seq.end()) {
             t.has_res = 1;
+            t.res_trap = it->second.trap;
+            if (t.res_trap) sc->outcome_trap++;
             t.res_al = it->second.al;
             t.res_out = it->second.out;
             t.res_u170 = it->second.u170;

@@ -28,9 +28,11 @@
 
 /* Один вызов логического листа из потока bdd0_leaf.
  * w/nw — dword'ы, которые лист записал ЧЕРЕЗ указатель (45c6f0 out-тройка,
- * 45e1d0 возврат-тройка); в захвате это необязательный ключ `w`. */
+ * 45e1d0 возврат-тройка); в захвате это необязательный ключ `w`.
+ * trap — захват записал запись после сбоя/рассинхрона LIFO (`"trap":1`):
+ * значения (ret/args/w) в ней недостоверны, replay её НЕ потребляет. */
 struct LeafRec {
-    int order, va, ecx, nargs, args[6], ret, w[3], nw;
+    int order, va, ecx, nargs, args[6], ret, w[3], nw, trap;
 };
 
 struct TickRecord {
@@ -51,8 +53,10 @@ struct TickRecord {
     unsigned char ai[BDD0_AI_LEN];
     unsigned char band[BDD0_BAND_MAX * BDD0_BAND_ELEM];
     unsigned char gs[BDD0_GS_LEN];
+    int trap;                  /* bdd0_in `"trap"`: снимок снят при сбое */
     /* записанный исход пары bdd0_res (только --impl native / отчёт) */
     int has_res;
+    int res_trap;              /* bdd0_res `"trap"`: исход недостоверен */
     int res_al, res_out, res_u170;
     unsigned res_m[3];
     /* окно листьев этого seq (индексы в Scenario::leaves) */
@@ -61,8 +65,9 @@ struct TickRecord {
         : seq(0), tick(0), unit_index(0), p1(0), p2(0), p3(0), u170_in(0),
           gate114(0), has_frame(0), has_unit(0), has_ai(0), has_band(0),
           has_gs(0), band_n(0), has_chain(0), e0(0), e0_44(0), tree(0),
-          has_gctx0(0), gctx0(0), self_raw(0), band_raw(0), has_res(0),
-          res_al(0), res_out(0), res_u170(0), leaf_first(0), leaf_n(0)
+          has_gctx0(0), gctx0(0), self_raw(0), band_raw(0), trap(0),
+          has_res(0), res_trap(0), res_al(0), res_out(0), res_u170(0),
+          leaf_first(0), leaf_n(0)
     {
         for (int i = 0; i < BDD0_FRAME_LEN; i++) frame[i] = 0;
         for (int i = 0; i < BDD0_UNIT_LEN; i++) unit[i] = 0;
@@ -81,7 +86,12 @@ struct Scenario {
     int leaf_records;
     int truncated;             /* файл оборван (захват убит): хвост отброшен */
     int records;               /* сколько объектов прочитано вообще */
-    Scenario() : snap_records(0), leaf_records(0), truncated(0), records(0) {}
+    int leaf_missing_n;        /* маркеры leaf_missing: сайт не захукался */
+    std::string leaf_missing_why;
+    int input_trap;            /* bdd0_in с trap=1 (снимок недостоверен) */
+    int outcome_trap;          /* bdd0_res с trap=1 (исход недостоверен) */
+    Scenario() : snap_records(0), leaf_records(0), truncated(0), records(0),
+                 leaf_missing_n(0), input_trap(0), outcome_trap(0) {}
 };
 
 /* Загрузчик (scenario.cpp). Ошибка формата → std::runtime_error (rc 2). */

@@ -86,6 +86,8 @@
 
 void battle_capture_init(void);
 int  battle_capture_enabled(void);
+/* v12: LDHOOK_BATTLE_CAPTURE_SNAP=1 — включать снапшот и хуки call-сайтов. */
+int  battle_capture_snap_enabled(void);
 
 /* Адреса оригиналов листьев (устанавливаются install_capture_sites). */
 void battle_capture_set_leaf_fns(void *cb40, void *heur, void *timeout);
@@ -120,6 +122,12 @@ void battle_capture_bdd0_exit(int al, void *esp);
  * воспроизвёл побочную запись, не читая игровую память. NULL/0 — ключа нет. */
 void battle_capture_bdd0_leaf(int va, const void *ecx, const int *args,
                               int nargs, int ret, const int *w, int nw);
+
+/* v12: запись листа с явными seq/order (хуки call-сайтов: order выдаётся на
+ * входе листа, seq — из кадра 44bdd0 на входе; trap=1 — запись неполная). */
+void battle_capture_bdd0_leaf_rec(int va, const void *ecx, const int *args,
+                                  int nargs, int ret, const int *w, int nw,
+                                  int seq, int order, int trap);
 
 /* Регистрация результата листа; value — EAX оригинала, words — 5 dword
  * возвращённого объекта (только для CAP_LEAF_PATH, value != 0). */
