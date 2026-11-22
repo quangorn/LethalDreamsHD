@@ -86,6 +86,8 @@ python_libs.7z; тот же мандат applies к истории сессий.
    - исход: `--check res_match` (al/out/u170), `--check state_match` (m0..m2), `--check native_args` (ecx/args порта против записи).
    - диагностика пути (не проверка): `--path-diff [--path-diff-json out.jsonl] [--from-seq N --limit 1]` —
      side-by-side recorded/consumed order, первый DIVERGE и gate-контекст.
+    - покрытие тела каталогом (гейт веток, по id): `python3 tools/probes/bdd0_coverage.py <capture.jsonl> [...]`
+      — union меток/условий+направление/выходов/лист-сайтов/RECORD-сайтов и пробелы каталога.
 
 
 ## btf-пайплайн (курсоры/иконки)

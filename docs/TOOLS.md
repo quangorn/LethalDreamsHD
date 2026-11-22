@@ -136,6 +136,8 @@ LD_GAME="<tree>" LD_REPO="<repo>" LD_SCRATCH="<scratch>" \
   A/B-дифф захватов `bdd0_ab_diff.py`, вставка меточного trace веток в `battle/tick.cpp`
   (`bdd0_label_trace.py`, флаг `-DB0_TRACE_LABELS=1`), replay `e0a0` — `battle_replay{,_build}`,
   сравнения — `battle_replay_diff.py`, `leaf_stream_diff.py`, `statefp_diff.py`, `trace_diff.py`.
+  Покрытие тела каталогом по id (`bdd0_coverage.py`): метки, условия+направление, выходы,
+  лист-сайты, RECORD-сайты — union захватов и пробелы каталога.
   Семантика проверок — `tools/ldhook/README.md`; канонические прогоны — `docs/PIPELINE.md` (п. 8).
 
 ## exe (tools/exe)
