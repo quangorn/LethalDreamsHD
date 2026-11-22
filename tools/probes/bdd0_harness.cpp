@@ -286,6 +286,23 @@ static void write_report(FILE *f, const char *scenario, const TickRecord &rec,
     (void)capture;
 }
 
+/* Тик с проглоченными данными: каждая включённая проверка получает FAIL с
+ * одной причиной (отсутствие записей не может дать pass). */
+static void fail_all_checks(const std::vector<int> &enabled,
+                            std::vector<Rollup> &roll, int *fails, FILE *rf,
+                            const char *scenario, const TickRecord &rec,
+                            const char *impl, const char *capture,
+                            const char *reason)
+{
+    for (size_t k = 0; k < enabled.size(); k++) {
+        const CheckDef *cd = check_at(enabled[k]);
+        roll[enabled[k]].fail++;
+        (*fails)++;
+        write_report(rf, scenario, rec, impl, cd->name, reason, 0, 0, -1, 0, 0,
+                     capture, capture);
+    }
+}
+
 #ifdef B0_TRACE_LABELS
 static std::ofstream g_traceJson;
 /* События кольца текущего тика (снимаются сразу после исполнения тела). */
@@ -527,6 +544,7 @@ int main(int argc, char **argv)
     /* причины SKIP: печатаются в сводке, чтобы «пропущено» не было молчаливым */
     std::map<std::string, int> skip_why;
     int ran = 0, fails = 0, traps = 0, hangs = 0, gs_missing = 0, leaf_nodes = 0;
+    int leaf_identity = 0;
     long long sum_wall = 0;
     long long uninit_total = 0;
     long long noncomp_total = 0;
@@ -562,6 +580,32 @@ int main(int argc, char **argv)
                             "\"why\":\"outcome trap=1\"}\n",
                         json_esc(sc->name.c_str()).c_str(), rec.seq, impl->name);
             }
+            continue;
+        }
+
+        /* (3) хвост оборван: захват убит mid-tick, и у seq этого тика нет
+         *     bdd0_res, при этом seq последний в захвате. Тик недостоверен как
+         *     данные: тело не исполняется, ни одна проверка не получает pass. */
+        if (rec.incomplete_tail) {
+            ran++;
+            skip_all_checks(enabled, roll, skip_why,
+                            "incomplete tail (no res record)");
+            if (opt.verbose) {
+                fprintf(rf, "{\"kind\":\"tick_skip\",\"scenario\":\"%s\","
+                            "\"seq\":%d,\"impl\":\"%s\","
+                            "\"why\":\"incomplete tail\"}\n",
+                        json_esc(sc->name.c_str()).c_str(), rec.seq, impl->name);
+            }
+            continue;
+        }
+        /* (4) bdd0_res отсутствует НЕ в хвосте: настоящая аномалия захвата.
+         *     Каждая включённая проверка FAIL с отдельной причиной — отсутствие
+         *     записей не проглачивается. */
+        if (!rec.has_res) {
+            ran++;
+            fail_all_checks(enabled, roll, &fails, rf, sc->name.c_str(), rec,
+                            impl->name, opt.capture,
+                            "missing res record (not tail)");
             continue;
         }
 
@@ -817,6 +861,7 @@ int main(int argc, char **argv)
         uninit_total += bdd0_uninit_skipped();
         noncomp_total += bdd0_noncomp_skipped();
         leaf_nodes += arena_leaf_nodes(arena);
+        leaf_identity += arena_leaf_identity(arena);
         arena_set_current(NULL);
         arena_release(arena);
     }
@@ -837,10 +882,18 @@ int main(int argc, char **argv)
         _snprintf_s(ncpart, sizeof(ncpart), _TRUNCATE,
                     " noncomparable_skipped=%lld", noncomp_total);
     }
+    /* incomplete_tail печатается только при ненулевом: хвост, снятый до конца,
+     * — свой тик, и он не должен выглядеть как «всё проверено». */
+    char tailpart[48];
+    tailpart[0] = '\0';
+    if (sc->incomplete_tail > 0) {
+        _snprintf_s(tailpart, sizeof(tailpart), _TRUNCATE,
+                    " incomplete_tail=%d", sc->incomplete_tail);
+    }
     printf("bdd0_harness summary: capture=%s impl=%s ticks=%d pass=%d skip=%d "
-           "fail=%d traps=%d hangs=%d uninit_skipped=%lld%s avg_wall_ms=%lld\n",
+           "fail=%d traps=%d hangs=%d uninit_skipped=%lld%s%s avg_wall_ms=%lld\n",
            sc->name.c_str(), impl->name, ran, sum_pass, sum_skip, fails, traps,
-           hangs, uninit_total, ncpart, ran ? sum_wall / ran : 0);
+           hangs, uninit_total, ncpart, tailpart, ran ? sum_wall / ran : 0);
 
     for (size_t k = 0; k < enabled.size(); k++) {
         const CheckDef *cd = check_at(enabled[k]);
@@ -885,12 +938,25 @@ int main(int argc, char **argv)
         printf("  outcome_trap=%d (bdd0_res trap=1: recorded outcome not "
                "trusted)\n", sc->outcome_trap);
     }
+    if (sc->incomplete_tail > 0) {
+        printf("  incomplete_tail=%d (last seq has no bdd0_res: capture killed "
+               "mid-tick; ticks SKIP, no pass)\n", sc->incomplete_tail);
+    }
+    if (sc->res_missing_nontail > 0) {
+        printf("  res_missing_nontail=%d (bdd0_res absent below the last seq: "
+               "capture anomaly, every check FAILs)\n", sc->res_missing_nontail);
+    }
     if (sc->leaf_missing_n > 0) {
         printf("  leaf_missing=%d (%s)\n", sc->leaf_missing_n,
                sc->leaf_missing_why.c_str());
     }
     printf("  leaf_nodes=%d (opaque sentinels for unbound leaf pointers; "
            "0 = every leaf pointer was materialised)\n", leaf_nodes);
+    if (leaf_identity > 0) {
+        printf("  leaf_identity=%d (sentinels bound by identity at the sites of "
+               "k_identity_rets: handles counts them bound; dereferencing one "
+               "still traps and FAILs handles)\n", leaf_identity);
+    }
 
     if (rf != stdout) fclose(rf);
     if (pathj != NULL) fclose(pathj);

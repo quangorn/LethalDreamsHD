@@ -576,6 +576,24 @@ Scenario *load_capture(const char *path)
             t.res_m[2] = it->second.m[2];
         }
     }
+    /* хвост оборван (захват убит mid-tick): seq без bdd0_res и он последний по
+     * seq в захвате — запись снята не до конца, тик недостоверен как данные.
+     * Отсутствие res ниже последнего seq — настоящая аномалия захвата. */
+    int max_seq = sc->ticks.empty() ? 0 : sc->ticks[0].seq;
+    for (size_t i = 0; i < sc->ticks.size(); i++) {
+        if (sc->ticks[i].seq > max_seq) max_seq = sc->ticks[i].seq;
+    }
+    for (size_t i = 0; i < sc->ticks.size(); i++) {
+        TickRecord &t = sc->ticks[i];
+        if (t.has_res) continue;
+        if (t.seq == max_seq) {
+            t.incomplete_tail = 1;
+            sc->incomplete_tail++;
+        } else {
+            t.res_missing_nontail = 1;
+            sc->res_missing_nontail++;
+        }
+    }
     return sc;
 }
 

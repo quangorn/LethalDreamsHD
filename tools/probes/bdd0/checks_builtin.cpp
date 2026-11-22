@@ -194,7 +194,11 @@ static CheckResult chk_leaf_seq(const TickContext &tc)
 }
 
 /* handles — механическая: каждый указатель, прочитанный телом из снимка,
- * материализован (иначе bounds/contract_min прогоняются на мусоре). */
+ * материализован (иначе bounds/contract_min прогоняются на мусоре).
+ * Привязанный по идентичности leaf-ret (пара site+va из k_identity_rets в
+ * arena.cpp) — привязан: handle_miss не ставится. Разыменование такого
+ * сентинела ловится trap'ом при 0xDEAD… и приписывается handles
+ * (arena_fault_unbound), поэтому здесь оно даёт FAIL, а не «проверено». */
 static CheckResult chk_handles(const TickContext &tc)
 {
     if (tc.trap_unbound) {

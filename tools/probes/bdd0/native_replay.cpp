@@ -345,11 +345,14 @@ static float f32_of(int bits)
     return f;
 }
 
-/* Возврат листа → shadow-адрес (игровые указатели не утекают в тело). */
+/* Возврат листа → shadow-адрес (игровые указатели не утекают в тело).
+ * Сайт и VA взяты из записи: пары из k_identity_rets привязываются по
+ * идентичности (неразыменовываемый сентинел, handles pass). */
 static void *ret_ptr(const LeafRec *r)
 {
     if (r == NULL || r->ret == 0) return NULL;
-    return arena_resolve_ptr((unsigned)r->ret);
+    return arena_resolve_ptr_at((unsigned)r->ret,
+                                (unsigned)r->site, (unsigned)r->va);
 }
 
 /* ------------------------------- листья --------------------------------- */

@@ -97,6 +97,8 @@ struct TickRecord {
     /* окно bdd0_native этого seq (индексы в Scenario::natives) */
     int native_first, native_n;
     int native_eee0_no_ww;     /* 45eee0 record without post-state writes */
+    int incomplete_tail;       /* seq is the last in the capture and has no res */
+    int res_missing_nontail;   /* no res below the last seq: capture anomaly */
     TickRecord()
         : seq(0), tick(0), unit_index(0), p1(0), p2(0), p3(0), u170_in(0),
           gate114(0), has_frame(0), has_unit(0), has_ai(0), has_band(0),
@@ -104,7 +106,7 @@ struct TickRecord {
           has_gctx0(0), gctx0(0), self_raw(0), band_raw(0), trap(0),
           has_res(0), res_trap(0), res_al(0), res_out(0), res_u170(0),
           leaf_first(0), leaf_n(0), native_first(0), native_n(0),
-          native_eee0_no_ww(0)
+           native_eee0_no_ww(0), incomplete_tail(0), res_missing_nontail(0)
     {
         for (int i = 0; i < BDD0_FRAME_LEN; i++) frame[i] = 0;
         for (int i = 0; i < BDD0_UNIT_LEN; i++) unit[i] = 0;
@@ -131,9 +133,12 @@ struct Scenario {
     std::string native_missing_why;
     int input_trap;            /* bdd0_in с trap=1 (снимок недостоверен) */
     int outcome_trap;          /* bdd0_res с trap=1 (исход недостоверен) */
+    int incomplete_tail;       /* тиков, у которых seq без res и он последний */
+    int res_missing_nontail;   /* res отсутствует ниже последнего seq: аномалия */
     Scenario() : snap_records(0), leaf_records(0), native_records(0),
                  truncated(0), records(0), leaf_missing_n(0),
-                 native_missing_n(0), input_trap(0), outcome_trap(0) {}
+                 native_missing_n(0), input_trap(0), outcome_trap(0),
+                 incomplete_tail(0), res_missing_nontail(0) {}
 };
 
 /* Загрузчик (scenario.cpp). Ошибка формата → std::runtime_error (rc 2). */
@@ -294,8 +299,14 @@ int arena_handle_misses(const Arena *a);
 const char *arena_handle_miss_why(const Arena *a);
 /* 1 — адрес ловушки пришёл от неcвязанного указателя (см. handles). */
 int arena_fault_unbound(Arena *a, unsigned long addr);
-/* Перевод указателя из пространства игры в shadow-адрес (нативный слой). */
+/* Перевод указателя из пространства игры в shadow-адрес (нативный слой).
+ * arena_resolve_ptr_at знает сайт вызова (VA call site + VA натива) и привязывает
+ * по идентичности пары из k_identity_rets (arena.cpp); arena_resolve_ptr — без
+ * сайта, привязка по идентичности неприменима. */
 void *arena_resolve_ptr(unsigned raw);
+void *arena_resolve_ptr_at(unsigned raw, unsigned site, unsigned va);
+/* Сколько leaf rets привязано по идентичности (sentinels из k_identity_rets). */
+int arena_leaf_identity(const Arena *a);
 /* Сколько opaque-узлов выдано листам вместо материализации (диагностика:
  * непривязанный адрес даёт сентинел, а не живой объект). */
 int arena_leaf_nodes(const Arena *a);

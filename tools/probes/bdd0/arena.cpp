@@ -45,6 +45,11 @@
 #define ARENA_CANARY 64u
 #define ARENA_CANARY_BYTE 0xCDu
 #define ARENA_BAND_MAX_BYTES (BDD0_BAND_MAX * BDD0_BAND_ELEM)
+/* Неразыменовываемый сентинел указателя из пространства игры (см.
+ * arena_resolve_ptr_at ниже): весь диапазон сентинелов лежит в одной странице
+ * 0xDEAD0000..0xDEAD0FFF, поэтому разыменование сентинела ловится по старшим
+ * 20 битам (arena_fault_unbound). */
+#define ARENA_SENTINEL 0xDEAD0000u
 
 struct Reg {
     char name[24];
@@ -82,6 +87,7 @@ struct Arena {
     int miss_raw_n;
     const TickRecord *rec;
     int leaf_nodes;
+    int leaf_identity;      /* leaf rets bound by identity (см. k_identity_rets) */
 };
 
 static Arena *g_cur = NULL;
@@ -188,6 +194,11 @@ int arena_leaf_nodes(const Arena *a)
     return (a == NULL) ? 0 : a->leaf_nodes;
 }
 
+int arena_leaf_identity(const Arena *a)
+{
+    return (a == NULL) ? 0 : a->leaf_identity;
+}
+
 int arena_handle_misses(const Arena *a)
 {
     return (a == NULL) ? 0 : a->handle_miss;
@@ -199,8 +210,11 @@ const char *arena_handle_miss_why(const Arena *a)
 }
 
 /* Trap attribution: 1 iff `addr` is a pointer the materialisation did not bind.
- * Bound if it lies in any raw binding range; unbound if it equals a recorded
- * miss or is a raw pointer dword present in the input snapshot. */
+ * Bound if it lies in any raw binding range; unbound if it is an opaque sentinel
+ * (`0xDEAD…`, dereferenceable never), equals a recorded miss, or is a raw pointer
+ * dword present in the input snapshot.  Sentinels bound for identity are in this
+ * list too: identity binds the pointer's `!= NULL`/store/pass-through use, never
+ * its contents — dereference must stay loud. */
 int arena_fault_unbound(Arena *a, unsigned long addr)
 {
     int i;
@@ -208,6 +222,7 @@ int arena_fault_unbound(Arena *a, unsigned long addr)
     unsigned v = (unsigned)addr;
 
     if (a == NULL || v == 0) return 0;
+    if ((v & 0xfffff000u) == ARENA_SENTINEL) return 1;
     for (i = 0; i < a->bind_n; i++) {
         if (v >= a->binds[i].raw && v < a->binds[i].raw + a->binds[i].size) {
             return 0;
@@ -237,11 +252,16 @@ int arena_fault_unbound(Arena *a, unsigned long addr)
     return 0;
 }
 
-static void miss(Arena *a, const char *what, unsigned raw)
+static void raw_note(Arena *a, unsigned raw)
 {
     if (a->miss_raw_n < (int)(sizeof(a->miss_raw) / sizeof(a->miss_raw[0]))) {
         a->miss_raw[a->miss_raw_n++] = raw;
     }
+}
+
+static void miss(Arena *a, const char *what, unsigned raw)
+{
+    raw_note(a, raw);
     if (a->handle_miss == 0) {
         _snprintf_s(a->miss_why, sizeof(a->miss_why), _TRUNCATE,
                     "unmapped handle 0x%08x at %s", raw, what);
@@ -258,27 +278,6 @@ static void bind_add(Arena *a, unsigned raw, unsigned char *base, unsigned size)
     b.base = base;
     b.size = size;
     a->binds[a->bind_n++] = b;
-}
-
-/* Перевод указателя из пространства игры в shadow-адрес:
- *   - попадание в известную привязку → base + смещение;
- *   - иначе НИЧЕГО не подставляем: возвращается неразыменовываемый сентинел
- *     `0xDEAD0000 | idx` и регистрируется unmapped handle (проверка `handles`
- *     даст FAIL). Живой нулевой объект сделал бы такую запись «проверенной». */
-#define ARENA_SENTINEL 0xDEAD0000u
-
-void *arena_resolve_ptr(unsigned raw)
-{
-    Arena *a = g_cur;
-    if (a == NULL || raw == 0) return NULL;
-    for (int i = 0; i < a->bind_n; i++) {
-        const Bind &b = a->binds[i];
-        if (raw >= b.raw && raw < b.raw + b.size) {
-            return b.base + (raw - b.raw);
-        }
-    }
-    miss(a, "leaf ret (no binding)", raw);
-    return (void *)(size_t)(ARENA_SENTINEL | (unsigned)(a->leaf_nodes++ & 0xfffu));
 }
 
 /* ------------------------- применение таблицы fixup ---------------------- */
@@ -300,6 +299,73 @@ static const PtrFixup k_fixups[] = {
     { "[[unit+0xe0]+0x44]+0x238",   "node_e044", 0x238, "tree", FX_TREE },
     { "unit+0x138 (BattleAI.game_ctx)", "unit", BDD0_AI_OFF, "ai_ctx", FX_CTX }
 };
+
+/* ------------------- привязка leaf-ret по идентичности ------------------ *
+ * Указатель, возвращённый листом/нативом, привязывается НЕ к объекту, а по
+ * идентификатору: он получает неразыменовываемый сентинел, а `handles` считает
+ * его привязанным. Правомерно ровно когда потребительский набор сайта =
+ * NULL-тест + запись в write-only слот + pass-through в буферы нативов,
+ * replay-уемых из захвата (порт не читает ни один dword объекта).
+ * РАЗЫМЕНЕНИЕ ТАКОГО СЕНТИНЕЛА ПО-ПРЕЖНЕМУ БЬЁТ: trap при 0xDEAD…
+ * приписывается `handles` (arena_fault_unbound) и проверка даёт FAIL, поэтому
+ * политика не способна тихо изменить решение.
+ * ЭТО ТОЧКА РАСШИРЕНИЯ: новую пару добавляют только с тем же доказательством по
+ * сайту; пары «на всякий случай» не пишутся. */
+struct IdentRet {
+    unsigned site;   /* VA вызова в теле */
+    unsigned va;     /* VA целевого натива */
+};
+
+static const IdentRet k_identity_rets[] = {
+    /* 0x44c7da → 0x458050 (grid_anchor): `CMP EAX,EDI` @0x44c7df (NULL-тест),
+     * запись в [ESP+0x98] @0x44c7e1 (слот write-only: 2 записи, 0 чтений во
+     * всём теле), и &frame+0x88 → нативы 45e1d0/4040f0 (replay из захвата). */
+    { 0x44c7dau, 0x458050u }
+};
+
+static int identity_hit(unsigned site, unsigned va)
+{
+    for (int i = 0;
+         i < (int)(sizeof(k_identity_rets) / sizeof(k_identity_rets[0])); i++) {
+        if (site == k_identity_rets[i].site && va == k_identity_rets[i].va) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Перевод указателя из пространства игры в shadow-адрес:
+ *   - попадание в известную привязку → base + смещение;
+ *   - иначе НИЧЕГО не подставляем: неразыменовываемый сентинел
+ *     `0xDEAD0000 | idx`. Пары из k_identity_rets: сентинел привязан по
+ *     идентичности (handles pass, leaf_identity++), сырой адрес всё равно
+ *     записан как unbound. Иначе — unmapped handle (handles FAIL). Живой
+ *     нулевой объект сделал бы такую запись «проверенной». */
+void *arena_resolve_ptr_at(unsigned raw, unsigned site, unsigned va)
+{
+    Arena *a = g_cur;
+    if (a == NULL || raw == 0) return NULL;
+    for (int i = 0; i < a->bind_n; i++) {
+        const Bind &b = a->binds[i];
+        if (raw >= b.raw && raw < b.raw + b.size) {
+            return b.base + (raw - b.raw);
+        }
+    }
+    unsigned sent = ARENA_SENTINEL | (unsigned)(a->leaf_nodes++ & 0xfffu);
+    if (identity_hit(site, va)) {
+        raw_note(a, raw);      /* разыменование сырого адреса — unbound-fault */
+        a->leaf_identity++;    /* привязан по идентичности: handles не FAIL */
+        return (void *)(size_t)sent;
+    }
+    miss(a, "leaf ret (no binding)", raw);
+    return (void *)(size_t)sent;
+}
+
+void *arena_resolve_ptr(unsigned raw)
+{
+    /* сайт неизвестен — привязка по идентичности неприменима */
+    return arena_resolve_ptr_at(raw, 0u, 0u);
+}
 
 static unsigned read_u32(const unsigned char *p)
 {
@@ -325,6 +391,7 @@ Arena *arena_build(const TickRecord *rec)
     a->miss_raw_n = 0;
     a->rec = rec;
     a->leaf_nodes = 0;
+    a->leaf_identity = 0;
 
     /* 1. области: unit-блок 0x1b8 — объявленная область unit 0x180 плюс
      *    встроенный BattleAI (unit+0x138..+0x1b7, отдельная view "ai"). */

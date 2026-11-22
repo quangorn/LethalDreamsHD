@@ -203,6 +203,9 @@ PRISTINE 2967, HD_PACK 1379, ALLOWED 728, CODE 17, EXCLUDED 4, UNCOVERED 0, rc 0
 - `[P]` Noncomparable native args: sites 0x44bfa7/0x44c109/0x44c9d5/0x44cee1 (цель 0x446a80,
   `ret 0x3c`) — arg[0..14] лежит в 60-байтной by-value области кадра (`sub $0x3c` + self-copy
   0x4040f0 из R+4), точное (site,va,arg) → SKIP + `noncomparable_skipped`; leaf-сайтов нет.
+- `[P]` Incomplete tail: `seq` без `bdd0_res` и он последний в захвате ⇒ SKIP всех проверок
+  (`incomplete tail (no res record)`); res отсутствует ниже последнего seq ⇒ FAIL
+  (`missing res record (not tail)`). Реализация: `TickRecord.incomplete_tail` (`bdd0/scenario.cpp`), сводка `incomplete_tail=N`.
 - `[U]` Цель порта боя (19.11.2026): читаемая C++-реализация боевой логики и поиска пути
   (слои `44bdd0` → `45eee0` → `e0a0` → `dd70`), нативные вызовы для GUI/плумбинга; fidelity-first,
   CPU = baseline. Фазы, границы и гейты — `docs/PLAN_BATTLE_AI_CPP.md`.
