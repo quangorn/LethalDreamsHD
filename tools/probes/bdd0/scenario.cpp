@@ -557,10 +557,18 @@ Scenario *load_capture(const char *path)
         t.native_first = (int)nfirst;
         t.native_n = (int)(ni - nfirst);
         t.native_eee0_no_ww = 0;
+        t.gs_raw = 0;          /* адрес объекта состояния — из потока 442570 */
         for (size_t k = nfirst; k < ni; k++) {
             if (natives[k].second.va == 0x45eee0 &&
                 natives[k].second.nww == 0) {
                 t.native_eee0_no_ww = 1;
+            }
+            if (natives[k].second.va == 0x442570 && natives[k].second.ret != 0) {
+                if (t.gs_raw == 0) t.gs_raw = (unsigned)natives[k].second.ret;
+                else if (t.gs_raw != (unsigned)natives[k].second.ret) {
+                    /* объект состояния переехал внутри тика: привязка невозможна */
+                    t.gs_raw = 0;
+                }
             }
         }
         std::map<int, ResRec>::const_iterator it = res_by_seq.find(t.seq);

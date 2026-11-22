@@ -81,6 +81,7 @@ struct TickRecord {
     unsigned gctx0;            /* *(int*)ai_ctx — первый dword game_ctx */
     unsigned self_raw;         /* bdd0_in self = адрес unit в игре */
     unsigned band_raw;         /* bdd0_in band_begin = адрес ленты */
+    unsigned gs_raw;           /* возврат 442570 = адрес объекта состояния игры */
     unsigned char frame[BDD0_FRAME_LEN];
     unsigned char unit[BDD0_UNIT_LEN];
     unsigned char ai[BDD0_AI_LEN];
@@ -103,7 +104,7 @@ struct TickRecord {
         : seq(0), tick(0), unit_index(0), p1(0), p2(0), p3(0), u170_in(0),
           gate114(0), has_frame(0), has_unit(0), has_ai(0), has_band(0),
           has_gs(0), band_n(0), has_chain(0), e0(0), e0_44(0), tree(0),
-          has_gctx0(0), gctx0(0), self_raw(0), band_raw(0), trap(0),
+          has_gctx0(0), gctx0(0), self_raw(0), band_raw(0), gs_raw(0), trap(0),
           has_res(0), res_trap(0), res_al(0), res_out(0), res_u170(0),
           leaf_first(0), leaf_n(0), native_first(0), native_n(0),
            native_eee0_no_ww(0), incomplete_tail(0), res_missing_nontail(0)

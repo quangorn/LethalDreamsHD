@@ -427,7 +427,7 @@ static const LeafAbi *leaf_abi_find(int va)
     return NULL;
 }
 
-enum { NK_NUL = 0, NK_UNIT, NK_BAND, NK_NODE_E0, NK_NODE_E044, NK_TREE, NK_RAW };
+enum { NK_NUL = 0, NK_GS, NK_UNIT, NK_BAND, NK_NODE_E0, NK_NODE_E044, NK_TREE, NK_RAW };
 
 /* Области арены в порядке привязок arena.cpp (перекрывающийся view "ai" не
  * участвует: он подмножество "unit"). */
@@ -463,6 +463,10 @@ static int native_ptr_base(const TickRecord *rec, unsigned nv, int *off)
     unsigned band_len = (rec->band_n > 0)
         ? (unsigned)rec->band_n * BDD0_BAND_ELEM : BDD0_BAND_ELEM;
     const Base k_base[] = {
+        /* gs идёт раньше unit: объект состояния лежит внутри блока unit
+         * (возврат 442570 = self+0x64 в захватах), и указатель на gs-поле
+         * обязан попадать в gs, а не в unit. */
+        { rec->gs_raw,   BDD0_GS_LEN,                                NK_GS },
         { rec->self_raw, (unsigned)(BDD0_UNIT_LEN + BDD0_AI_LEN), NK_UNIT },
         { rec->band_raw, band_len,                                 NK_BAND },
         { rec->e0,       0x240u,                                   NK_NODE_E0 },
@@ -483,6 +487,7 @@ static int kind_of_region_name(const char *n)
 {
     if (n == NULL) return -1;
     if (strcmp(n, "unit") == 0) return NK_UNIT;
+    if (strcmp(n, "gs") == 0) return NK_GS;
     if (strcmp(n, "band") == 0) return NK_BAND;
     if (strcmp(n, "node_e0") == 0) return NK_NODE_E0;
     if (strcmp(n, "node_e044") == 0) return NK_NODE_E044;

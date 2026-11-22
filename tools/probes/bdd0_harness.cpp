@@ -950,10 +950,10 @@ int main(int argc, char **argv)
         printf("  leaf_missing=%d (%s)\n", sc->leaf_missing_n,
                sc->leaf_missing_why.c_str());
     }
-    printf("  leaf_nodes=%d (opaque sentinels for unbound leaf pointers; "
+    printf("  leaf_nodes=%d (unbound raw game pointers bound to identity cells; "
            "0 = every leaf pointer was materialised)\n", leaf_nodes);
     if (leaf_identity > 0) {
-        printf("  leaf_identity=%d (sentinels bound by identity at the sites of "
+        printf("  leaf_identity=%d (leaf rets bound by identity at the sites of "
                "k_identity_rets: handles counts them bound; dereferencing one "
                "still traps and FAILs handles)\n", leaf_identity);
     }

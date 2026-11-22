@@ -35,6 +35,16 @@
  * стека тоже), плюс `self` из записи связывает адреса пространства игры с
  * shadow-адресами: возвращаемый листом указатель, попавший внутрь [self,
  * self+0x1b8), переводится в unit-блок со сдвигом (band_head = self+0x174).
+ *
+ * --------------------- идентичность неразвязанных указателей --------------
+ * Указатели вне материализованных объектов (листьевые возвраты, поля снимка,
+ * возвращённые нативами) получают IDENTITY-CELL: один незарезервированный
+ * адрес на каждый сырой адрес, привязанный memoизацией по сырому значению.
+ * Равные сырые адреса дают одну и ту же ячейку, поэтому сравнения
+ * `leaf_ret == снимкового dword` (`cmp 0x14(edi),eax` @0x44c3ff, курсор ленты)
+ * воспроизводятся достоверно. Разыменование ячейки бьёт (страница зарезервана
+ * без коммита) и приписывается `handles`. Подстановки содержимого нет: тело,
+ * прочитавшее dword из такой ячейки, получает access violation, а не мусор.
  */
 #include <stdio.h>
 #include <string.h>
@@ -50,6 +60,9 @@
  * 0xDEAD0000..0xDEAD0FFF, поэтому разыменование сентинела ловится по старшим
  * 20 битам (arena_fault_unbound). */
 #define ARENA_SENTINEL 0xDEAD0000u
+/* Ячейки идентичности: резерв без коммита, по странице на сырой адрес. */
+#define ARENA_ID_MAX 64
+#define ARENA_ID_POOL_PAGES ARENA_ID_MAX
 
 struct Reg {
     char name[24];
@@ -66,6 +79,11 @@ struct Bind {
     unsigned size;
 };
 
+struct Ident {
+    unsigned raw;
+    unsigned char *cell;
+};
+
 #define ARENA_REGS_MAX 32        /* области фиксированного набора + leafN */
 #define ARENA_BINDS_MAX 32
 
@@ -77,6 +95,9 @@ struct Arena {
     int reg_n;
     Bind binds[ARENA_BINDS_MAX];
     int bind_n;
+    Ident ids[ARENA_ID_MAX];
+    int id_n;
+    unsigned char *id_pool;       /* резерв без коммита: разыменование бьёт */
     std::vector<RegionView> views;
     std::vector<RegionView> pre_views;
     unsigned char *out_slot;
@@ -223,6 +244,10 @@ int arena_fault_unbound(Arena *a, unsigned long addr)
 
     if (a == NULL || v == 0) return 0;
     if ((v & 0xfffff000u) == ARENA_SENTINEL) return 1;
+    if (a->id_pool != NULL && v >= (unsigned)(size_t)a->id_pool
+        && v < (unsigned)(size_t)a->id_pool + ARENA_ID_POOL_PAGES * ARENA_PAGE) {
+        return 1;   /* yacheika identichnosti: razymenovanie belly */
+    }
     for (i = 0; i < a->bind_n; i++) {
         if (v >= a->binds[i].raw && v < a->binds[i].raw + a->binds[i].size) {
             return 0;
@@ -281,7 +306,7 @@ static void bind_add(Arena *a, unsigned raw, unsigned char *base, unsigned size)
 }
 
 /* ------------------------- применение таблицы fixup ---------------------- */
-enum FixTarget { FX_OUT, FX_E0, FX_E044, FX_TREE, FX_CTX };
+enum FixTarget { FX_OUT, FX_E0, FX_E044, FX_TREE, FX_CTX, FX_IDCELL };
 
 struct PtrFixup {
     const char *what;      /* строка для отчёта */
@@ -297,7 +322,11 @@ static const PtrFixup k_fixups[] = {
     { "unit+0xe0",                  "unit",  0xe0,  "e0",     FX_E0 },
     { "[unit+0xe0]+0x44",           "node_e0", 0x44, "e0_44", FX_E044 },
     { "[[unit+0xe0]+0x44]+0x238",   "node_e044", 0x238, "tree", FX_TREE },
-    { "unit+0x138 (BattleAI.game_ctx)", "unit", BDD0_AI_OFF, "ai_ctx", FX_CTX }
+    { "unit+0x138 (BattleAI.game_ctx)", "unit", BDD0_AI_OFF, "ai_ctx", FX_CTX },
+    /* gs+0x14 — курсор ленты: тело сравнивает его (`cmp 0x14(edi),eax`
+     * @0x44c3ff) с возвратом листа 0x45c730 @0x44c3fa и НЕ разыменовывает;
+     * привязка по идентичности делает сравнение достоверным. */
+    { "gs+0x14 (band cursor)", "gs", 0x14, "gs+0x14", FX_IDCELL }
 };
 
 /* ------------------- привязка leaf-ret по идентичности ------------------ *
@@ -320,7 +349,11 @@ static const IdentRet k_identity_rets[] = {
     /* 0x44c7da → 0x458050 (grid_anchor): `CMP EAX,EDI` @0x44c7df (NULL-тест),
      * запись в [ESP+0x98] @0x44c7e1 (слот write-only: 2 записи, 0 чтений во
      * всём теле), и &frame+0x88 → нативы 45e1d0/4040f0 (replay из захвата). */
-    { 0x44c7dau, 0x458050u }
+    { 0x44c7dau, 0x458050u },
+    /* 0x44c3fa → 0x45c730 (band_cursor): возврат → `MOV EAX,EDI` @0x44c3f8 и
+     * только два равенства: `CMP 0x14(EDI),EAX` @0x44c3ff (gs-поле курсора) и
+     * `CMP EDI,EAX` @0x44c7df (EDI живёт до join B77). Разыменования нет. */
+    { 0x44c3fau, 0x45c730u }
 };
 
 static int identity_hit(unsigned site, unsigned va)
@@ -332,6 +365,26 @@ static int identity_hit(unsigned site, unsigned va)
         }
     }
     return 0;
+}
+
+/* Ячейка идентичности для сырого адреса: один и тот же сырой адрес → одна и та
+ * же ячейка, разыменование бьёт (резерв без коммита). Возврат NULL — пул кончен
+ * (ячейка не заведена, счётчик leaf_nodes не растёт). */
+static unsigned char *arena_idcell(Arena *a, unsigned raw)
+{
+    int i;
+    if (raw == 0) return NULL;
+    for (i = 0; i < a->id_n; i++) {
+        if (a->ids[i].raw == raw) return a->ids[i].cell;
+    }
+    if (a->id_pool == NULL || a->id_n >= ARENA_ID_MAX) return NULL;
+    unsigned char *cell = a->id_pool + (unsigned)a->id_n * ARENA_PAGE;
+    a->ids[a->id_n].raw = raw;
+    a->ids[a->id_n].cell = cell;
+    a->id_n++;
+    a->leaf_nodes++;
+    raw_note(a, raw);
+    return cell;
 }
 
 /* Перевод указателя из пространства игры в shadow-адрес:
@@ -351,14 +404,17 @@ void *arena_resolve_ptr_at(unsigned raw, unsigned site, unsigned va)
             return b.base + (raw - b.raw);
         }
     }
-    unsigned sent = ARENA_SENTINEL | (unsigned)(a->leaf_nodes++ & 0xfffu);
+    unsigned char *cell = arena_idcell(a, raw);
     if (identity_hit(site, va)) {
-        raw_note(a, raw);      /* разыменование сырого адреса — unbound-fault */
         a->leaf_identity++;    /* привязан по идентичности: handles не FAIL */
-        return (void *)(size_t)sent;
+        return (void *)(size_t)(cell != NULL ? cell
+                        : (unsigned char *)(size_t)(ARENA_SENTINEL |
+                          (unsigned)(a->leaf_nodes & 0xfffu)));
     }
     miss(a, "leaf ret (no binding)", raw);
-    return (void *)(size_t)sent;
+    return (void *)(size_t)(cell != NULL ? cell
+                    : (unsigned char *)(size_t)(ARENA_SENTINEL |
+                      (unsigned)(a->leaf_nodes & 0xfffu)));
 }
 
 void *arena_resolve_ptr(unsigned raw)
@@ -392,6 +448,11 @@ Arena *arena_build(const TickRecord *rec)
     a->rec = rec;
     a->leaf_nodes = 0;
     a->leaf_identity = 0;
+    a->id_n = 0;
+    a->id_pool = (unsigned char *)VirtualAlloc(NULL,
+                                               ARENA_ID_POOL_PAGES * ARENA_PAGE,
+                                               MEM_RESERVE, PAGE_NOACCESS);
+    /* пул = резерв без коммита: адрес валиден, разыменование бьёт ACCESS_VIOLATION */
 
     /* 1. области: unit-блок 0x1b8 — объявленная область unit 0x180 плюс
      *    встроенный BattleAI (unit+0x138..+0x1b7, отдельная view "ai"). */
@@ -438,6 +499,11 @@ Arena *arena_build(const TickRecord *rec)
     bind_add(a, rec->e0, arena_region_w(a, "node_e0"), 0x240);
     bind_add(a, rec->e0_44, arena_region_w(a, "node_e044"), 0x240);
     bind_add(a, rec->tree, arena_region_w(a, "tree"), 0x40);
+    /* объект состояния (возврат 442570) — сырой адрес из нативного потока;
+     * привязка делает сравниваемые указатели на gs-поля связными. */
+    if (rec->has_gs && rec->gs_raw != 0) {
+        bind_add(a, rec->gs_raw, arena_region_w(a, "gs"), BDD0_GS_LEN);
+    }
 
     /* 4. таблица переписывания указателей */
     for (int i = 0; i < (int)(sizeof(k_fixups) / sizeof(k_fixups[0])); i++) {
@@ -476,6 +542,22 @@ Arena *arena_build(const TickRecord *rec)
             bind_add(a, raw, cr->base, cr->len);
             write_u32(cr->base, rec->gctx0);
             write_u32(slot, (unsigned)(size_t)cr->base);
+            continue;
+        }
+        if (fx.target == FX_IDCELL) {
+            /* pole-identichnost': 0 ostetsya 0; syroi adres poluchayet svoyu
+             * yacheiku (sravnenie dostoverno, razymenovanie belly). */
+            unsigned raw = read_u32(slot);
+            if (raw == 0) {
+                write_u32(slot, 0);
+                continue;
+            }
+            unsigned char *cell = arena_idcell(a, raw);
+            if (cell == NULL) {
+                miss(a, fx.what, raw);
+                continue;
+            }
+            write_u32(slot, (unsigned)(size_t)cell);
             continue;
         }
         /* цепочка unit+0xe0: без записи в захвате поле не материализуем —
@@ -540,6 +622,7 @@ void arena_release(Arena *a)
         }
         free(a->regs[i].pre);
     }
+    if (a->id_pool != NULL) VirtualFree(a->id_pool, 0, MEM_RELEASE);
     if (g_cur == a) g_cur = NULL;
     delete a;
 }
@@ -584,6 +667,20 @@ const char *arena_why_addr(const Arena *a, unsigned long addr, char *buf, int ca
             }
             return buf;
         }
+    }
+    if (a->id_pool != NULL && addr >= (unsigned long)a->id_pool
+        && addr < (unsigned long)a->id_pool + ARENA_ID_POOL_PAGES * ARENA_PAGE) {
+        unsigned raw = 0;
+        for (int i = 0; i < a->id_n; i++) {
+            if (addr >= (unsigned long)a->ids[i].cell
+                && addr < (unsigned long)a->ids[i].cell + ARENA_PAGE) {
+                raw = a->ids[i].raw;
+                break;
+            }
+        }
+        _snprintf_s(buf, cap, _TRUNCATE,
+                    "identity cell (unbound raw 0x%08x)", raw);
+        return buf;
     }
     _snprintf_s(buf, cap, _TRUNCATE, "0x%08x (outside all declared regions)",
                 (unsigned)addr);
