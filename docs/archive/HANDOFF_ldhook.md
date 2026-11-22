@@ -13,7 +13,7 @@
 
 | что | механизм | где живёт |
 |---|---|---|
-| установка `D:/Games/LethalDreams` | cave `exepatch12` (`fixall.bin`, 236 Б в `0x4ebf12`, три `E9`) | EXE `171319bb…` |
+| установка `config[game.root]` | cave `exepatch12` (`fixall.bin`, 236 Б в `0x4ebf12`, три `E9`) | EXE `171319bb…` |
 | dev-прогоны | три хука **в памяти**, код в `.pyd` | baseline EXE `45e93d46…` + `ldhook.pyd` |
 
 Отсюда два следствия, на которых легко ошибиться:

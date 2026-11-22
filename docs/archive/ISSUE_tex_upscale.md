@@ -6,7 +6,7 @@
 «tex-пайплайн», `upscale_tex.py`); **третий шаг не проходит**: игра закрывается при
 загрузке карты с апскейленными записями.
 
-## Эксперименты (всё на scratch-дереве `D:/tmp/cygwin/opencode/ld/tex_hook_tree`)
+## Эксперименты (всё на scratch-дереве `<scratch>/tex_hook_tree`)
 
 Канонический прогон съёмки: новая игра, снимки окна probe'ом
 `tools/archive/probes/probe_loadshot.ps1 3840 2160 1 <Tag> -Mode new -SkipClicks 2

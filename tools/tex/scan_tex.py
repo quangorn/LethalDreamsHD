@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Экстрактор почвенных текстур карт Lethal Dreams: записи `<map>_<N>.tex` из
-`config[game.root]/data/maps/<map>.map` (фаза A плана `docs/TASK_tex_unpacker.md`).
+`config[game.root]/data/maps/<map>.map` (фаза A плана `docs/archive/TASK_tex_unpacker.md`).
 
 Контейнер `.map` = тот же, что `.btf`: `LDPACKER` + u32(plen) + u32(clen) +
 zlib-поток (`78 DA`) → payload. В payload'е — сетка геометрии карты и почвенные

@@ -193,5 +193,5 @@
   Реализовано в `tools/tex/patch_map_pattern.py` (`chain_headers`, `fix_chain`);
   все прогоны с изменёнными размерами грузятся (`ExitCode=00000000`).
   Полный разбор — `docs/OBSERVATIONS_TEXTURE.md` (раздел вечера 17.11), протокол
-  эксперимента и решение — `docs/ISSUE_tex_upscale.md`, грабли — `docs/PITFALLS.md`.
+  эксперимента и решение — `docs/archive/ISSUE_tex_upscale.md`, грабли — `docs/PITFALLS.md`.
 

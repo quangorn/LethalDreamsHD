@@ -10,9 +10,9 @@
 - Остаток (решения 3.8 / 4.8): после-состояние `map1`/`occ` и флаг `s30` расходятся на части
   вызовов — класс «порт находит путь там, где натив не находит»; решения и их аргументы
   совпадают. Фазу 5 не блокирует.
-- Установка `D:/Games/LethalDreams` не тронута (`--full` 0 нарушений). `config.toml` переключён
+- Установка `config[game.root]` не тронута (`--full` 0 нарушений). `config.toml` переключён
   на `E:/ld_backup/9.7z` (личный файл, не в git), `cache/lib` перезаполнен из него.
-- Scratch-дерево: `D:/tmp/cygwin/opencode/ld/ldhook/tree`, baseline EXE `45e93d46…`.
+- Scratch-дерево: `<scratch>/ldhook/tree`, baseline EXE `45e93d46…`.
 
 ## Что сделано в Фазе 4 (для контекста)
 
@@ -27,7 +27,7 @@
 - Диспетчер `e0a0`: site6 включён → порт `s6_target_search`, выключен → `native::target_search`.
 - Харнесс: capture **v9** (запись на каждый `eee0`-вызов: `rec`-блок, поля `self`, ctx, grid,
   map1/occ, якорь, результаты) + replay `eee0` в `battle_replay.cpp` (`EEE0:` сводка).
-- Дизасм-карта: `D:/tmp/cygwin/opencode/ld/re/phase4_45eee0.md` (855 строк, §1 слоты, §2 ветки,
+- Дизасм-карта: `<scratch>/re/phase4_45eee0.md` (855 строк, §1 слоты, §2 ветки,
   §3 память, §5 листья, §8 split, §10 ESP-таблица). В ней есть ошибки — листинг главнее.
 
 ## Что известно про `44bdd0` до дизасма
@@ -37,7 +37,7 @@
   продолжение `0x44cbd5`), в него уже встроены обёртки capture v9.
 - `44bdd0` вызывает себя (единственный вызывающий) — рекурсия/обход юнитов.
 - В capture уже есть `u170`/`al` — поля, которые гейт Фазы 5 требует сверять.
-- Листинг: `D:/tmp/cygwin/opencode/ld/re/game_dis.txt`, смещение = VA − 0x400000.
+- Листинг: `<scratch>/re/game_dis.txt`, смещение = VA − 0x400000.
 
 ## Инструменты (все opt-in; без env поведение не меняется)
 
@@ -56,7 +56,7 @@ python tools/probes/trace_diff.py <nat.log> <port.log> --align=ordinal
 ```
 
 - Регрессионная база (не должна падать): `confirm_a` 119/125, `confirm_b` 108/111,
-  `chain_v8_capture` 112/120 — все в `D:/tmp/cygwin/opencode/ld/`.
+  `chain_v8_capture` 112/120 — все в `<scratch>/`.
 - Фаза 4: `eee0_v9_capture.jsonl` — 28 вызовов, `EEE0: equal=3` по всем полям, но
   решение (`ret`, `s38`, якорь, порог) **28/28**; `LD_REPLAY_DIV_DUMP=1` печатает `EEE0_DIV`.
 - `--leaf-replay` — **не гейт**, `--chained` — только диагностика.
@@ -111,7 +111,7 @@ python tools/probes/trace_diff.py <nat.log> <port.log> --align=ordinal
 Порядок внедрения после аудита: **листья → R17 → R14 → R12 → R16 → R7..R11 → R19, R22,
 R21, R23 → R1..R6, R13, R15, R18, R20** (чистые GUI сливаются в 5.last).
 
-Шаг 0 (сделан, strata): аудит артефактов — `D:/tmp/cygwin/opencode/ld/re/phase5_audit.md`
+Шаг 0 (сделан, strata): аудит артефактов — `<scratch>/re/phase5_audit.md`
 (218 строк), 11 исправлений. Ключевые: R17 dispatch — `[unit+0x170]==0`, не 1; входящих
 xref 4 (+`0x44d596`); caller `0x44d90d` пишет `[unit+0x114]=1.0f`; `param_2` не читается;
 `[ESP+0x15c]` = **param_1** (не «неинициализированный локал» — это ошибка аудита,

@@ -2,13 +2,13 @@
 
 Handoff for another agent. Repo: `C:/Projects/HDPatches/LethalDreams`, branch `perf-battle`.
 Start from commit `2e7fcb9` (pushed). Plan: `docs/PLAN_BATTLE_AI_CPP.md` decisions 1.7 and 2.0.
-A/B method reference (scratch, not in git): `D:/tmp/cygwin/opencode/ld/re/battle_ai_ab_method.md` §1/§2/§4.
+A/B method reference (scratch, not in git): `<scratch>/re/battle_ai_ab_method.md` §1/§2/§4.
 
 ## State
 
 Item 2.7 (trace line, hooks H1/H2/H4/H7, `LDHOOK_SEED` pinning) is implemented and installs:
 `install_trace_sites: hooks installed (trace ON)`. Live A/B runs on the scratch tree
-`D:/tmp/cygwin/opencode/ld/ldhook/tree` (baseline EXE md5 `45e93d46…`) complete all 33 DSL
+`<scratch>/ldhook/tree` (baseline EXE md5 `45e93d46…`) complete all 33 DSL
 steps with **no crash**. `BATTLE` lines are produced (1022 in native run A, 55 in port run B).
 
 ## Defect 1 — H2 reads wrong data (blocking)
@@ -24,7 +24,7 @@ from the saved `EBP` slot of its own `pushad` frame (`[esp+8]`) and assumes `EBP
 Two independent facts say this assumption is wrong or at least fragile:
 - the values above are self-consistent garbage (a pointer pair, not map sizes), so `EBP`
   resolves to something that is not the unit;
-- the listing (`D:/tmp/cygwin/opencode/ld/re/game_dis.txt`, file offset = VA − 0x400000)
+- the listing (`<scratch>/re/game_dis.txt`, file offset = VA − 0x400000)
   shows `pop ebp` at `0x44d07d`, i.e. `EBP` is merely a callee-saved register restored at the
   epilogue — nothing guarantees it still holds `unit` at `0x44d074`.
 
@@ -61,7 +61,7 @@ plus `python tools/check_state.py --quick` rc 0 and no crash in either run.
    (`install_trace_sites`, `write_jmp`), `docs/PLAN_BATTLE_AI_CPP.md` 1.7/2.0.
 2. Edit, then `PYTHONDONTWRITEBYTECODE=1 python tools/ldhook/build.py` (rc 0),
    `python tools/ldhook/check_sites.py` (rc 0, baseline `installable`).
-3. Deploy `build/ldhook/ldhook.pyd` into `D:/tmp/cygwin/opencode/ld/ldhook/tree` and run
+3. Deploy `build/ldhook/ldhook.pyd` into `<scratch>/ldhook/tree` and run
    `tools/probes/battle_test.ps1` twice on the same save, same params:
    - A: `LDHOOK_SITE6=0 LDHOOK_BATTLE_TRACE=1 LDHOOK_LOG=1 LDHOOK_SEED=1234567890`
    - B: same with `LDHOOK_SITE6=1`
@@ -71,8 +71,8 @@ plus `python tools/check_state.py --quick` rc 0 and no crash in either run.
 
 ## Hard rules
 
-- The installed game `D:/Games/LethalDreams` is read-only; all runs use the scratch tree.
+- The installed game `config[game.root]` is read-only; all runs use the scratch tree.
 - Never delete or move project files; never `rm -rf`, never force-push, no `git reset --hard`.
 - One fix = one commit, message ≤2 lines, then `git push origin perf-battle`.
 - Do not edit `docs/**` except this status line; the orchestrator records decisions.
-- Previous logs for comparison: `D:/tmp/cygwin/opencode/ld/ldhook/logs/h2fix/{A,B}_hdlog.txt`.
+- Previous logs for comparison: `<scratch>/ldhook/logs/h2fix/{A,B}_hdlog.txt`.

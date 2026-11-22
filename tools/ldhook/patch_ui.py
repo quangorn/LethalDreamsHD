@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Каноническая установка загрузчика ldhook.pyd в игру (HANDOFF_ldhook.md, B.2).
+"""Каноническая установка загрузчика ldhook.pyd в игру (docs/archive/HANDOFF_ldhook.md, B.2).
 
 Зачем: `.pyd` живёт только если его кто-то загрузит. Загрузчик — блок
 `imp.load_dynamic('ldhook', ...)` в `data/scripts/ui/ui.pyc`: игра исполняет

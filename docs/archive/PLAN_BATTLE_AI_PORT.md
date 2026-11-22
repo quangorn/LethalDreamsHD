@@ -45,7 +45,7 @@ FUN_0044bdd0  (боевое AI, ~1400 строк asm, SEH, x87)  ← ВЕРХН�
 Все функции дизассемблированы через REA (Ghidra-провайдер):
 `0x47f800`, `0x45c3a0`, `0x45d2e0`, `0x4703d0`, `0x45c2e0`, `0x45c5e0`, `0x456ed0`, `0x442570`, `0x446a80`, `0x45c6f0`, `0x434bc0`, `0x45cb40`, `0x45d810`, `0x45dd00`, `0x45c690`, `0x45c390`, `0x4570d0`, `0x456a70`, `0x449160`, `0x4d17e0`, `0x45c480`, `0x45c4b0`.
 
-Артефакты: `D:/tmp/cygwin/opencode/battle_ai_disasm.md`, `battle_ai_disasm2.md`, `battle_ai_structs.md`, `site6_audit.md`.
+Артефакты: `<scratch>/battle_ai_disasm.md`, `battle_ai_disasm2.md`, `battle_ai_structs.md`, `site6_audit.md`.
 
 ### 0.2 Определить структуры данных ✅
 
@@ -209,7 +209,7 @@ site6 **работает** (не крашится), но **неэффектив�
 
 ## Артефакты
 
-- Дизассемблинги: `D:/tmp/cygwin/opencode/battle_ai_disasm.md`, `battle_ai_disasm2.md`, `battle_ai_structs.md`, `site6_audit.md`
+- Дизассемблинги: `<scratch>/battle_ai_disasm.md`, `battle_ai_disasm2.md`, `battle_ai_structs.md`, `site6_audit.md`
 - ldhook.cpp: `tools/ldhook/ldhook.cpp` (site1-6 реализованы)
-- Scratch-дерево: `D:/tmp/cygwin/opencode/ld/ldhook/tree/` (baseline EXE + ldhook.pyd)
+- Scratch-дерево: `<scratch>/ldhook/tree/` (baseline EXE + ldhook.pyd)
 - Сейвы: `<user>/Documents/Boolat Games/Lethal Dreams/Saves/` (SLOT1-3)

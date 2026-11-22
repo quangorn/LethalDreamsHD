@@ -211,7 +211,7 @@ baseline `45e93d46…` (`backup/LETHALDREAMS.EXE.pre4`) → exepatch12 (cave) =
    записи и цепочка заголовков payload'а (`chain_headers`, `fix_chain`). Иначе
    `FUN_0049bf70` (ADV) сбивает координаты потока, FACT (`FUN_00495720`) даёт NULL и
    движок падает (`0xC0000005` на `0x467f54`). Механизм и гейты —
-   `docs/ISSUE_tex_upscale.md` («РЕШЕНИЕ»), факты — `docs/KNOWLEDGE.md`.
+   `docs/archive/ISSUE_tex_upscale.md` («РЕШЕНИЕ»), факты — `docs/KNOWLEDGE.md`.
    Произвольные стороны: `--rescale self --num N --den D --record <stem>` (целочисленные
    w,h = родные·num/den; `--self` — источником служит blob самой записи).
    Сигнатура отказа фиксируется `tools/probes/probe_exitcode.ps1` (ExitCode +

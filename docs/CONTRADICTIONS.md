@@ -97,7 +97,7 @@
     читает мусор) и неисправленные TLV-размеры наружной секции/цепочки ADV. После правок
     `tools/tex/patch_map_pattern.py` (`rec_bin` без префикса, `chain_headers`/`fix_chain`) те же прогоны
     грузятся: `ALIVE after enter2+15s`, `ExitCode=00000000`, оверленд снимается. Точный разбор —
-    `docs/ISSUE_tex_upscale.md` («РЕШЕНИЕ»), `docs/OBSERVATIONS_TEXTURE.md`
+    `docs/archive/ISSUE_tex_upscale.md` («РЕШЕНИЕ»), `docs/OBSERVATIONS_TEXTURE.md`
     («Разбор чтения `.tex` движком и TLV-размеры записей»).
 13. **«Шапка записи = 40 байт»** — неточно: `name_len` u32 лежит в gap'е перед именем, поля шапки
     занимают 26 байт (`hdr_off = name_off + name_len`), а перед ними внешний TLV-заголовок записи

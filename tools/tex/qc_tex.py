@@ -1,4 +1,4 @@
-# tools/tex/qc_tex.py — QC почвенных текстур (фаза D плана docs/TASK_tex_unpacker.md):
+# tools/tex/qc_tex.py — QC почвенных текстур (фаза D плана docs/archive/TASK_tex_unpacker.md):
 #   1. round-trip lossless: blob -> PNG -> blob побитово (как делалось для .btf);
 #   2. статистика по всем 44: размеры, bpp, уникальные цвета, доля gray;
 #   3. доля пикселей, попадающих в предсказанную палитру генератора
