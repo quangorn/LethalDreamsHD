@@ -171,6 +171,9 @@
 - `[P]` Эталон `.pyd` = артефакт `python3 tools/ldhook/build.py` (`build/ldhook/ldhook.pyd`, gitignored);
   эталоны харнесса = `build/ldhook/battle_replay.exe`, `build/ldhook/bdd0_harness.exe`,
   `build/ldhook/bdd0_synth.exe` (сборка — `tools/probes/*_build.py`). md5 не фиксируется.
+- `[P]` Scratch-дерево для живых прогонов = копия установки + baseline EXE + свежий `.pyd` + загрузчик
+  `data/scripts/ui/ui.pyc`; источник `spike.py` (`patches/ui/ui.py`) на диске нет, загрузчик берётся из
+  сохранённого дерева (`ldhook_prev/tree/data/scripts/ui/ui.pyc`, md5 `cbd4ce2c…`).
 - `[P]` Контрольный прогон боя — обёртки `tools/probes/battle_169.ps1` (16:9) и `battle_43.ps1` (4:3) над раннером
   `perform_action_in_game.ps1` (20.11.2026): `MenuSec=6`, `-Waves 3`, снимок `shot:summons`; Enter×2 при загрузке
   сейва, Enter на «Атака?», один `key:32` сразу после входа в бой (снимает стартовую паузу боя). Грабля — `docs/PITFALLS.md`.
