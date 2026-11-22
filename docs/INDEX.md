@@ -58,6 +58,7 @@
 | `docs/archive/README.md` | указатель архивных документов (планы, исследования, handoff, старые заметки) |
 | `docs/archive/SESSION_LOG.md` | хроника итераций сессий (срезы состояния, замеры, установки апскейлов) |
 | `docs/archive/CANCELLED_Q_MODE.md` | отменённые планы Q-режима (история, не реализация) |
+| `docs/archive/NARRATIVE_2026-11.md` | дословные датированные повествования граблей и патчей (свёрнутые секции `docs/PITFALLS.md`, `docs/PATCHES.md`) |
 
 ## Где искать X
 
@@ -80,7 +81,7 @@
 | формат `.btf`, packer, апскейлы, курсоры/иконки | `docs/OBSERVATIONS_TEXTURE.md` |
 | факты о движке: API, форматы `.fdf`/`.tt`, chokepoint'ы, путь в бой | `docs/KNOWLEDGE.md` |
 | почва карт: откуда берётся, `.tex` в `.map`, раскод и команды `.tex` → PNG | `docs/OBSERVATIONS_TEXTURE.md` (раздел «Почвенные текстуры карт»), `docs/KNOWLEDGE.md` (раздел «Почва карт»), `docs/TOOLS.md` («tex-пайплайн»), `docs/PIPELINE.md` («tex-пайплайн»), план `docs/archive/TASK_tex_unpacker.md`; чтение `.tex` движком, TLV-цепочка ADV и решение для изменённых размеров — `docs/archive/ISSUE_tex_upscale.md` («РЕШЕНИЕ»), `docs/OBSERVATIONS_TEXTURE.md` (разбор чтения движком), `docs/PITFALLS.md`, `docs/CONTRADICTIONS.md` (п. 12–13) |
-| история сессий (что делала каждая итерация, по датам) | `docs/archive/SESSION_LOG.md` |
+| история сессий (что делала каждая итерация, по датам) | `docs/archive/SESSION_LOG.md`, `docs/archive/NARRATIVE_2026-11.md` |
 | отменённые/снятые планы (Q-режим) | `docs/archive/CANCELLED_Q_MODE.md` |
 | задачи и исследования прошлых сессий (выполненные) | `docs/archive/README.md` |
 
