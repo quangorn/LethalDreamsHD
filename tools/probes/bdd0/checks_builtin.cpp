@@ -1,9 +1,9 @@
 ﻿/* tools/probes/bdd0/checks_builtin.cpp — встроенный набор проверок.
  *
  * Критерий приёмки зафиксирован один: нет падения, нет зависания, нет записи
- * вне объявленных областей состояния. Поведенческих сравнений (равенство
- * решений/потока листьев/состояния AI) здесь нет: такие проверки добавляются
- * отдельным файлом через register_check(), ядро при этом не меняется.
+ * вне объявленных областей состояния. Поведенческие сверки добавляются
+ * отдельно; единственная такая в этом файле — leaf_args (аргументы запроса
+ * листа против записи нативного прогона), остальные проверки механики.
  *
  * Каждая проверка видит только read-only TickContext. Если данных нет, ядро
  * ставит SKIP по битам needs; если проверке нечем мерить внутри тика, она
@@ -144,8 +144,20 @@ static CheckResult chk_contract_min(const TickContext &tc)
     OK();
 }
 
-/* leaf_seq — механическая: replay-слой обязан отдать ровно ту последовательность
- * листьев, что записана (va + порядок). Расхождение = поток не воспроизведён. */
+/* leaf_seq — механическая: поток листьев тика обязан быть израсходован ЦЕЛИКОМ.
+ * Проверяются обе стороны:
+ *   - запрос порта не соответствует следующей записи (другой va/order) или
+ *     запросов больше, чем записей (исчерпание потока) — нарушение потока
+ *     ставит replay-слой (tc.leaf_violation), включая trap-записи;
+ *   - тик вернулся, а записи остались непотреблёнными: порт сделал МЕНЬШЕ
+ *     вызовов, чем натив (другой/более короткий путь) — без этой ветки
+ *     «сокращённый» тик проходил бы как pass, потому что сверять было нечего.
+ * Ноль записей и ноль вызовов — законный pass (логических вызовов нет),
+ * поэтому бит NEED_CALLLOG здесь не запрошен: входы проверки — окно записей
+ * тика (tc.rec) и счётчик потребления replay-слоя, они есть всегда. */
+const LeafRec *bdd0_leaf_pending(void);        /* native_replay.cpp */
+int bdd0_leaf_consumed(void);                  /* native_replay.cpp */
+
 static CheckResult chk_leaf_seq(const TickContext &tc)
 {
     if (!tc.ran_body) {
@@ -155,7 +167,25 @@ static CheckResult chk_leaf_seq(const TickContext &tc)
         SKIP("hang: leaf stream incomplete");
     }
     if (tc.leaf_violation) {
+        /* поток разошёлся: другой va/order, исчерпание (запросов БОЛЬШЕ, чем
+         * записей), trap-запись или неполный захват */
         return CheckResult{ 0, tc.leaf_violation_why, 0 };
+    }
+    int recorded = (tc.rec != NULL) ? tc.rec->leaf_n : 0;
+    int consumed = bdd0_leaf_consumed();
+    if (consumed > recorded) {
+        return CheckResult{ 0, whyf(tc, "consumed %d leaf records of %d — "
+                                        "port made more calls than native",
+                                    consumed, recorded), 0 };
+    }
+    if (consumed < recorded) {
+        const LeafRec *u = bdd0_leaf_pending();
+        return CheckResult{ 0, whyf(tc, "unconsumed leaf #%d va=0x%x (order %d)"
+                                        " - port made fewer calls than native "
+                                        "(consumed %d of %d)",
+                                    consumed, (u != NULL) ? (unsigned)u->va : 0u,
+                                    (u != NULL) ? u->order : -1,
+                                    consumed, recorded), 0 };
     }
     OK();
 }
@@ -173,6 +203,568 @@ static CheckResult chk_handles(const TickContext &tc)
     OK();
 }
 
+/* ------------------------------- leaf_args -------------------------------- */
+/* Сверка аргументов, которые ПОРТ вычислил в запросе листа, с аргументами,
+ * записанными нативным прогоном (`bdd0_leaf`). Ничего не переисполняется:
+ * сторона порта — CallLogEnt (ecx/args пишет request() в native_replay.cpp),
+ * сторона натива — сопоставленная запись потока (bdd0_leaf_record_at).
+ *
+ * Пространства адресов разные (порт видит shadow арены, запись — адреса игры),
+ * поэтому указатели сравниваются символьно: (база, смещение), где базы — те же,
+ * что в привязках arena.cpp (self→unit, band_begin, e0, e0_44, tree). Адреса
+ * кадра вызывающего в захвате нет (bdd0_in его не хранит), поэтому кадровые
+ * указатели сравниваются смещениями от базы кадра: первое такое поле тика
+ * ЗАДАЁТ сдвиг кадра и за pass не считается, остальные обязаны дать тот же
+ * сдвиг. Запись с адресом вне привязок (куча игры, чужой стек) не сравнима ⇒
+ * SKIP с причиной, а не pass. w[] сверяется с dword'ами, реально записанными
+ * обёрткой (в ветке «w есть в записи» порт их копирует — там сверка не значит
+ * ничего; содержательна ветка, где w в записи нет).
+ *
+ * Возврат листа НЕ сравнивается: в replay он сам берётся из записи — сравнение
+ * было бы тавтологией. trap-записи уже отсекает leaf_seq (здесь не дублируем).
+ */
+const LeafRec *bdd0_leaf_record_at(int i);      /* native_replay.cpp */
+int bdd0_leaf_applied_w(int i, int *w3);        /* native_replay.cpp */
+
+/* Типы аргументов по ABI листьев (native.h): 1 — указатель (символьное
+ * сравнение), 0 — dword/float-биты (точное равенство битов, без допуска). */
+struct LeafAbi {
+    int va, nargs;
+    int ptr[6];
+};
+
+static const LeafAbi k_leaf_abi[] = {
+    { 0x45c6f0, 1, { 1, 0, 0, 0, 0, 0 } },   /* ctx_pos_get: out */
+    { 0x45c370, 0, { 0, 0, 0, 0, 0, 0 } },   /* band_head */
+    { 0x45af50, 0, { 0, 0, 0, 0, 0, 0 } },   /* band_count */
+    { 0x45c730, 0, { 0, 0, 0, 0, 0, 0 } },   /* band_cursor */
+    { 0x45b150, 3, { 0, 0, 0, 0, 0, 0 } },   /* band_interp_gate: bits/int/bits */
+    { 0x45b3e0, 3, { 0, 0, 0, 0, 0, 0 } },   /* band_target_moved: bits/int/bits */
+    { 0x403e80, 1, { 1, 0, 0, 0, 0, 0 } },   /* pos3_equal: b */
+    { 0x458050, 6, { 0, 0, 0, 0, 1, 1 } },   /* grid_anchor: flag_slot, world */
+    { 0x45e1d0, 2, { 1, 1, 0, 0, 0, 0 } },   /* grid_recompute: pos, req */
+    { 0x44bbf0, 4, { 0, 0, 0, 0, 0, 0 } }    /* grid_query: 4 dword */
+};
+
+static const LeafAbi *leaf_abi_find(int va)
+{
+    for (int i = 0; i < (int)(sizeof(k_leaf_abi) / sizeof(k_leaf_abi[0])); i++) {
+        if (k_leaf_abi[i].va == va) return &k_leaf_abi[i];
+    }
+    return NULL;
+}
+
+enum { NK_NUL = 0, NK_UNIT, NK_BAND, NK_NODE_E0, NK_NODE_E044, NK_TREE, NK_RAW };
+
+/* Области арены в порядке привязок arena.cpp (перекрывающийся view "ai" не
+ * участвует: он подмножество "unit"). */
+static const char *const k_ptr_prio[] = {
+    "unit", "band", "node_e0", "node_e044", "tree",
+    "frame", "gs", "ctx", "player", "flags", "out"
+};
+
+/* shadow-адрес порта → (имя области, смещение); NULL — вне областей. */
+static const char *port_ptr_region(const TickContext &tc, unsigned pv, int *off)
+{
+    if (pv == 0 || tc.regions == NULL) return NULL;
+    for (int n = 0; n < (int)(sizeof(k_ptr_prio) / sizeof(k_ptr_prio[0])); n++) {
+        for (int i = 0; i < tc.region_n; i++) {
+            const RegionView &r = tc.regions[i];
+            if (r.name == NULL || strcmp(r.name, k_ptr_prio[n]) != 0) continue;
+            unsigned long b = (unsigned long)r.base;
+            if ((unsigned long)pv >= b && (unsigned long)pv < b + r.len) {
+                *off = (int)((unsigned long)pv - b);
+                return r.name;
+            }
+        }
+    }
+    return NULL;
+}
+
+/* Сырой адрес записи → (база, смещение). Размеры баз — как в привязках
+ * arena.cpp; всё остальное (куча игры, стек кадра) — NK_RAW. */
+static int native_ptr_base(const TickRecord *rec, unsigned nv, int *off)
+{
+    if (rec == NULL || nv == 0) return NK_NUL;
+    struct Base { unsigned raw; unsigned len; int kind; };
+    unsigned band_len = (rec->band_n > 0)
+        ? (unsigned)rec->band_n * BDD0_BAND_ELEM : BDD0_BAND_ELEM;
+    const Base k_base[] = {
+        { rec->self_raw, (unsigned)(BDD0_UNIT_LEN + BDD0_AI_LEN), NK_UNIT },
+        { rec->band_raw, band_len,                                 NK_BAND },
+        { rec->e0,       0x240u,                                   NK_NODE_E0 },
+        { rec->e0_44,    0x240u,                                   NK_NODE_E044 },
+        { rec->tree,     0x40u,                                    NK_TREE }
+    };
+    for (int i = 0; i < (int)(sizeof(k_base) / sizeof(k_base[0])); i++) {
+        if (k_base[i].raw == 0) continue;
+        if (nv >= k_base[i].raw && nv < k_base[i].raw + k_base[i].len) {
+            *off = (int)(nv - k_base[i].raw);
+            return k_base[i].kind;
+        }
+    }
+    return NK_RAW;
+}
+
+static int kind_of_region_name(const char *n)
+{
+    if (n == NULL) return -1;
+    if (strcmp(n, "unit") == 0) return NK_UNIT;
+    if (strcmp(n, "band") == 0) return NK_BAND;
+    if (strcmp(n, "node_e0") == 0) return NK_NODE_E0;
+    if (strcmp(n, "node_e044") == 0) return NK_NODE_E044;
+    if (strcmp(n, "tree") == 0) return NK_TREE;
+    return -1;
+}
+
+enum { AC_NE = 0, AC_EQ = 1, AC_NOCMP = -1, AC_ANCHOR = 2 };
+
+/* Кадр тика: база кадра вызывающего, выведенная из первого кадрового
+ * указателя (в захвате адреса кадра нет — см. шапку проверки). */
+struct FrameAnchor {
+    int base, set;
+};
+
+/* Сравнение указателя: pv — shadow порта, nv — сырой адрес записи. */
+static int cmp_ptr(const TickContext &tc, FrameAnchor &fa, unsigned pv,
+                   unsigned nv)
+{
+    if (pv == 0 || nv == 0) return (pv == nv) ? AC_EQ : AC_NE;  /* NULL ≠ объект */
+    int poff = 0;
+    const char *pn = port_ptr_region(tc, pv, &poff);
+    int noff = 0;
+    int nk = native_ptr_base(tc.rec, nv, &noff);
+    if (nk == NK_RAW) {
+        /* адрес вне привязок: кадр вызывающего либо чужой объект */
+        if (pn != NULL && strcmp(pn, "frame") == 0) {
+            int base = (int)(nv - (unsigned)poff);
+            if (!fa.set) {
+                /* первое кадровое поле задаёт сдвиг кадра: само по себе оно
+                 * ничего не доказывает (базы кадра в захвате нет) */
+                fa.base = base;
+                fa.set = 1;
+                return AC_ANCHOR;
+            }
+            return (base == fa.base) ? AC_EQ : AC_NE;
+        }
+        return AC_NOCMP;
+    }
+    if (pn == NULL) return AC_NE;                /* порт дал не тот объект */
+    if (kind_of_region_name(pn) != nk) return AC_NE;
+    return (poff == noff) ? AC_EQ : AC_NE;
+}
+
+static CheckResult chk_leaf_args(const TickContext &tc)
+{
+    if (!tc.ran_body) {
+        SKIP("impl does not execute the body: no leaf requests");
+    }
+    if (tc.hang) {
+        SKIP("hang: leaf calls incomplete");
+    }
+    if (tc.leaf_violation) {
+        /* поток не сопоставлен: аргументы нечем сверять (это leaf_seq) */
+        SKIP("leaf_seq reports the leaf stream mismatch");
+    }
+    if (tc.log == NULL || tc.log_n <= 0) {
+        SKIP("no leaf requests in this tick");
+    }
+
+    FrameAnchor fa;
+    fa.base = 0;
+    fa.set = 0;
+    static char first[192];
+    first[0] = '\0';
+    static char nocmp[96];
+    nocmp[0] = '\0';
+    int mism = 0, ncmp = 0, nno = 0;
+
+    for (int i = 0; i < tc.log_n; i++) {
+        const CallLogEnt &e = tc.log[i];
+        const LeafRec *r = bdd0_leaf_record_at(i);
+        if (r == NULL) {
+            SKIP("call not matched to a capture record");
+        }
+        const LeafAbi *abi = leaf_abi_find(e.va);
+        if (abi == NULL) {
+            return CheckResult{ 1, whyf(tc, "leaf #%d va=0x%x: argument ABI "
+                                            "unknown to the check", i, e.va), 1 };
+        }
+        /* запись без args[] (старый формат bdd0_leaf) — сравнивать нечем */
+        if (r->nargs == 0 && abi->nargs > 0) {
+            SKIP("recorded record has no args[] (older bdd0_leaf format)");
+        }
+        if (e.nargs != abi->nargs || r->nargs != abi->nargs) {
+            mism++;
+            ncmp++;
+            if (first[0] == '\0') {
+                _snprintf_s(first, sizeof(first), _TRUNCATE,
+                            "leaf #%d va=0x%x argc port=%d native=%d abi=%d "
+                            "(seq %d)", i, e.va, e.nargs, r->nargs,
+                            abi->nargs, tc.seq);
+            }
+        }
+
+        /* поля: ecx (указатель), затем каждый записанный аргумент */
+        for (int f = -1; f < abi->nargs; f++) {
+            unsigned pv = (f < 0) ? (unsigned)e.ecx : (unsigned)e.args[f];
+            unsigned nv = (f < 0) ? (unsigned)r->ecx : (unsigned)r->args[f];
+            int ptr = (f < 0) ? 1 : abi->ptr[f];
+            int res = ptr ? cmp_ptr(tc, fa, pv, nv)
+                          : ((pv == nv) ? AC_EQ : AC_NE);
+            if (res == AC_EQ) {
+                ncmp++;
+            } else if (res == AC_ANCHOR) {
+                /* сдвиг кадра задан; поле этим не проверено и за pass не
+                 * считается (см. шапку проверки) */
+            } else if (res == AC_NE) {
+                mism++;
+                ncmp++;
+                if (first[0] == '\0') {
+                    if (f < 0) {
+                        _snprintf_s(first, sizeof(first), _TRUNCATE,
+                                    "leaf #%d va=0x%x ecx port=0x%08x "
+                                    "native=0x%08x (seq %d)", i, e.va, pv, nv,
+                                    tc.seq);
+                    } else {
+                        _snprintf_s(first, sizeof(first), _TRUNCATE,
+                                    "leaf #%d va=0x%x arg[%d] port=0x%08x "
+                                    "native=0x%08x (seq %d)", i, e.va, f, pv,
+                                    nv, tc.seq);
+                    }
+                }
+            } else {
+                /* адрес натива не привязывается ни к одной базе */
+                nno++;
+                if (nocmp[0] == '\0') {
+                    _snprintf_s(nocmp, sizeof(nocmp), _TRUNCATE,
+                                "leaf #%d va=0x%x %s=0x%08x", i, e.va,
+                                (f < 0) ? "ecx" : "arg", nv);
+                }
+            }
+        }
+
+        /* w[] — dword'ы, записанные листом ЧЕРЕЗ указатель: сравнение с тем,
+         * что обёртка реально записала (отсутствие ≠ нули). */
+        int aw[3];
+        int anw = bdd0_leaf_applied_w(i, aw);
+        if (r->nw != anw) {
+            mism++;
+            ncmp++;
+            if (first[0] == '\0') {
+                _snprintf_s(first, sizeof(first), _TRUNCATE,
+                            "leaf #%d va=0x%x w count port=%d native=%d "
+                            "(seq %d)", i, e.va, anw, r->nw, tc.seq);
+            }
+        } else {
+            for (int k = 0; k < anw; k++) {
+                if (aw[k] == r->w[k]) {
+                    ncmp++;
+                } else {
+                    mism++;
+                    ncmp++;
+                    if (first[0] == '\0') {
+                        _snprintf_s(first, sizeof(first), _TRUNCATE,
+                                    "leaf #%d va=0x%x w[%d] port=0x%08x "
+                                    "native=0x%08x (seq %d)", i, e.va, k,
+                                    (unsigned)aw[k], (unsigned)r->w[k],
+                                    tc.seq);
+                    }
+                }
+            }
+        }
+    }
+
+    if (mism > 0) {
+        /* первое расхождение — в отчёт ядра; остальные — счётчиком в сводку */
+        if (mism > 1) {
+            fprintf(stderr, "leaf_args: seq %d: %d mismatched fields "
+                            "(first reported)\n", tc.seq, mism);
+        }
+        return CheckResult{ 0, first, 0 };
+    }
+    if (nno > 0) {
+        /* ни одного расхождения, но часть адресов сравнить не с чем */
+        return CheckResult{ 1, whyf(tc, "%d address field(s) not comparable "
+                                        "(%s)", nno, nocmp), 1 };
+    }
+    if (ncmp == 0) {
+        SKIP("no comparable argument fields");
+    }
+    OK();
+}
+
+/* native_seq — v12: поток НЕ-листовых RECORD-нативов (`bdd0_native`) обязан
+ * быть израсходован целиком и в том же порядке.  Если в захвате этого seq нет
+ * bdd0_native записей (старые файлы), проверке нечем мерить — SKIP, не pass.
+ * trap-запись и исчерпание потока ставит replay-слой (tc.native_violation). */
+const NativeRec *bdd0_native_pending(void);    /* native_replay.cpp */
+int bdd0_native_consumed(void);                /* native_replay.cpp */
+
+static CheckResult chk_native_seq(const TickContext &tc)
+{
+    if (!tc.ran_body) {
+        SKIP("impl does not execute the body: no native requests");
+    }
+    if (tc.hang) {
+        SKIP("hang: native stream incomplete");
+    }
+    if (tc.rec == NULL || tc.rec->native_n == 0) {
+        SKIP("capture has no bdd0_native records for this seq");
+    }
+    if (tc.native_violation) {
+        return CheckResult{ 0, tc.native_violation_why, 0 };
+    }
+    int recorded = tc.rec->native_n;
+    int consumed = bdd0_native_consumed();
+    if (consumed > recorded) {
+        return CheckResult{ 0, whyf(tc, "consumed %d native records of %d - "
+                                        "port made more calls than native",
+                                    consumed, recorded), 0 };
+    }
+    if (consumed < recorded) {
+        const NativeRec *u = bdd0_native_pending();
+        return CheckResult{ 0, whyf(tc, "unconsumed bdd0_native #%d site=0x%x "
+                                        "va=0x%x (order %d) - port made fewer "
+                                        "calls than native (consumed %d of %d)",
+                                    consumed, (u != NULL) ? (unsigned)u->site : 0u,
+                                    (u != NULL) ? (unsigned)u->va : 0u,
+                                    (u != NULL) ? u->order : -1,
+                                    consumed, recorded), 0 };
+    }
+    OK();
+}
+
+/* res_match — исход порта (al/out/u170) против записанного bdd0_res того же
+ * seq.  Это первая проверка уровня РЕШЕНИЯ (не механики): любое расхождение
+ * означает, что порт принял другой исход.  Нет res / res_trap — SKIP. */
+static CheckResult chk_res_match(const TickContext &tc)
+{
+    if (!tc.ran_body) {
+        SKIP("impl does not execute the body: no port outcome");
+    }
+    if (tc.rec == NULL || !tc.rec->has_res) {
+        SKIP("capture has no bdd0_res for this seq");
+    }
+    if (tc.rec->res_trap) {
+        SKIP("bdd0_res trap=1: recorded outcome not trusted");
+    }
+    int al_rec = tc.rec->res_al & 0xff;
+    int al_port = tc.al & 0xff;
+    int ok_al = (al_port == al_rec);
+    int ok_out = (tc.out_slot == tc.rec->res_out);
+    int ok_u170 = (tc.u170 == tc.rec->res_u170);
+    if (!ok_al || !ok_out || !ok_u170) {
+        return CheckResult{ 0, whyf(tc, "outcome mismatch: al port=%d "
+                                        "native=%d; out port=%d native=%d; "
+                                        "u170 port=%d native=%d",
+                                    al_port, al_rec, tc.out_slot,
+                                    tc.rec->res_out, tc.u170,
+                                    tc.rec->res_u170), 0 };
+    }
+    OK();
+}
+
+/* state_match — пост-состояние pos-тройки unit+0xa4..0xac (m0..m2) против
+ * записанных res_m того же seq.  Отдельно от res_match, чтобы расхождение
+ * было атрибутировано: решение vs состояние. */
+static CheckResult chk_state_match(const TickContext &tc)
+{
+    if (!tc.ran_body) {
+        SKIP("impl does not execute the body: no post-state");
+    }
+    if (tc.rec == NULL || !tc.rec->has_res) {
+        SKIP("capture has no bdd0_res for this seq");
+    }
+    if (tc.rec->res_trap) {
+        SKIP("bdd0_res trap=1: recorded state not trusted");
+    }
+    unsigned m0 = tc.field("m0");
+    unsigned m1 = tc.field("m1");
+    unsigned m2 = tc.field("m2");
+    if (m0 == tc.rec->res_m[0] && m1 == tc.rec->res_m[1] &&
+        m2 == tc.rec->res_m[2]) {
+        OK();
+    }
+    return CheckResult{ 0, whyf(tc, "state mismatch: m0 port=0x%08x native="
+                                    "0x%08x; m1 port=0x%08x native=0x%08x; "
+                                    "m2 port=0x%08x native=0x%08x",
+                                m0, tc.rec->res_m[0], m1, tc.rec->res_m[1],
+                                m2, tc.rec->res_m[2]), 0 };
+}
+
+/* ------------------------------- native_args ----------------------------- */
+/* Сверка аргументов порта с записанными `bdd0_native`.  Указатели сравниваются
+ * символьно (cmp_ptr), нецелые — побитово.  Несвязанный указатель с любой
+ * стороны = SKIP (не pass), с счётчиком unbound.  trap/старый формат — SKIP. */
+
+struct NativeAbi {
+    int va, slot, ecx_ptr, nargs;
+    int ptr[8];
+};
+
+/* ecx_ptr: 1 — ECX — указатель (this), сравнивать символьно; 0 — не сравнивать
+ * (cdecl-цель 439ae0: ECX на сайте — остаток, не аргумент).  ptr[i]: 1 —
+ * arg[i] указатель. */
+static const NativeAbi k_native_abi[] = {
+    { 0x442570, 0, 1, 1, { 0,0,0,0,0,0,0,0 } },  /* game_state_get */
+    { 0x439ae0, 0, 0, 2, { 1,1,0,0,0,0,0,0 } },  /* string_obj_cmp (cdecl) */
+    { 0x42da60, 0, 1, 1, { 0,0,0,0,0,0,0,0 } },  /* player_flag_get */
+    { 0x435d50, 0, 1, 0, { 0,0,0,0,0,0,0,0 } },  /* player_flags */
+    { 0x448c30, 0, 1, 1, { 0,0,0,0,0,0,0,0 } },  /* cursor_mode_update */
+    { 0x446a80, 0, 1, 1, { 1,0,0,0,0,0,0,0 } },  /* ai_time_update msg */
+    { 0x448ee0, 0, 1, 1, { 0,0,0,0,0,0,0,0 } },  /* state_flag_log */
+    { 0x42d9c0, 0, 1, 1, { 1,0,0,0,0,0,0,0 } },  /* player_pos_set triple */
+    { 0x45f430, 0, 1, 0, { 0,0,0,0,0,0,0,0 } },  /* pathfinder_init */
+    { 0x45eee0, 0, 1, 1, { 1,0,0,0,0,0,0,0 } },  /* unit_ai_tick rec */
+    { 0x000000, 1, 1, 8, { 0,0,0,0,1,1,0,0 } },  /* u+0x28 snapshot */
+    { 0x000000, 2, 1, 0, { 0,0,0,0,0,0,0,0 } },  /* u+0x2c phase_time */
+    { 0x000000, 3, 1, 1, { 1,0,0,0,0,0,0,0 } },  /* u+0x38 pointer */
+    { 0x000000, 4, 1, 1, { 0,0,0,0,0,0,0,0 } }   /* u+0x40 player_get */
+};
+
+static const NativeAbi *native_abi_find(const NativeRec *r)
+{
+    int i;
+    for (i = 0; i < (int)(sizeof(k_native_abi) / sizeof(k_native_abi[0])); i++) {
+        const NativeAbi *a = &k_native_abi[i];
+        if (r->slot != 0) {
+            if (a->slot == r->slot) return a;
+        } else if (a->slot == 0 && a->va == r->va) {
+            return a;
+        }
+    }
+    return NULL;
+}
+
+static CheckResult chk_native_args(const TickContext &tc)
+{
+    int log_n = 0;
+    const NativeCallLogEnt *log;
+
+    if (!tc.ran_body) {
+        SKIP("impl does not execute the body: no native requests");
+    }
+    if (tc.hang) {
+        SKIP("hang: native calls incomplete");
+    }
+    if (tc.rec == NULL || tc.rec->native_n == 0) {
+        SKIP("capture has no bdd0_native records for this seq");
+    }
+    if (tc.native_violation) {
+        SKIP("native_seq reports the native stream mismatch");
+    }
+    log = bdd0_native_calllog(&log_n);
+    if (log == NULL || log_n == 0) {
+        SKIP("no native requests in this tick");
+    }
+
+    FrameAnchor fa;
+    fa.base = 0;
+    fa.set = 0;
+    static char first[224];
+    first[0] = '\0';
+    int mism = 0, ncmp = 0, unbound = 0;
+    char unb[128];
+    unb[0] = '\0';
+
+    for (int i = 0; i < log_n; i++) {
+        const NativeCallLogEnt &e = log[i];
+        const NativeRec *r = bdd0_native_record_at(i);
+        if (r == NULL) {
+            SKIP("native request not matched to a capture record");
+        }
+        if (r->trap) {
+            SKIP("recorded bdd0_native trap=1");
+        }
+        const NativeAbi *abi = native_abi_find(r);
+        if (abi == NULL) {
+            return CheckResult{ 1, whyf(tc, "native #%d va=0x%x slot=%d: "
+                                            "argument ABI unknown", i,
+                                        (unsigned)r->va, r->slot), 1 };
+        }
+        if (r->nargs == 0 && abi->nargs > 0) {
+            SKIP("recorded bdd0_native has no args[] (older format)");
+        }
+        if (e.nargs != abi->nargs || r->nargs != abi->nargs) {
+            mism++;
+            ncmp++;
+            if (first[0] == '\0') {
+                _snprintf_s(first, sizeof(first), _TRUNCATE,
+                            "native #%d site=0x%x argc port=%d native=%d "
+                            "abi=%d (seq %d)", i, (unsigned)r->site, e.nargs,
+                            r->nargs, abi->nargs, tc.seq);
+            }
+        }
+        for (int f = -1; f < abi->nargs; f++) {
+            unsigned pv, nv;
+            int ptr = 0;
+            if (f < 0) {
+                if (!abi->ecx_ptr) continue;
+                pv = (unsigned)e.ecx;
+                nv = (unsigned)r->ecx;
+                ptr = 1;
+            } else {
+                if (f >= e.nargs || f >= r->nargs) continue;
+                pv = (unsigned)e.args[f];
+                nv = (unsigned)r->args[f];
+                ptr = abi->ptr[f];
+            }
+            int res;
+            if (ptr) {
+                res = cmp_ptr(tc, fa, pv, nv);
+            } else {
+                res = (pv == nv) ? AC_EQ : AC_NE;
+            }
+            if (res == AC_EQ) {
+                ncmp++;
+            } else if (res == AC_ANCHOR) {
+                /* frame base anchored; not a verified field */
+            } else if (res == AC_NE) {
+                mism++;
+                ncmp++;
+                if (first[0] == '\0') {
+                    if (f < 0) {
+                        _snprintf_s(first, sizeof(first), _TRUNCATE,
+                                    "native #%d site=0x%x ecx port=0x%08x "
+                                    "native=0x%08x (seq %d)", i,
+                                    (unsigned)r->site, pv, nv, tc.seq);
+                    } else {
+                        _snprintf_s(first, sizeof(first), _TRUNCATE,
+                                    "native #%d site=0x%x arg[%d] port=0x%08x "
+                                    "native=0x%08x (seq %d)", i,
+                                    (unsigned)r->site, f, pv, nv, tc.seq);
+                    }
+                }
+            } else {
+                unbound++;
+                if (unb[0] == '\0') {
+                    _snprintf_s(unb, sizeof(unb), _TRUNCATE,
+                                "native #%d site=0x%x %s=0x%08x", i,
+                                (unsigned)r->site, (f < 0) ? "ecx" : "arg",
+                                nv);
+                }
+            }
+        }
+    }
+
+    if (mism > 0) {
+        if (mism > 1) {
+            fprintf(stderr, "native_args: seq %d: %d mismatched fields "
+                            "(first reported)\n", tc.seq, mism);
+        }
+        return CheckResult{ 0, first, 0 };
+    }
+    if (unbound > 0) {
+        return CheckResult{ 1, whyf(tc, "%d unbound pointer field(s) (%s); "
+                                        "not comparable", unbound, unb), 1 };
+    }
+    if (ncmp == 0) {
+        SKIP("no comparable argument fields");
+    }
+    OK();
+}
+
 void register_builtin_checks(void)
 {
     register_check({ "no_trap",      chk_no_trap,
@@ -184,6 +776,16 @@ void register_builtin_checks(void)
     register_check({ "contract_min", chk_contract_min,
                      NEED_DECISIONS | NEED_POST_STATE });
     register_check({ "leaf_seq",     chk_leaf_seq,
+                     NEED_BODY });
+    register_check({ "native_seq",   chk_native_seq,
+                     NEED_BODY });
+    register_check({ "native_args",  chk_native_args,
+                     NEED_BODY });
+    register_check({ "res_match",    chk_res_match,
+                     NEED_DECISIONS | NEED_BODY });
+    register_check({ "state_match",  chk_state_match,
+                     NEED_POST_STATE | NEED_BODY });
+    register_check({ "leaf_args",    chk_leaf_args,
                      NEED_CALLLOG | NEED_BODY });
     register_check({ "handles",      chk_handles,
                      NEED_HANDLES });

@@ -5,6 +5,7 @@
  *   bdd0_in   — снапшот входа (frame/unit/ai/band/gs + p1/p2/p3/u170/gate114
  *               + raw-цепочка указателей e0/e0_44/tree/gctx0);
  *   bdd0_leaf — поток логических листьев; раскладывается по seq;
+ *   bdd0_native — поток прочих RECORD-нативов (slot = vtable-вызов);
  *   bdd0_res  — записанный исход (al/out/u170/m0..m2) для --impl native.
  * Неизвестные ключи игнорируются (v10/v11-файлы читаются: bdd0_in нет →
  * ни одной записи, ядро вернёт «no v12 records» с rc 2).
@@ -344,6 +345,51 @@ static void apply_leaf(LeafRec &l, const JVal &v)
     }
 }
 
+static int slot_id_from_name(const std::string &s)
+{
+    if (s == "u+0x28") return 1;
+    if (s == "u+0x2c") return 2;
+    if (s == "u+0x38") return 3;
+    if (s == "u+0x40") return 4;
+    return 0;
+}
+
+static void apply_native(NativeRec &n, const JVal &v)
+{
+    n = NativeRec();
+    n.order = (int)jint_opt(v, "order", 0);
+    const JVal *site = jget(v, "site");
+    if (site != NULL && site->t == JVal::STR) {
+        n.site = (int)strtoul(site->s.c_str(), NULL, 16);
+    } else if (site != NULL && site->t == JVal::NUM) {
+        n.site = (int)site->n;
+    }
+    const JVal *va = jget(v, "va");
+    if (va != NULL && va->t == JVal::STR) {
+        n.va = (int)strtoul(va->s.c_str(), NULL, 16);
+    } else if (va != NULL && va->t == JVal::NUM) {
+        n.va = (int)va->n;
+    }
+    n.slot = slot_id_from_name(jstr_opt(v, "slot"));
+    std::string rk = jstr_opt(v, "ret_kind");
+    n.kind = (rk == "al") ? 1 : (rk == "f32") ? 2 : (rk == "void") ? 3 : 0;
+    n.ecx = (int)jint_opt(v, "ecx", 0);
+    n.ret = (int)jint_opt(v, "ret", 0);
+    n.trap = (int)jint_opt(v, "trap", 0);
+    const JVal *args = jget(v, "args");
+    if (args != NULL && args->t == JVal::ARR) {
+        for (size_t i = 0; i < args->a.size() && n.nargs < 8; i++) {
+            if (args->a[i].t == JVal::NUM) n.args[n.nargs++] = (int)args->a[i].n;
+        }
+    }
+    const JVal *w = jget(v, "w");
+    if (w != NULL && w->t == JVal::ARR) {
+        for (size_t i = 0; i < w->a.size() && n.nw < 3; i++) {
+            if (w->a[i].t == JVal::NUM) n.w[n.nw++] = (int)w->a[i].n;
+        }
+    }
+}
+
 Scenario *load_capture(const char *path)
 {
     FILE *f = fopen(path, "rb");
@@ -365,6 +411,7 @@ Scenario *load_capture(const char *path)
 
     std::map<int, ResRec> res_by_seq;
     std::vector<std::pair<int, LeafRec> > leaves;   /* (seq, leaf) */
+    std::vector<std::pair<int, NativeRec> > natives; /* (seq, native) */
 
     JParser jp(text);
     JVal v;
@@ -425,6 +472,26 @@ Scenario *load_capture(const char *path)
                 leaves.push_back(std::make_pair(
                     (int)jint_opt(v, "seq", 0), l));
                 sc->leaf_records++;
+            } else if (kind == "bdd0_native") {
+                if (ver < 12) continue;
+                NativeRec n;
+                apply_native(n, v);
+                natives.push_back(std::make_pair(
+                    (int)jint_opt(v, "seq", 0), n));
+                sc->native_records++;
+            } else if (kind == "native_site_skipped") {
+                std::string site = jstr_opt(v, "site");
+                std::string va = jstr_opt(v, "va");
+                std::string why = jstr_opt(v, "why");
+                sc->native_missing_n++;
+                if (sc->native_missing_why.empty()) {
+                    char buf[220];
+                    _snprintf_s(buf, sizeof(buf), _TRUNCATE,
+                                "capture native_site_skipped: site 0x%s "
+                                "(target 0x%s): %s", site.c_str(), va.c_str(),
+                                why.empty() ? "?" : why.c_str());
+                    sc->native_missing_why = buf;
+                }
             }
             /* прочие роды (cap, res, grid, eee0_*, bdd0_cap) игнорируются */
         }
@@ -450,7 +517,19 @@ Scenario *load_capture(const char *path)
               });
     for (size_t i = 0; i < leaves.size(); i++) sc->leaves.push_back(leaves[i].second);
 
+    /* bdd0_native: тот же стабильный порядок (seq, order) → окно на тик */
+    std::sort(natives.begin(), natives.end(),
+              [](const std::pair<int, NativeRec> &a,
+                 const std::pair<int, NativeRec> &b) {
+                  if (a.first != b.first) return a.first < b.first;
+                  return a.second.order < b.second.order;
+              });
+    for (size_t i = 0; i < natives.size(); i++) {
+        sc->natives.push_back(natives[i].second);
+    }
+
     size_t li = 0;
+    size_t ni = 0;
     for (size_t i = 0; i < sc->ticks.size(); i++) {
         TickRecord &t = sc->ticks[i];
         while (li < leaves.size() && leaves[li].first < t.seq) li++;
@@ -458,6 +537,11 @@ Scenario *load_capture(const char *path)
         while (li < leaves.size() && leaves[li].first == t.seq) li++;
         t.leaf_first = (int)first;
         t.leaf_n = (int)(li - first);
+        while (ni < natives.size() && natives[ni].first < t.seq) ni++;
+        size_t nfirst = ni;
+        while (ni < natives.size() && natives[ni].first == t.seq) ni++;
+        t.native_first = (int)nfirst;
+        t.native_n = (int)(ni - nfirst);
         std::map<int, ResRec>::const_iterator it = res_by_seq.find(t.seq);
         if (it != res_by_seq.end()) {
             t.has_res = 1;

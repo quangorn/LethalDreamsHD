@@ -53,6 +53,7 @@
 #include "battle/native.h"
 #include "battle/capture.h"
 #include "battle/leaf_sites.h"
+#include "battle/native_sites.h"
 #include "ldhook_internal.h"
 
 /* ------------------------------------------------------------------ */
@@ -684,6 +685,34 @@ static void install_leaf_call_sites(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* v12: хуки на ВСЕ прочие (не-листовые) RECORD-сайты тела 44bdd0 —
+ * таблица сгенерирована (tools/probes/gen_native_sites.py), байты стуба
+ * эмитятся в рантайме (battle/native_sites.cpp).  Косвенные `call *disp`
+ * закрываются vtable-слотами на входе тика (capture.cpp).  Bdd0_native пишет
+ * capture через тот же sink-механизм. */
+/* ------------------------------------------------------------------ */
+
+static void install_native_call_sites(void)
+{
+    char why[256];
+    int n;
+
+    if (!battle_capture_enabled()) {
+        return;
+    }
+    if (!battle_capture_snap_enabled()) {
+        ld_info("install_native_call_sites: %s not set -> hooks NOT installed",
+                BATTLE_CAPTURE_SNAP_ENV);
+        return;
+    }
+    native_sites_set_base(native::base());
+    why[0] = '\0';
+    n = native_site_install_all(native::fn, why, (int)sizeof(why));
+    ld_info("install_native_call_sites: %d/%d direct call sites (%s)",
+            n, native_site_count(), why);
+}
+
+/* ------------------------------------------------------------------ */
 /* Trace-наблюдатели тика (H1/H2/H3/H7) — при LDHOOK_BATTLE_TRACE=1 ИЛИ
  * LDHOOK_BATTLE_CAPTURE=1 (capture берёт tick/unit от H1, но trace-строку
  * не пишет). H4 (0x45e0a0) отдельного детура не получает: сброс счётчиков
@@ -1043,6 +1072,7 @@ extern "C" __declspec(dllexport) void initldhook(void)
             install_capture_sites();   /* только native e0a0 зовёт листья */
         }
         install_leaf_call_sites();     /* v12: bdd0_leaf на нативном теле */
+        install_native_call_sites();   /* v12: bdd0_native (прочие RECORD) */
         install_seed_sites();
     }
     ld_seed_whrandom();

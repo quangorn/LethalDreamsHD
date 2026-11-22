@@ -33,5 +33,7 @@ void model_set(const ModelEnv &env, const ModelCfg &cfg);
 void model_leaf_reset(void);
 int model_leaf_count(void);
 const LeafRec *model_leaf_at(int i);
+int model_native_count(void);
+const NativeRec *model_native_at(int i);
 
 #endif

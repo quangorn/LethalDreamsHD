@@ -285,6 +285,7 @@ Arena *arena_build(const TickRecord *rec)
     ok &= reg_add(a, "gs", BDD0_GS_LEN);
     ok &= reg_add(a, "ctx", 0x20);
     ok &= reg_add(a, "player", 0x10);   /* shadow player_get: not modelled */
+    ok &= reg_add(a, "flags", 0x10);    /* shadow player_flag_get/player_flags */
     ok &= reg_add(a, "out", 4);
     ok &= reg_add(a, "node_e0", 0x240);
     ok &= reg_add(a, "node_e044", 0x240);

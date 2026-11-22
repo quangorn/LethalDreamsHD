@@ -19,7 +19,8 @@ import paths  # noqa: E402
 
 OUTDIR = paths.win_path(os.path.join(_ROOT, "build", "ldhook"))
 SOURCES = [os.path.join(_HERE, "leaf_sites_selftest.cpp"),
-           os.path.join(_ROOT, "tools", "ldhook", "battle", "leaf_sites.cpp")]
+           os.path.join(_ROOT, "tools", "ldhook", "battle", "leaf_sites.cpp"),
+           os.path.join(_ROOT, "tools", "ldhook", "battle", "native_sites.cpp")]
 
 VSWHERE = paths.win_path(os.path.join(
     os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),

@@ -38,14 +38,27 @@ static int g_i = 0;             /* потреблено записей */
 static int g_seq = 0;
 static int g_viol = 0;
 static char g_why[192];
+static int g_last_leaf_order = -1;
 static CallLogEnt g_log[LEAF_LOG_MAX];
 static int g_log_n = 0;
+/* Параллельно журналу: запись, с которой сопоставлен вызов (для проверки
+ * `leaf_args`), и dword'ы, которые обёртка реально записала ЧЕРЕЗ указатель
+ * (их сверяют с `w` записи; сами по себе из записи не берутся). */
+static const LeafRec *g_match[LEAF_LOG_MAX];
+static int g_aw_nw[LEAF_LOG_MAX];
+static int g_aw[LEAF_LOG_MAX][3];
 
 void bdd0_leaf_begin(int seq, const LeafRec *v, int n)
 {
     g_v = v; g_n = n; g_i = 0; g_seq = seq;
     g_viol = 0; g_why[0] = '\0';
+    g_last_leaf_order = -1;
     g_log_n = 0;
+    for (int k = 0; k < LEAF_LOG_MAX; k++) {
+        g_match[k] = NULL;
+        g_aw_nw[k] = 0;
+        g_aw[k][0] = g_aw[k][1] = g_aw[k][2] = 0;
+    }
 }
 
 int bdd0_leaf_calls(void) { return g_log_n; }
@@ -56,6 +69,49 @@ const CallLogEnt *bdd0_calllog(int *n)
 {
     if (n != NULL) *n = g_log_n;
     return g_log;
+}
+
+/* Доступ к сопоставленной записи последнего вызова (проверка `leaf_args`):
+ * аргументы порта живут в CallLogEnt, аргументы натива — в этой записи.
+ * Объявлено не в harness.h: контракт ядра не меняется. */
+const LeafRec *bdd0_leaf_record_at(int i)
+{
+    if (i < 0 || i >= g_log_n) return NULL;
+    return g_match[i];
+}
+
+/* Сколько записей потока РЕАЛЬНО потреблено (сопоставлено) за тик и первая
+ * непотреблённая запись — для `leaf_seq`: тик обязан израсходовать весь
+ * поток, а не только те вызовы, которые тело успело сделать. */
+int bdd0_leaf_consumed(void)
+{
+    return g_i;
+}
+
+const LeafRec *bdd0_leaf_pending(void)
+{
+    return (g_i >= 0 && g_i < g_n) ? &g_v[g_i] : NULL;
+}
+
+/* Сколько dword'ов обёртка записала через указатель и какие (== источник для
+ * `w` записи). 0 — лист ничего не писал: «нет» не подменяется нулями. */
+int bdd0_leaf_applied_w(int i, int *w3)
+{
+    if (i < 0 || i >= g_log_n) return 0;
+    if (w3 != NULL) {
+        for (int k = 0; k < 3; k++) w3[k] = g_aw[i][k];
+    }
+    return g_aw_nw[i];
+}
+
+/* Снять dword'ы, реально записанные в буфер вызывающего (out-тройка). */
+static void note_applied_w(const void *buf, int nw)
+{
+    int i = g_log_n - 1;
+    if (i < 0 || i >= LEAF_LOG_MAX || buf == NULL) return;
+    if (nw > 3) nw = 3;
+    g_aw_nw[i] = nw;
+    if (nw > 0) memcpy(g_aw[i], buf, (size_t)nw * 4);
 }
 
 void bdd0_calllog_reset(void)
@@ -88,6 +144,8 @@ static const LeafRec *request(int va, const void *ecx, int nargs, const int *arg
         e.nargs = nargs;
         for (int k = 0; k < 6; k++) e.args[k] = (nargs > k) ? args[k] : 0;
         e.ret = 0;
+        g_match[g_log_n] = NULL;
+        g_aw_nw[g_log_n] = 0;
         g_log_n++;
     } else {
         viol("leaf call log overflow at call %d (va=0x%x)", g_log_n, va);
@@ -112,11 +170,20 @@ static const LeafRec *request(int va, const void *ecx, int nargs, const int *arg
         return NULL;
     }
     if (r->order != g_i) {
-        viol("leaf #%d: recorded order %d (seq %d)", g_i, r->order, g_seq);
-        return NULL;
+        /* старый поток: order = индекс листа; новый: общий order с
+         * bdd0_native, поэтому проверяется только возрастание. */
+        if (r->order <= g_last_leaf_order) {
+            viol("leaf #%d: order %d after %d (seq %d)", g_i, r->order,
+                 g_last_leaf_order, g_seq);
+            return NULL;
+        }
     }
     g_i++;
-    if (g_log_n > 0) g_log[g_log_n - 1].ret = r->ret;
+    g_last_leaf_order = r->order;
+    if (g_log_n > 0) {
+        g_log[g_log_n - 1].ret = r->ret;
+        g_match[g_log_n - 1] = r;
+    }
     return r;
 }
 
@@ -125,6 +192,142 @@ static unsigned read_u32(const void *p)
     unsigned v;
     memcpy(&v, p, 4);
     return v;
+}
+
+/* ------------------------- v12: поток bdd0_native ------------------------ *
+ * Не-листовые RECORD-нативы (game_state_get, player_get, phase_time, ...).
+ * Записи потребляются в порядке order для своего seq; ключ — target VA для
+ * прямых сайтов, slot id для косвенных (va там — фактическая цель и от
+ * машины к машине различается).  Если записей этого seq нет (старый захват),
+ * слой НЕ потребляет ничего и отдаёт модельные значения — проверка
+ * `native_seq` тогда SKIP, а не fail. */
+#define NATIVE_LOG_MAX 768
+static const NativeRec *g_nv = NULL;
+static int g_nn = 0;
+static int g_ni = 0;
+static int g_nlast = -1;
+static int g_nviol = 0;
+static char g_nwhy[192];
+static int g_not_present = 1;
+static NativeCallLogEnt g_nlog[NATIVE_LOG_MAX];
+static const NativeRec *g_nmatch[NATIVE_LOG_MAX];
+static int g_nlog_n = 0;
+
+void bdd0_native_begin(int seq, const NativeRec *v, int n)
+{
+    (void)seq;
+    g_nv = v;
+    g_nn = n;
+    g_ni = 0;
+    g_nlast = -1;
+    g_nviol = 0;
+    g_nwhy[0] = '\0';
+    g_nlog_n = 0;
+    for (int k = 0; k < NATIVE_LOG_MAX; k++) g_nmatch[k] = NULL;
+    g_not_present = (n == 0);
+}
+
+int bdd0_native_calls(void) { return g_nlog_n; }
+int bdd0_native_violations(void) { return g_nviol; }
+const char *bdd0_native_violation_why(void) { return g_nwhy; }
+int bdd0_native_consumed(void) { return g_ni; }
+const NativeCallLogEnt *bdd0_native_calllog(int *n)
+{
+    if (n != NULL) *n = g_nlog_n;
+    return g_nlog;
+}
+const NativeRec *bdd0_native_record_at(int i)
+{
+    if (i < 0 || i >= g_nlog_n) return NULL;
+    return g_nmatch[i];
+}
+const NativeRec *bdd0_native_pending(void)
+{
+    return (g_ni >= 0 && g_ni < g_nn) ? &g_nv[g_ni] : NULL;
+}
+
+static void nviol(const char *fmt, ...)
+{
+    if (g_nviol) return;
+    va_list ap;
+    va_start(ap, fmt);
+    _vsnprintf(g_nwhy, sizeof(g_nwhy), fmt, ap);
+    va_end(ap);
+    g_nwhy[sizeof(g_nwhy) - 1] = '\0';
+    g_nviol = 1;
+}
+
+/* NULL — нет записи (не-present режим или уже нарушение).  ecx/args — то,
+ * что вычислил порт; журнал нужен проверке native_args. */
+static const NativeRec *nrequest(int slot, int va, int ecx, const int *args,
+                                 int nargs)
+{
+    const NativeRec *r;
+    NativeCallLogEnt *le = NULL;
+    int i;
+
+    if (g_nlog_n < NATIVE_LOG_MAX) {
+        le = &g_nlog[g_nlog_n];
+        le->order = g_nlog_n;
+        le->site = 0;
+        le->va = va;
+        le->slot = slot;
+        le->ecx = ecx;
+        le->nargs = (nargs > 0 && nargs <= 8) ? nargs : 0;
+        for (i = 0; i < 8; i++) {
+            le->args[i] = (args != NULL && i < le->nargs) ? args[i] : 0;
+        }
+        g_nmatch[g_nlog_n] = NULL;
+        g_nlog_n++;
+    }
+    if (g_not_present) return NULL;
+    if (g_nviol) return NULL;
+    if (g_ni >= g_nn) {
+        nviol("native stream exhausted at call %d: requested %s0x%x, "
+              "%d records", g_ni, slot ? "slot " : "va ",
+              slot ? slot : va, g_nn);
+        return NULL;
+    }
+    r = &g_nv[g_ni];
+    if (r->trap) {
+        nviol("native #%d trap=1 site=0x%x: capture record is unreliable",
+              g_ni, r->site);
+        return NULL;
+    }
+    if (r->slot != slot) {
+        nviol("native #%d: requested slot %d, recorded slot %d (site 0x%x)",
+              g_ni, slot, r->slot, r->site);
+        return NULL;
+    }
+    if (slot == 0 && r->va != va) {
+        nviol("native #%d: requested va=0x%x, recorded va=0x%x (site 0x%x)",
+              g_ni, va, r->va, r->site);
+        return NULL;
+    }
+    if (r->order <= g_nlast) {
+        nviol("native #%d: order %d after %d (site 0x%x)", g_ni, r->order,
+              g_nlast, r->site);
+        return NULL;
+    }
+    g_ni++;
+    g_nlast = r->order;
+    if (le != NULL) {
+        le->site = r->site;
+        g_nmatch[le->order] = r;
+    }
+    return r;
+}
+
+static void *shadow_region(const char *name)
+{
+    return arena_region_w(arena_current(), name);
+}
+
+static float f32_of(int bits)
+{
+    float f;
+    memcpy(&f, &bits, 4);
+    return f;
 }
 
 /* Возврат листа → shadow-адрес (игровые указатели не утекают в тело). */
@@ -146,6 +349,7 @@ void *ctx_pos_get(void *ctx, float *out_f)
     if (out_f == NULL) return NULL;
     if (r != NULL && r->nw == 3) {
         memcpy(out_f, r->w, 12);
+        note_applied_w(out_f, 3);
         return out_f;
     }
     if (ctx != NULL && arena_addr_ok(ctx, 0x18)) {
@@ -153,6 +357,7 @@ void *ctx_pos_get(void *ctx, float *out_f)
     } else {
         out_f[0] = out_f[1] = out_f[2] = 0.0f;
     }
+    note_applied_w(out_f, 3);
     return out_f;
 }
 
@@ -280,6 +485,7 @@ void grid_recompute(void *rec_pf, void *pos, void *req, float out3[3])
     } else {
         out3[0] = out3[1] = out3[2] = 0.0f;
     }
+    note_applied_w(out3, 3);
 }
 
 /* 44bbf0 — grid_query: возврат — int аккумулятора. */
@@ -290,6 +496,168 @@ int grid_query(void *world, int a1, int a2, int a3, int a4)
     const LeafRec *r = request(0x44bbf0, world, 4, a);
     if (r != NULL) return r->ret;
     return 0;
+}
+
+/* ====================== v12: не-листовые RECORD-нативы =================== *
+ * Возврат/побочные значения берутся из потока bdd0_native.  Если потока нет
+ * (старый захват), поведение совпадает с прежними no-op обёртками: gs/player —
+ * shadow-области арены, phase=0.0f, остальные — 0/void.  Это видно в сводке
+ * (`native_seq` SKIP). */
+
+/* 442570 — состояние игры: возврат — shadow-объект "gs" (содержимое из
+ * bdd0_in gs_b64).  Записанный non-NULL факт отличает "объекта нет". */
+void *game_state_get(void *unit, int flags)
+{
+    int a[1];
+    a[0] = flags;
+    const NativeRec *r = nrequest(0, 0x442570, (int)(size_t)unit, a, 1);
+    if (r == NULL) return shadow_region("gs");
+    if (r->ret == 0) return NULL;
+    return shadow_region("gs");
+}
+
+/* 439ae0 — сравнение string-объектов; тело читает только AL. */
+int string_obj_cmp(void *a, void *b)
+{
+    int av[2];
+    av[0] = (int)(size_t)a;
+    av[1] = (int)(size_t)b;
+    const NativeRec *r = nrequest(0, 0x439ae0, 0, av, 2);
+    if (r == NULL) return 0;
+    return r->ret & 0xff;
+}
+
+/* 42da60 — player-флаги: возврат — объект; тело передаёт его в 435d50. */
+void *player_flag_get(void *player, int flag)
+{
+    int a[1];
+    a[0] = flag;
+    const NativeRec *r = nrequest(0, 0x42da60, (int)(size_t)player, a, 1);
+    if (r == NULL) return player;                  /* прежний no-op */
+    if (r->ret == 0) return NULL;
+    return shadow_region("flags");
+}
+
+/* 435d50 — флаги игрока: возвращаемые байты тело тестирует (&2, &4), поэтому
+ * записанный w[0] кладётся в shadow-объект перед возвратом. */
+void *player_flags(void *flags_obj)
+{
+    const NativeRec *r = nrequest(0, 0x435d50, (int)(size_t)flags_obj, NULL, 0);
+    if (r == NULL) return flags_obj;               /* прежний no-op */
+    void *sh = shadow_region("flags");
+    if (sh != NULL && r->nw > 0) {
+        memcpy(sh, r->w, 4);
+    }
+    return (r->ret == 0) ? NULL : sh;
+}
+
+/* 448c30 — cursor/mode update: void, сторона не читается телом. */
+void cursor_mode_update(void *unit, int arg)
+{
+    int a[1];
+    a[0] = arg;
+    (void)nrequest(0, 0x448c30, (int)(size_t)unit, a, 1);
+    (void)unit;
+}
+
+/* 446a80 — message timer: void; пишет unit+0x54, тело его не читает. */
+void ai_time_update(void *unit, const void *msg60)
+{
+    int a[1];
+    a[0] = (int)(size_t)msg60;
+    (void)nrequest(0, 0x446a80, (int)(size_t)unit, a, 1);
+    (void)unit;
+}
+
+/* 448ee0 — state flag: пишет unit+0x114 (1.0f при флаге и нуле), а входной
+ * гейт следующего вызова это читает.  Побочное значение известно из args. */
+void state_flag_log(void *unit, int flag)
+{
+    int a[1];
+    a[0] = flag;
+    const NativeRec *r = nrequest(0, 0x448ee0, (int)(size_t)unit, a, 1);
+    if (r != NULL && unit != NULL && (flag & 0xff) != 0) {
+        unsigned char *p = (unsigned char *)unit + 0x114;
+        if (arena_addr_ok(p, 4)) {
+            float cur;
+            memcpy(&cur, p, 4);
+            if (cur == 0.0f) {
+                float one = 1.0f;
+                memcpy(p, &one, 4);
+            }
+        }
+    }
+}
+
+/* 42d9c0 — player pos store: void; тело не перечитывает. */
+void player_pos_set(void *player, void *triple)
+{
+    int a[1];
+    a[0] = (int)(size_t)triple;
+    (void)nrequest(0, 0x42d9c0, (int)(size_t)player, a, 1);
+    (void)player;
+}
+
+/* 45f430 — PathFinder ctor: void; объект кадра потребляет 45e1d0 (replay). */
+void pathfinder_init(void *pf)
+{
+    (void)nrequest(0, 0x45f430, (int)(size_t)pf, NULL, 0);
+    (void)pf;
+}
+
+/* 45eee0 — unit-AI tick: код 0..4 управляет каскадом. */
+int unit_ai_tick(void *ai, void *rec)
+{
+    int a[1];
+    a[0] = (int)(size_t)rec;
+    const NativeRec *r = nrequest(0, 0x45eee0, (int)(size_t)ai, a, 1);
+    if (r == NULL) return 0;
+    return r->ret;
+}
+
+/* vtable+0x2c — phase_time: результат ST(0) (биты в записи). */
+void phase_time(void *unit, float *out_f)
+{
+    const NativeRec *r = nrequest(2, 0, (int)(size_t)unit, NULL, 0); /* u+0x2c */
+    if (out_f == NULL) return;
+    *out_f = (r != NULL) ? f32_of(r->ret) : 0.0f;
+    (void)unit;
+}
+
+/* vtable+0x40 — player_get: возврат — объект игрока (NULL/не NULL важно). */
+void *player_get(void *unit, int arg)
+{
+    int a[1];
+    a[0] = arg;
+    const NativeRec *r = nrequest(4, 0, (int)(size_t)unit, a, 1); /* u+0x40 */
+    if (r == NULL) return shadow_region("player");
+    return (r->ret == 0) ? NULL : shadow_region("player");
+}
+
+/* vtable+0x38 — pointer call: возврат телом не читается. */
+int vcall38_ptr(void *unit, void *ptr)
+{
+    int a[1];
+    a[0] = (int)(size_t)ptr;
+    const NativeRec *r = nrequest(3, 0, (int)(size_t)unit, a, 1); /* u+0x38 */
+    (void)unit;
+    return (r != NULL) ? r->ret : 0;
+}
+
+/* vtable+0x28 — world notify: void, снимок 0x20 Б по значению. */
+void world_notify_snapshot(void *unit, const void *snapshot32)
+{
+    int a[8];
+    int i;
+    for (i = 0; i < 8; i++) a[i] = 0;
+    if (snapshot32 != NULL) {
+        __try {
+            memcpy(a, snapshot32, sizeof(a));
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            for (i = 0; i < 8; i++) a[i] = 0;
+        }
+    }
+    (void)nrequest(1, 0, (int)(size_t)unit, a, 8); /* slot u+0x28 */
 }
 
 } /* namespace native */

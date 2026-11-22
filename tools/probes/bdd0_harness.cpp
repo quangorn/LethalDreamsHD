@@ -365,6 +365,8 @@ int main(int argc, char **argv)
 
         LeafRec *lv = (rec.leaf_n > 0) ? &sc->leaves[rec.leaf_first] : NULL;
         bdd0_leaf_begin(rec.seq, lv, rec.leaf_n);
+        NativeRec *nv = (rec.native_n > 0) ? &sc->natives[rec.native_first] : NULL;
+        bdd0_native_begin(rec.seq, nv, rec.native_n);
 
         /* --- тик --- */
         int al = 0, hang = 0;
@@ -497,6 +499,9 @@ int main(int argc, char **argv)
         tc.handle_miss_why = arena_handle_miss_why(arena);
         tc.leaf_violation = bdd0_leaf_violations();
         tc.leaf_violation_why = bdd0_leaf_violation_why();
+        tc.native_violation = bdd0_native_violations();
+        tc.native_violation_why = bdd0_native_violation_why();
+        tc.native_calls = bdd0_native_calls();
         if (!tc.leaf_violation && sc->leaf_missing_n > 0) {
             /* маркер захвата: сайт не захукался → поток листьев мог быть
              * неполон, «листья не понадобились» доказательством не является */
@@ -598,9 +603,15 @@ int main(int argc, char **argv)
         }
         printf("\n");
     }
-    printf("  not-modelled: no-op native calls=%d (player/string/log/vtable/"
-           "phase), unit_ai_tick=%d\n",
+    printf("  not-modelled: NOOP_OK stubs=%d (msg/string/log/dtor), "
+           "unit_ai_tick=%d\n",
            bdd0_unmodelled_calls(), bdd0_unmodelled_unit_ai_tick());
+    printf("  bdd0_native: records=%d, last tick consumed=%d; "
+           "native_site_skipped=%d\n",
+           sc->native_records, bdd0_native_consumed(), sc->native_missing_n);
+    if (sc->native_missing_n > 0) {
+        printf("  %s\n", sc->native_missing_why.c_str());
+    }
     /* game_state: видно, был ли объект FUN_00442570 в захвате. Нулевой shadow
      * помечается как stub, чтобы contract_min не выглядел проверенным. */
     if (gs_missing == 0) {

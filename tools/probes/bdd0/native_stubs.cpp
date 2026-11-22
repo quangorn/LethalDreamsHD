@@ -1,27 +1,21 @@
-﻿/* tools/probes/bdd0/native_stubs.cpp — нативный слой реплея: не-логические
- * обёртки native.h. Компилируется ВМЕСТО tools/ldhook/battle/native.cpp.
+﻿/* tools/probes/bdd0/native_stubs.cpp -- NOOP_OK native wrappers for the
+ * offline harness.  Compiled INSTEAD OF tools/ldhook/battle/native.cpp.
  *
- * Офлайн игры нет, поэтому:
- *   - `base()` / `fn(VA)` / `literal(VA)` инертны: NULL / NULL / "". Ни один
- *     путь этого файла не заходит в код игры;
- *   - GUI/string/log/message/dtor/vtable-обёртки — no-op (см. таблицу ниже);
- *   - `game_state_get` и `player_get` возвращают shadow-объекты арены, иначе
- *     тело сразу разыменовало бы NULL. Их СОДЕРЖИМОЕ не смоделировано
- *     (game_state — из gs_b64, если захват её несёт; player — нули), это
- *     печатается в сводке прогона как not-modelled счётчик, а не выдаётся за
- *     проверенный факт.
+ * Since v12 the RECORD natives of the body (game_state_get, player_get,
+ * player_flag_get/flags, phase_time, vcall38_ptr, world_notify_snapshot,
+ * cursor_mode_update, ai_time_update, state_flag_log, player_pos_set,
+ * pathfinder_init, unit_ai_tick, string_obj_cmp) are replayed from the
+ * recorded `bdd0_native` stream in native_replay.cpp.  Only the NOOP_OK
+ * targets remain here -- GUI/string/log/dtor plumbing that cannot affect the
+ * body's control flow:
  *
- * Каждая фраза «not modelled» — из списка ниже; проверки, которые от этого
- * зависят (поведенческие), в defaults отсутствуют по определению.
+ *   msg_ctor/msg_copy/msg_string_dtor, log_assert, string_ctor/string_format/
+ *   string_c_str/string_dtor, output_debug_string_a, pathfinder_dtor.
  *
- *   not modelled (no-op): band_free, native_45af10, clear_maps,
- *   search_params_update, band_rebuild, pathfinder_init, pathfinder_dtor,
- *   world_notify_snapshot, phase_time(*out_f=0), vcall0/vcall1, vcall38_ptr,
- *   ai_time_update, msg_ctor/msg_copy/msg_string_dtor, cursor_mode_update,
- *   state_flag_log, string_ctor/string_format/string_c_str/string_dtor,
- *   player_pos_set, log_assert, output_debug_string_a, unit_ai_tick,
- *   target_search (NULL), lower_bound/tree_* (NULL/0), register_occupied_slot,
- *   tree_lookup (0), set_rect_empty (нули+1), grid_anchor-флаг.
+ * Every call increments the `not-modelled` counter printed in the run summary,
+ * so these stubs stay visible instead of looking verified.  Other helpers
+ * (band_free, pathfinder, tree, target_search, ...) are only used by layers
+ * that the offline harness does not execute; they remain inert.
  */
 #include <stdlib.h>
 #include <string.h>
@@ -115,7 +109,6 @@ void *target_search(void *ai, int filter, void *cmp_pos, int arg3, int *out_code
     noop("target_search");
     return NULL;
 }
-void pathfinder_init(void *pf) { (void)pf; noop("pathfinder_init"); }
 void pathfinder_dtor(void *pf) { (void)pf; noop("pathfinder_dtor"); }
 
 int set_rect_empty(void *rect)
@@ -133,10 +126,6 @@ int vcall1(void *receiver, unsigned int voffset, int arg)
 {
     (void)receiver; (void)voffset; (void)arg; noop("vcall1"); return 0;
 }
-int vcall38_ptr(void *unit, void *ptr)
-{
-    (void)unit; (void)ptr; noop("vcall38_ptr"); return 0;
-}
 
 long av_count(void) { return 0; }
 int av_filter(void) { return EXCEPTION_EXECUTE_HANDLER; }
@@ -149,65 +138,9 @@ int pt_in_rect(const int *rect, int x, int y)
     return (rect[0] <= x && x < rect[2] && rect[1] <= y && y < rect[3]) ? 1 : 0;
 }
 
-/* Объект состояния игры FUN_00442570: shadow-область арены "gs" (0x20 Б).
- * Содержимое — gs_b64 из захвата, если он есть; иначе нули (phase=0) и это
- * видно в сводке прогона (gs=absent). Указатель стабилен на весь тик, поэтому
- * save/write/restore в R14 сходятся. */
-void *game_state_get(void *unit, int flags)
-{
-    (void)unit; (void)flags;
-    Arena *a = arena_current();
-    void *gs = arena_region_w(a, "gs");
-    if (gs == NULL) noop("game_state_get(no arena)");
-    return gs;
-}
-
-void world_notify_snapshot(void *unit, const void *snapshot32)
-{
-    (void)unit; (void)snapshot32; noop("world_notify_snapshot");
-}
-
-/* vtable+0x2c — float фазы: значение не снимается в v12, пишем 0.0f
- * (не оставляем неинициализированный слот кадра — иначе гейты плавают). */
-void phase_time(void *unit, float *out_f)
-{
-    (void)unit; noop("phase_time");
-    if (out_f != NULL) *out_f = 0.0f;
-}
-
-/* vtable+0x40 — player-getter: объект игрока офлайн не моделируется. Возврат
- * ненулевой (реальный игрок в бою существует), объект — shadow-область
- * "player" арены (нули), поэтому NULL-гейты тела ведут себя как в нативе и
- * разыменование флагов остаётся внутри объявленной памяти. */
-void *player_get(void *unit, int arg)
-{
-    (void)unit; (void)arg; noop("player_get");
-    Arena *a = arena_current();
-    return arena_region_w(a, "player");
-}
-
-int string_obj_cmp(void *a, void *b)
-{
-    (void)a; (void)b; noop("string_obj_cmp"); return 0;   /* AL=0: не равны */
-}
-void ai_time_update(void *unit, const void *msg60)
-{
-    (void)unit; (void)msg60; noop("ai_time_update");
-}
 void msg_ctor(void *this_) { (void)this_; noop("msg_ctor"); }
 void msg_copy(void *dst, const void *src) { (void)dst; (void)src; noop("msg_copy"); }
 void msg_string_dtor(void *obj) { (void)obj; noop("msg_string_dtor"); }
-
-void *player_flag_get(void *player, int flag)
-{
-    (void)flag; noop("player_flag_get"); return player;
-}
-void *player_flags(void *flags_obj) { noop("player_flags"); return flags_obj; }
-void cursor_mode_update(void *unit, int arg)
-{
-    (void)unit; (void)arg; noop("cursor_mode_update");
-}
-void state_flag_log(void *unit, int flag) { (void)unit; (void)flag; noop("state_flag_log"); }
 
 void *string_ctor(void *obj, const char *s)
 {
@@ -222,10 +155,6 @@ void *string_format(void *dst, const void *a2, const void *a3)
 }
 const char *string_c_str(void *obj) { (void)obj; noop("string_c_str"); return ""; }
 void string_dtor(void *obj) { (void)obj; noop("string_dtor"); }
-void player_pos_set(void *player, void *triple)
-{
-    (void)player; (void)triple; noop("player_pos_set");
-}
 void log_assert(void *unit, const char *msg, int code)
 {
     (void)unit; (void)msg; (void)code; noop("log_assert");
@@ -234,12 +163,6 @@ void output_debug_string_a(const char *s) { (void)s; noop("output_debug_string_a
 
 /* Игровой литерал по VA: офлайн строки нет — пустая строка, не «похожая». */
 const char *literal(unsigned int va) { (void)va; noop("literal"); return ""; }
-
-int unit_ai_tick(void *ai, void *rec)
-{
-    (void)ai; (void)rec; noop("unit_ai_tick");
-    return 0;
-}
 
 void *operator_new(unsigned int size) { return calloc(1, size); }
 void deallocate(void *ptr) { free(ptr); }

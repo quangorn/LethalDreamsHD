@@ -66,6 +66,11 @@
  *                move.cpp:392 (`grid_anchor`) и target.cpp:817 (`grid_query`)
  *                внутри bdd0-окна; харнесс сопоставляет по паре va+order в
  *                пределах seq и не считает поток исчерпывающим для тела.
+ *   `bdd0_native` — результат каждого НЕ-листового RECORD-вызова тела (125
+ *                сайтов через хуки native_sites.*, `0x44cbd0` — через H3):
+ *                site/va/ecx/args/ret/ret_kind (+ `w` для указателей). `order`
+ *                общий с bdd0_leaf; `slot` (u+0x28/0x2c/0x38/0x40) — косвенный
+ *                vtable-вызов. 77 NOOP_OK-сайтов не записываются (stub).
  * Остальные роды (`cap`, `res`, `grid`, `eee0_*`, пара `bdd0_cap/res`) и их
  * версии не меняются: v10/v11-файлы читаются прежними инструментами.
  */
@@ -128,6 +133,18 @@ void battle_capture_bdd0_leaf(int va, const void *ecx, const int *args,
 void battle_capture_bdd0_leaf_rec(int va, const void *ecx, const int *args,
                                   int nargs, int ret, const int *w, int nw,
                                   int seq, int order, int trap);
+
+/* v12: запись результата НЕ-листового нативного вызова тела (`bdd0_native`).
+ * Источник — хуки call-сайтов native_sites.*; kind — NS_K_*, slot — NS_SLOT_*
+ * (0 = прямой сайт, иначе vtable-слот), w/nw — dword'ы, прочитанные через
+ * возвращённый указатель. order общий с bdd0_leaf (единый поток вызовов). */
+void battle_capture_bdd0_native_rec(int site, int target, int slot, int kind,
+                                    int ecx, const int *args, int nargs,
+                                    int ret, const int *w, int nw,
+                                    int seq, int order, int trap);
+
+/* v12: сайт не захукался (5-байтовая проверка/резолв) — маркер в захвате. */
+void battle_capture_native_skipped(int site, int target, const char *why);
 
 /* Регистрация результата листа; value — EAX оригинала, words — 5 dword
  * возвращённого объекта (только для CAP_LEAF_PATH, value != 0). */

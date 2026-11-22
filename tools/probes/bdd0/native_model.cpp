@@ -12,7 +12,9 @@
  *   458050 grid_anchor      — cfg.anchor_null ? NULL : tree (сырой адрес)
  *   45e1d0 grid_recompute   — out3 = {1,2,3}f
  *   44bbf0 grid_query       — cfg.grid_query
- * Каждый вызов пишется в поток bdd0_leaf с `ret` в ПРОСТРАНСТВЕ ИГРЫ.
+ * v12: прочие RECORD-нативы тела (game_state_get, player_get, phase_time,
+ * player_flag_get/flags, unit_ai_tick, ...) тоже пишут `bdd0_native` с тем же
+ * общим order. Каждый вызов пишется в поток с `ret` в ПРОСТРАНСТВЕ ИГРЫ.
  */
 #include <stdio.h>
 #include <string.h>
@@ -24,14 +26,33 @@
 static ModelEnv g_env;
 static ModelCfg g_cfg;
 static std::vector<LeafRec> g_rec;
+static std::vector<NativeRec> g_nat;
+static int g_order = 0;
 
 void model_set(const ModelEnv &env, const ModelCfg &cfg) { g_env = env; g_cfg = cfg; }
-void model_leaf_reset(void) { g_rec.clear(); }
+void model_leaf_reset(void) { g_rec.clear(); g_nat.clear(); g_order = 0; }
 int model_leaf_count(void) { return (int)g_rec.size(); }
 const LeafRec *model_leaf_at(int i)
 {
     return (i >= 0 && i < (int)g_rec.size()) ? &g_rec[i] : NULL;
 }
+int model_native_count(void) { return (int)g_nat.size(); }
+const NativeRec *model_native_at(int i)
+{
+    return (i >= 0 && i < (int)g_nat.size()) ? &g_nat[i] : NULL;
+}
+
+/* v12: реплей-слой в генераторе не читает поток. */
+void bdd0_native_begin(int seq, const NativeRec *v, int n)
+{ (void)seq; (void)v; (void)n; }
+int bdd0_native_calls(void) { return 0; }
+int bdd0_native_violations(void) { return 0; }
+const char *bdd0_native_violation_why(void) { return ""; }
+int bdd0_native_consumed(void) { return 0; }
+const NativeRec *bdd0_native_pending(void) { return NULL; }
+const NativeCallLogEnt *bdd0_native_calllog(int *n)
+{ if (n) *n = 0; return NULL; }
+const NativeRec *bdd0_native_record_at(int i) { (void)i; return NULL; }
 
 static int fbits(float f) { int b; memcpy(&b, &f, 4); return b; }
 
@@ -43,16 +64,22 @@ int bdd0_leaf_violations(void) { return 0; }
 const char *bdd0_leaf_violation_why(void) { return ""; }
 const CallLogEnt *bdd0_calllog(int *n) { if (n) *n = 0; return NULL; }
 void bdd0_calllog_reset(void) {}
+/* Доступ проверки leaf_args к сопоставленной записи: в генераторе потока
+ * записей нет (он их создаёт), поэтому «нечего сверять». */
+const LeafRec *bdd0_leaf_record_at(int i) { (void)i; return NULL; }
+int bdd0_leaf_applied_w(int i, int *w3) { (void)i; (void)w3; return 0; }
+int bdd0_leaf_consumed(void) { return 0; }
+const LeafRec *bdd0_leaf_pending(void) { return NULL; }
 
 static int record(int va, const void *ecx, int nargs, const int *args, int ret,
                   const int *w, int nw)
 {
     LeafRec r;
     memset(&r, 0, sizeof(r));
-    r.order = (int)g_rec.size();
+    r.order = g_order++;
     r.va = va;
     r.ecx = (int)(size_t)ecx;
-    r.nargs = (nargs > 6) ? 6 : nargs;
+    r.nargs = (nargs > 8) ? 8 : nargs;
     for (int k = 0; k < r.nargs; k++) r.args[k] = args[k];
     r.ret = ret;
     if (w != NULL && nw > 0) {
@@ -60,6 +87,28 @@ static int record(int va, const void *ecx, int nargs, const int *args, int ret,
         for (int k = 0; k < r.nw; k++) r.w[k] = w[k];
     }
     g_rec.push_back(r);
+    return ret;
+}
+
+static int record_native(int site, int target, int slot, int kind, int ecx,
+                         const int *args, int nargs, int ret, const int *w,
+                         int nw)
+{
+    NativeRec r;
+    r.order = g_order++;
+    r.site = site;
+    r.va = target;
+    r.slot = slot;
+    r.kind = kind;
+    r.ecx = ecx;
+    r.nargs = (nargs > 8) ? 8 : (nargs > 0 ? nargs : 0);
+    for (int k = 0; k < r.nargs; k++) r.args[k] = (args != NULL) ? args[k] : 0;
+    r.ret = ret;
+    if (w != NULL && nw > 0) {
+        r.nw = (nw > 3) ? 3 : nw;
+        for (int k = 0; k < r.nw; k++) r.w[k] = w[k];
+    }
+    g_nat.push_back(r);
     return ret;
 }
 
@@ -174,6 +223,112 @@ int grid_query(void *world, int a1, int a2, int a3, int a4)
     int a[4];
     a[0] = a1; a[1] = a2; a[2] = a3; a[3] = a4;
     return record(0x44bbf0, world, 4, a, g_cfg.grid_query, NULL, 0);
+}
+
+/* ---------------- v12: не-листовые RECORD-нативы (модель) --------------- */
+static void *reg(const char *name) { return arena_region_w(arena_current(), name); }
+
+void *game_state_get(void *unit, int flags)
+{
+    int a[1]; a[0] = flags;
+    record_native(0x44be0e, 0x442570, 0, 4, (int)g_env.self_game, a, 1, 1, NULL, 0);
+    return reg("gs");
+}
+
+int string_obj_cmp(void *a, void *b)
+{
+    int ar[2];
+    ar[0] = (int)(size_t)a; ar[1] = (int)(size_t)b;
+    record_native(0x44bf44, 0x439ae0, 0, 1, 0, ar, 2, 0, NULL, 0);
+    return 0;
+}
+
+void *player_flag_get(void *player, int flag)
+{
+    int a[1]; a[0] = flag;
+    record_native(0x44bfc4, 0x42da60, 0, 4, (int)g_env.self_game + 0x200, a, 1, 1,
+                  NULL, 0);
+    return reg("player");
+}
+
+void *player_flags(void *flags_obj)
+{
+    int w[1];
+    w[0] = 0;
+    if (flags_obj != NULL) w[0] = *(int *)flags_obj;
+    record_native(0x44bfcb, 0x435d50, 0, 5, (int)g_env.self_game + 0x220, NULL, 0, 1,
+                  w, 1);
+    return reg("player");
+}
+
+void cursor_mode_update(void *unit, int arg)
+{
+    int a[1]; a[0] = arg;
+    record_native(0x44c012, 0x448c30, 0, 3, (int)g_env.self_game, a, 1, 0,
+                  NULL, 0);
+}
+
+void ai_time_update(void *unit, const void *msg60)
+{
+    int a[1]; a[0] = (int)(size_t)msg60;
+    record_native(0x44bfa7, 0x446a80, 0, 3, (int)g_env.self_game, a, 1, 0,
+                  NULL, 0);
+}
+
+void state_flag_log(void *unit, int flag)
+{
+    int a[1]; a[0] = flag;
+    record_native(0x44d029, 0x448ee0, 0, 3, (int)g_env.self_game, a, 1, 0,
+                  NULL, 0);
+}
+
+void player_pos_set(void *player, void *triple)
+{
+    int a[1]; a[0] = (int)g_env.scratch_game;
+    record_native(0x44c240, 0x42d9c0, 0, 3, (int)g_env.self_game + 0x200, a, 1, 0,
+                  NULL, 0);
+}
+
+void pathfinder_init(void *pf)
+{
+    record_native(0x44c754, 0x45f430, 0, 3, (int)g_env.scratch_game + 0xcc, NULL, 0, 0,
+                  NULL, 0);
+}
+
+int unit_ai_tick(void *ai, void *rec)
+{
+    int a[1]; a[0] = (int)g_env.scratch_game + 0xa4;
+    record_native(0x44cbd0, 0x45eee0, 0, 0, (int)g_env.self_game + 0x138, a, 1, 0, NULL, 0);
+    return 0;
+}
+
+void phase_time(void *unit, float *out_f)
+{
+    int bits = fbits(0.0f);
+    record_native(0x44bf1e, 0, 2, 2, (int)g_env.self_game, NULL, 0, bits, NULL, 0);
+    if (out_f != NULL) memcpy(out_f, &bits, 4);
+}
+
+void *player_get(void *unit, int arg)
+{
+    int a[1]; a[0] = arg;
+    record_native(0x44bf40, 0, 4, 4, (int)g_env.self_game, a, 1, 1, NULL, 0);
+    return reg("player");
+}
+
+int vcall38_ptr(void *unit, void *ptr)
+{
+    int a[1]; a[0] = (int)g_env.scratch_game + 0xc0;
+    record_native(0x44c72b, 0, 3, 0, (int)g_env.self_game, a, 1, 0, NULL, 0);
+    return 0;
+}
+
+void world_notify_snapshot(void *unit, const void *snapshot32)
+{
+    int a[8];
+    const int *p = (const int *)snapshot32;
+    for (int i = 0; i < 8; i++) a[i] = (p != NULL) ? p[i] : 0;
+    record_native(0x44be55, 0, 1, 3, (int)g_env.self_game, a, 8, 0, NULL, 0);
 }
 
 } /* namespace native */

@@ -245,6 +245,32 @@ static void write_jsonl(FILE *f, const TickRecord &in, const TickRecord &post,
         fputs("}\n", f);
     }
 
+    for (int i = 0; i < model_native_count(); i++) {
+        const NativeRec *r = model_native_at(i);
+        fprintf(f, "{\"v\":12,\"kind\":\"bdd0_native\",\"seq\":%d,\"order\":%d,"
+                   "\"site\":\"%x\",\"va\":\"%x\",",
+                seq, r->order, r->site, r->va);
+        if (r->slot == 1) fputs("\"slot\":\"u+0x28\",", f);
+        else if (r->slot == 2) fputs("\"slot\":\"u+0x2c\",", f);
+        else if (r->slot == 3) fputs("\"slot\":\"u+0x38\",", f);
+        else if (r->slot == 4) fputs("\"slot\":\"u+0x40\",", f);
+        fprintf(f, "\"ecx\":%d,\"args\":[", r->ecx);
+        for (int k = 0; k < r->nargs; k++) {
+            fprintf(f, "%s%d", k ? "," : "", r->args[k]);
+        }
+        fprintf(f, "],\"ret\":%d,\"ret_kind\":\"%s\"", r->ret,
+                (r->kind == 1) ? "al" : (r->kind == 2) ? "f32"
+                : (r->kind == 3) ? "void" : "int");
+        if (r->nw > 0) {
+            fputs(",\"w\":[", f);
+            for (int k = 0; k < r->nw; k++) {
+                fprintf(f, "%s%d", k ? "," : "", r->w[k]);
+            }
+            fputc(']', f);
+        }
+        fputs(",\"trap\":0}\n", f);
+    }
+
     fprintf(f, "{\"v\":11,\"kind\":\"bdd0_res\",\"seq\":%d,\"tick\":%d,\"unit\":%d,"
                "\"fn\":\"44bdd0\",\"al\":%d,\"u170\":%d,\"out\":%d,"
                "\"m0\":%u,\"m1\":%u,\"m2\":%u,\"anc\":%d,\"tag\":%u,"

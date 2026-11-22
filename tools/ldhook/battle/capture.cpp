@@ -24,6 +24,7 @@
 #include "capture.h"
 #include "leaf_sites.h"
 #include "native.h"
+#include "native_sites.h"
 
 #define CAP_MAX_CALLS   400        /* дефолтный предел пар cap/res */
 #define CAP_MAX_NODES   20000      /* предохранитель обхода map1/map2 */
@@ -184,6 +185,13 @@ static int       g_map_trap = 0;
 /* v9: состояние per-call захвата FUN_0045eee0 (s6_unit_ai_tick). */
 static int       g_in_eee0 = 0;
 static int       g_cur_eee0_seq = 0;
+/* v12: 0x44cbd0 (`call 45eee0`) is inside the H3 hook, so the bdd0_native
+ * record is synthesized here with the same per-seq order as a site hook. */
+static int       g_eee0_native_valid = 0;
+static int       g_eee0_native_order = -1;
+static int       g_eee0_native_seq = 0;
+static int       g_eee0_native_ecx = 0;
+static int       g_eee0_native_arg = 0;
 static int       g_eee0_b9_valid = 0;
 static int       g_eee0_b9_null = 0;
 static int       g_eee0_b9_w[CAP_WORDS] = {0, 0, 0, 0, 0};
@@ -202,7 +210,8 @@ static int       g_eee0_b9_chain[1 + CAP_CHAIN_MAX * CAP_CHAIN_WORDS];
 typedef struct {
     int  seq;
     void *self;
-    int  leaf_order;               /* v12: 0-based счётчик bdd0_leaf этого вызова */
+    int  call_order;               /* v12: общий 0-based счётчик bdd0_leaf +
+                                    * bdd0_native этого вызова (порядок вызова) */
 } bdd0_frame;
 
 static bdd0_frame g_bdd0_stack[BDD0_STACK_MAX];
@@ -1222,6 +1231,7 @@ void battle_capture_eee0_enter(void *self, void *rec)
     cap_pos anchor = { -1, -1 };
 
     if (!g_enabled || g_closed) {
+        g_eee0_native_valid = 0;
         return;
     }
     if (g_seq >= g_max_calls) {
@@ -1234,6 +1244,15 @@ void battle_capture_eee0_enter(void *self, void *rec)
 
     g_in_eee0 = 1;
     g_cur_eee0_seq = ++g_eee0_seq;
+    g_eee0_native_valid = 0;
+    if (g_snap && g_bdd0_sp > 0) {
+        bdd0_frame *fr = &g_bdd0_stack[g_bdd0_sp - 1];
+        g_eee0_native_order = fr->call_order++;
+        g_eee0_native_seq = fr->seq;
+        g_eee0_native_ecx = (int)(size_t)self;
+        g_eee0_native_arg = (int)(size_t)rec;
+        g_eee0_native_valid = 1;
+    }
     g_eee0_b9_valid = 0;
     g_eee0_b9_null = 0;
     g_eee0_b9_addr = 0;
@@ -1371,6 +1390,7 @@ void battle_capture_eee0_exit(int code, void *self)
 
     if (!g_enabled || g_closed) {
         g_in_eee0 = 0;
+        g_eee0_native_valid = 0;
         return;
     }
     if (!g_eee0_b9_valid && g_path_n == CAP_WORDS && g_path[0] != 0x7fffffff) {
@@ -1388,6 +1408,15 @@ void battle_capture_eee0_exit(int code, void *self)
         g_eee0_b9_valid = 1;
     }
     g_in_eee0 = 0;
+
+    if (g_eee0_native_valid && g_snap && g_file != NULL) {
+        int a[1];
+        a[0] = g_eee0_native_arg;
+        battle_capture_bdd0_native_rec(0x44cbd0, 0x45eee0, 0, 0 /* NS_K_INT */,
+                                       g_eee0_native_ecx, a, 1, code, NULL, 0,
+                                       g_eee0_native_seq, g_eee0_native_order, 0);
+        g_eee0_native_valid = 0;
+    }
 
     if (ai == NULL) {
         return;
@@ -1714,7 +1743,7 @@ void battle_capture_bdd0_leaf(int va, const void *ecx, const int *args,
         return;                          /* вне тика 44bdd0 / v12 выключен */
     }
     fr = &g_bdd0_stack[g_bdd0_sp - 1];
-    order = fr->leaf_order++;
+    order = fr->call_order++;
     battle_capture_bdd0_leaf_rec(va, ecx, args, nargs, ret, w, nw,
                                  fr->seq, order, 0);
 }
@@ -1743,7 +1772,7 @@ static int cap_leaf_sink_enter(int va, int ecx, const int *args, int nargs)
     }
     fr = &g_bdd0_stack[g_bdd0_sp - 1];
     g_leaf_q_seq[g_leaf_q_n] = fr->seq;
-    g_leaf_q_order[g_leaf_q_n] = fr->leaf_order++;
+    g_leaf_q_order[g_leaf_q_n] = fr->call_order++;
     return g_leaf_q_n++;
 }
 
@@ -1783,9 +1812,130 @@ static const leaf_sink g_leaf_sink = {
     cap_leaf_sink_enter, cap_leaf_sink_exit, cap_leaf_sink_missing
 };
 
+/* ------------------- v12: bdd0_native (не-листовые вызовы) --------------- */
+static const char *ns_kind_name(int kind)
+{
+    switch (kind) {
+    case NS_K_AL:   return "al";
+    case NS_K_F32:  return "f32";
+    case NS_K_VOID: return "void";
+    default:        return "int";          /* INT / PTR / PTR_W3 */
+    }
+}
+
+static const char *ns_slot_name(int slot)
+{
+    switch (slot) {
+    case NS_SLOT_U28: return "u+0x28";
+    case NS_SLOT_U2C: return "u+0x2c";
+    case NS_SLOT_U38: return "u+0x38";
+    case NS_SLOT_U40: return "u+0x40";
+    default:          return NULL;
+    }
+}
+
+void battle_capture_bdd0_native_rec(int site, int target, int slot, int kind,
+                                    int ecx, const int *args, int nargs,
+                                    int ret, const int *w, int nw,
+                                    int seq, int order, int trap)
+{
+    const char *slot_name = ns_slot_name(slot);
+    int k;
+
+    if (g_file == NULL) return;
+    fprintf(g_file, "{\"v\":%d,\"kind\":\"bdd0_native\",\"seq\":%d,\"order\":%d,"
+            "\"site\":\"%x\",\"va\":\"%x\",",
+            CAP_BDD0_SNAP_VER, seq, order, site, target);
+    if (slot_name != NULL) {
+        fprintf(g_file, "\"slot\":\"%s\",", slot_name);
+    }
+    fprintf(g_file, "\"ecx\":%d,\"args\":[", ecx);
+    for (k = 0; k < nargs; k++) {
+        fprintf(g_file, "%s%d", k ? "," : "", (args != NULL) ? args[k] : 0);
+    }
+    fprintf(g_file, "],\"ret\":%d,\"ret_kind\":\"%s\"", ret, ns_kind_name(kind));
+    if (w != NULL && nw > 0) {
+        fputs(",\"w\":[", g_file);
+        for (k = 0; k < nw; k++) {
+            fprintf(g_file, "%s%d", k ? "," : "", w[k]);
+        }
+        fputc(']', g_file);
+    }
+    fprintf(g_file, ",\"trap\":%d}\n", trap);
+}
+
+void battle_capture_native_skipped(int site, int target, const char *why)
+{
+    if (!g_enabled || g_closed || g_file == NULL) return;
+    fprintf(g_file, "{\"v\":%d,\"kind\":\"native_site_skipped\",\"site\":\"%x\","
+            "\"va\":\"%x\",\"why\":\"%s\"}\n",
+            CAP_BDD0_SNAP_VER, site, target, (why != NULL) ? why : "");
+}
+
+#define NS_Q_MAX BDD0_STACK_MAX
+typedef struct {
+    int seq, order, site, target, slot, kind, ecx, nargs;
+    int args[8];
+} ns_q_ent;
+static ns_q_ent g_ns_q[NS_Q_MAX];
+static int g_ns_q_n = 0;
+
+static int cap_native_sink_enter(int site, int target, int slot, int kind,
+                                 int ecx, const int *args, int nargs)
+{
+    bdd0_frame *fr;
+    ns_q_ent *q;
+    int i;
+
+    if (!g_snap || !g_enabled || g_closed || g_file == NULL || g_bdd0_sp <= 0) {
+        return -1;
+    }
+    if (g_ns_q_n >= NS_Q_MAX) return -1;
+    fr = &g_bdd0_stack[g_bdd0_sp - 1];
+    q = &g_ns_q[g_ns_q_n];
+    q->seq = fr->seq;
+    q->order = fr->call_order++;
+    q->site = site;
+    q->target = target;
+    q->slot = slot;
+    q->kind = kind;
+    q->ecx = ecx;
+    q->nargs = (nargs > 0 && nargs <= 8) ? nargs : 0;
+    for (i = 0; i < 8; i++) q->args[i] = (args != NULL && i < q->nargs)
+                                        ? args[i] : 0;
+    return g_ns_q_n++;
+}
+
+static void cap_native_sink_exit(int token, int site, int target, int slot,
+                                 int kind, int ecx, const int *args, int nargs,
+                                 int ret_bits, const int *w, int nw, int trap)
+{
+    ns_q_ent q;
+
+    if (token < 0 || token >= g_ns_q_n) return;
+    if (token != g_ns_q_n - 1) trap = 1;      /* LIFO рассинхрон */
+    q = g_ns_q[token];
+    g_ns_q_n = token;
+    (void)site; (void)target; (void)slot; (void)kind; (void)ecx;
+    (void)args; (void)nargs;
+    battle_capture_bdd0_native_rec(q.site, q.target, q.slot, q.kind, q.ecx,
+                                   q.args, q.nargs, ret_bits, w, nw, q.seq,
+                                   q.order, trap);
+}
+
+static void cap_native_sink_missing(int site, int target, const char *why)
+{
+    battle_capture_native_skipped(site, target, why);
+}
+
+static const native_sink g_native_sink = {
+    cap_native_sink_enter, cap_native_sink_exit, cap_native_sink_missing
+};
+
 static void cap_leaf_sink_register(void)
 {
     leaf_sites_set_sink(&g_leaf_sink);
+    native_sites_set_sink(&g_native_sink);
 }
 
 int battle_capture_snap_enabled(void)
@@ -1839,13 +1989,22 @@ void battle_capture_bdd0_enter(void *self, void *esp)
     seq = ++g_bdd0_seq;
     g_bdd0_stack[g_bdd0_sp].seq = seq;
     g_bdd0_stack[g_bdd0_sp].self = self;
-    g_bdd0_stack[g_bdd0_sp].leaf_order = 0;   /* v12: счётчик листьев этого вызова */
+    g_bdd0_stack[g_bdd0_sp].call_order = 0;  /* v12: общий счётчик leaf+native */
     g_bdd0_sp++;
     /* v12: новый вызов 44bdd0 — LIFO листьев прошлого вызова не должен
      * переноситься (несбалансированный вход/выход после SEH-размотки). */
     if (g_bdd0_sp == 1) {
         g_leaf_q_n = 0;
+        g_ns_q_n = 0;
         leaf_sites_reset();
+        native_sites_reset();
+    }
+    /* v12: косвенные вызовы тела идут через vtable unit'а; ставим слот-хуки
+     * один раз на vtable (идемпотентно). */
+    if (g_snap && self != NULL) {
+        char nswhy[128];
+        nswhy[0] = '\0';
+        native_sites_vtable_arm(self, nswhy, (int)sizeof(nswhy));
     }
     fprintf(g_file, "{\"v\":%d,\"kind\":\"bdd0_cap\",\"seq\":%d,\"tick\":%d,"
             "\"unit\":%d,\"fn\":\"44bdd0\",\"self\":%d,\"p1\":%d,\"p2\":%d,"
