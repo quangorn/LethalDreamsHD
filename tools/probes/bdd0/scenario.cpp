@@ -326,6 +326,14 @@ static void apply_leaf(LeafRec &l, const JVal &v)
     } else if (va != NULL && va->t == JVal::NUM) {
         l.va = (int)va->n;
     }
+    {
+        const JVal *site = jget(v, "site");
+        if (site != NULL && site->t == JVal::STR) {
+            l.site = (int)strtoul(site->s.c_str(), NULL, 16);
+        } else if (site != NULL && site->t == JVal::NUM) {
+            l.site = (int)site->n;
+        }
+    }
     l.ecx = (int)jint_opt(v, "ecx", 0);
     l.ret = (int)jint_opt(v, "ret", 0);
     l.trap = (int)jint_opt(v, "trap", 0);   /* старые записи поля не имеют */
@@ -386,6 +394,12 @@ static void apply_native(NativeRec &n, const JVal &v)
     if (w != NULL && w->t == JVal::ARR) {
         for (size_t i = 0; i < w->a.size() && n.nw < 3; i++) {
             if (w->a[i].t == JVal::NUM) n.w[n.nw++] = (int)w->a[i].n;
+        }
+    }
+    const JVal *ww = jget(v, "ww");
+    if (ww != NULL && ww->t == JVal::ARR) {
+        for (size_t i = 0; i < ww->a.size() && n.nww < 32; i++) {
+            if (ww->a[i].t == JVal::NUM) n.ww[n.nww++] = (int)ww->a[i].n;
         }
     }
 }
@@ -542,6 +556,13 @@ Scenario *load_capture(const char *path)
         while (ni < natives.size() && natives[ni].first == t.seq) ni++;
         t.native_first = (int)nfirst;
         t.native_n = (int)(ni - nfirst);
+        t.native_eee0_no_ww = 0;
+        for (size_t k = nfirst; k < ni; k++) {
+            if (natives[k].second.va == 0x45eee0 &&
+                natives[k].second.nww == 0) {
+                t.native_eee0_no_ww = 1;
+            }
+        }
         std::map<int, ResRec>::const_iterator it = res_by_seq.find(t.seq);
         if (it != res_by_seq.end()) {
             t.has_res = 1;

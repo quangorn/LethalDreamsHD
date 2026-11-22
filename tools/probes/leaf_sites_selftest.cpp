@@ -94,10 +94,10 @@ static int __declspec(naked) call_w3_site(int arg)
 }
 
 /* ------------------------- обработчики (как в игре) ---------------------- */
-LS_SITE(901, 0xDEAD0001, 1, 4, INT, LS_K_INT)
-LS_SITE(902, 0xDEAD0002, 1, 4, F32, LS_K_F32)
-LS_SITE(903, 0xDEAD0003, 1, 4, AL,  LS_K_AL)
-LS_SITE(904, 0xDEAD0004, 1, 4, INT, LS_K_INT_W3_RET)
+LS_SITE(901, 0x44C100, 0xDEAD0001, 1, 4, INT, LS_K_INT)
+LS_SITE(902, 0x44C110, 0xDEAD0002, 1, 4, F32, LS_K_F32)
+LS_SITE(903, 0x44C120, 0xDEAD0003, 1, 4, AL,  LS_K_AL)
+LS_SITE(904, 0x44C130, 0xDEAD0004, 1, 4, INT, LS_K_INT_W3_RET)
 
 /* ------------------------------- sink ------------------------------------ */
 typedef struct {
@@ -113,8 +113,9 @@ static rec  g_rec[8];
 static int  g_nrec = 0;
 static int  g_missing = 0;
 
-static int sink_enter(int va, int ecx, const int *args, int nargs)
+static int sink_enter(int site, int va, int ecx, const int *args, int nargs)
 {
+    (void)site;
     rec *r = &g_rec[g_nrec];
     memset(r, 0, sizeof(*r));
     r->va = va;

@@ -60,7 +60,7 @@ struct leaf_site_def {
  * exit вызывается ровно один раз на удачный enter (LIFO). w/nw — dword'ы,
  * записанные листом через указатель; trap=1 — запись неполная. */
 struct leaf_sink {
-    int  (*enter)(int va, int ecx, const int *args, int nargs);
+    int  (*enter)(int site_va, int va, int ecx, const int *args, int nargs);
     void (*exit)(int token, int va, int ecx, const int *args, int nargs,
                  int ret_bits, const int *w, int nw, int trap);
     void (*missing)(int site_va, int target_va, const char *why);
@@ -92,7 +92,7 @@ extern volatile int g_ls_ret_n;
 extern void *g_ls_ret_stk[LS_RET_MAX];
 
 /* C-хелперы обработчиков (cdecl). Не для прямого вызова из игры. */
-void __cdecl cap_leaf_args_record(int va, int kind, int ecx,
+void __cdecl cap_leaf_args_record(int site, int va, int kind, int ecx,
                                   const int *args, int nargs);
 void __cdecl cap_leaf_finish(int va, int ret_bits);
 
@@ -137,7 +137,7 @@ void __cdecl cap_leaf_finish(int va, int ret_bits);
     __asm add esp, 8                                                         \
     __asm fld dword ptr [g_ls_f32_##N]
 
-#define LS_SITE(N, VA, NARGS, RETN, CAPK, RECK)                              \
+#define LS_SITE(N, SITE, VA, NARGS, RETN, CAPK, RECK)                        \
     void *g_ls_orig##N = NULL;                                               \
     static float g_ls_f32_##N = 0.0f;                                        \
     void __declspec(naked) cap_ls##N##_cont(void)                            \
@@ -162,8 +162,9 @@ void __cdecl cap_leaf_finish(int va, int ret_bits);
         __asm push dword ptr [esi+0x18]       /* ECX на входе сайта */       \
         __asm push RECK                                                      \
         __asm push VA                                                        \
+        __asm push SITE                                                      \
         __asm call cap_leaf_args_record                                      \
-        __asm add esp, 20                                                    \
+        __asm add esp, 24                                                    \
         __asm popad                                                          \
         __asm popfd                                                          \
         __asm mov dword ptr [esp], offset cap_ls##N##_cont                   \

@@ -76,6 +76,9 @@ struct Arena {
     int out_known;
     int handle_miss;
     char miss_why[192];
+    unsigned miss_raw[16];
+    int miss_raw_n;
+    const TickRecord *rec;
     int leaf_nodes;
 };
 
@@ -193,8 +196,50 @@ const char *arena_handle_miss_why(const Arena *a)
     return (a == NULL) ? "" : a->miss_why;
 }
 
+/* Trap attribution: 1 iff `addr` is a pointer the materialisation did not bind.
+ * Bound if it lies in any raw binding range; unbound if it equals a recorded
+ * miss or is a raw pointer dword present in the input snapshot. */
+int arena_fault_unbound(Arena *a, unsigned long addr)
+{
+    int i;
+    const TickRecord *r;
+    unsigned v = (unsigned)addr;
+
+    if (a == NULL || v == 0) return 0;
+    for (i = 0; i < a->bind_n; i++) {
+        if (v >= a->binds[i].raw && v < a->binds[i].raw + a->binds[i].size) {
+            return 0;
+        }
+    }
+    for (i = 0; i < a->miss_raw_n; i++) {
+        if (v == a->miss_raw[i]) return 1;
+    }
+    r = a->rec;
+    if (r == NULL) return 0;
+    {
+        const struct { const unsigned char *p; int n; } blk[] = {
+            { r->unit, BDD0_UNIT_LEN },
+            { r->frame, BDD0_FRAME_LEN },
+            { r->ai, BDD0_AI_LEN },
+            { r->gs, BDD0_GS_LEN },
+            { r->band, r->band_n * BDD0_BAND_ELEM }
+        };
+        for (int b = 0; b < (int)(sizeof(blk) / sizeof(blk[0])); b++) {
+            for (i = 0; i + 4 <= blk[b].n; i += 4) {
+                unsigned d;
+                memcpy(&d, blk[b].p + i, 4);
+                if (d == v) return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 static void miss(Arena *a, const char *what, unsigned raw)
 {
+    if (a->miss_raw_n < (int)(sizeof(a->miss_raw) / sizeof(a->miss_raw[0]))) {
+        a->miss_raw[a->miss_raw_n++] = raw;
+    }
     if (a->handle_miss == 0) {
         _snprintf_s(a->miss_why, sizeof(a->miss_why), _TRUNCATE,
                     "unmapped handle 0x%08x at %s", raw, what);
@@ -275,6 +320,8 @@ Arena *arena_build(const TickRecord *rec)
     a->out_known = 0;
     a->handle_miss = 0;
     a->miss_why[0] = '\0';
+    a->miss_raw_n = 0;
+    a->rec = rec;
     a->leaf_nodes = 0;
 
     /* 1. области: unit-блок 0x1b8 — объявленная область unit 0x180 плюс

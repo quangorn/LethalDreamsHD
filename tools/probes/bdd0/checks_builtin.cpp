@@ -38,6 +38,9 @@ static CheckResult chk_no_trap(const TickContext &tc)
         SKIP("hang: tick did not finish, state unknown");
     }
     if (tc.trapped) {
+        if (tc.trap_unbound) {
+            SKIP("trap at unbound materialisation pointer (attributed to handles)");
+        }
         return CheckResult{ 0, tc.trap_why, 0 };
     }
     OK();
@@ -194,13 +197,60 @@ static CheckResult chk_leaf_seq(const TickContext &tc)
  * материализован (иначе bounds/contract_min прогоняются на мусоре). */
 static CheckResult chk_handles(const TickContext &tc)
 {
+    if (tc.trap_unbound) {
+        return CheckResult{ 0, whyf(tc, "unbound pointer dereference at "
+                                        "0x%08x (trap attributed to handles)",
+                                    tc.trap_addr), 0 };
+    }
     if (tc.handle_miss) {
         return CheckResult{ 0, tc.handle_miss_why, 0 };
+    }
+    if (tc.trapped) {
+        SKIP("trap not attributable to unbound materialisation (no_trap)");
     }
     if (tc.hang) {
         SKIP("hang: pointer use not completed");
     }
     OK();
+}
+
+/* ------------------------- uninitialised native args --------------------- *
+ * Native stack slots that the called code does not initialise.  Comparing the
+ * port's deliberate zeros with native stack junk is meaningless.  Minimal list,
+ * evidence from the listing:
+ *   0x44c71b  `LEA EAX,[ESP+0x28]; PUSH EAX; CALL *0x38(EDX)` then
+ *             0x44c72b stores the returned world triple; the callee is not
+ *             required to write all three dwords, and 0x44c730 passes
+ *             arg[0] from that triple to 44bbf0.
+ */
+struct UninitArg {
+    int site, va, arg;
+    const char *why;
+};
+
+static const UninitArg k_uninit_args[] = {
+    { 0x44c730, 0x44bbf0, 0, "arg[0] uninitialised in native (0x44c71b)" },
+    { 0x44c730, 0x44bbf0, 1, "arg[1] uninitialised in native (0x44c71b)" },
+    { 0x44c730, 0x44bbf0, 2, "arg[2] uninitialised in native (0x44c71b)" }
+};
+
+static int g_uninit_skipped = 0;
+
+void bdd0_uninit_reset(void) { g_uninit_skipped = 0; }
+int bdd0_uninit_skipped(void) { return g_uninit_skipped; }
+
+/* site may be 0 in older bdd0_leaf records; then match target+arg and let the
+ * check report the reduced certainty instead of silently passing. */
+static const UninitArg *uninit_find(int site, int va, int arg)
+{
+    int i;
+    for (i = 0; i < (int)(sizeof(k_uninit_args) / sizeof(k_uninit_args[0]));
+         i++) {
+        const UninitArg *u = &k_uninit_args[i];
+        if (u->va != va || u->arg != arg) continue;
+        if (site == 0 || u->site == 0 || u->site == site) return u;
+    }
+    return NULL;
 }
 
 /* ------------------------------- leaf_args -------------------------------- */
@@ -377,7 +427,9 @@ static CheckResult chk_leaf_args(const TickContext &tc)
     first[0] = '\0';
     static char nocmp[96];
     nocmp[0] = '\0';
-    int mism = 0, ncmp = 0, nno = 0;
+    static char uninit[160];
+    uninit[0] = '\0';
+    int mism = 0, ncmp = 0, nno = 0, nuninit = 0;
 
     for (int i = 0; i < tc.log_n; i++) {
         const CallLogEnt &e = tc.log[i];
@@ -410,6 +462,20 @@ static CheckResult chk_leaf_args(const TickContext &tc)
             unsigned pv = (f < 0) ? (unsigned)e.ecx : (unsigned)e.args[f];
             unsigned nv = (f < 0) ? (unsigned)r->ecx : (unsigned)r->args[f];
             int ptr = (f < 0) ? 1 : abi->ptr[f];
+            if (f >= 0) {
+                const UninitArg *u = uninit_find(r->site, e.va, f);
+                if (u != NULL) {
+                    g_uninit_skipped++;
+                    nuninit++;
+                    if (uninit[0] == '\0') {
+                        _snprintf_s(uninit, sizeof(uninit), _TRUNCATE,
+                                    "%s; %s", u->why,
+                                    (r->site == 0) ? "site not recorded"
+                                                   : "site matched");
+                    }
+                    continue;
+                }
+            }
             int res = ptr ? cmp_ptr(tc, fa, pv, nv)
                           : ((pv == nv) ? AC_EQ : AC_NE);
             if (res == AC_EQ) {
@@ -483,6 +549,9 @@ static CheckResult chk_leaf_args(const TickContext &tc)
         }
         return CheckResult{ 0, first, 0 };
     }
+    if (nuninit > 0) {
+        return CheckResult{ 1, uninit, 1 };
+    }
     if (nno > 0) {
         /* ни одного расхождения, но часть адресов сравнить не с чем */
         return CheckResult{ 1, whyf(tc, "%d address field(s) not comparable "
@@ -554,6 +623,9 @@ static CheckResult chk_res_match(const TickContext &tc)
     int ok_al = (al_port == al_rec);
     int ok_out = (tc.out_slot == tc.rec->res_out);
     int ok_u170 = (tc.u170 == tc.rec->res_u170);
+    if (!ok_u170 && tc.rec->native_eee0_no_ww && ok_al && ok_out) {
+        SKIP("u170 writes not captured in bdd0_native (older 45eee0 record)");
+    }
     if (!ok_al || !ok_out || !ok_u170) {
         return CheckResult{ 0, whyf(tc, "outcome mismatch: al port=%d "
                                         "native=%d; out port=%d native=%d; "
@@ -664,7 +736,9 @@ static CheckResult chk_native_args(const TickContext &tc)
     fa.set = 0;
     static char first[224];
     first[0] = '\0';
-    int mism = 0, ncmp = 0, unbound = 0;
+    static char uninit[160];
+    uninit[0] = '\0';
+    int mism = 0, ncmp = 0, unbound = 0, nuninit = 0;
     char unb[128];
     unb[0] = '\0';
 
@@ -709,6 +783,18 @@ static CheckResult chk_native_args(const TickContext &tc)
                 pv = (unsigned)e.args[f];
                 nv = (unsigned)r->args[f];
                 ptr = abi->ptr[f];
+                const UninitArg *u = uninit_find(r->site, r->va, f);
+                if (u != NULL) {
+                    g_uninit_skipped++;
+                    nuninit++;
+                    if (uninit[0] == '\0') {
+                        _snprintf_s(uninit, sizeof(uninit), _TRUNCATE,
+                                    "%s; %s", u->why,
+                                    (r->site == 0) ? "site not recorded"
+                                                   : "site matched");
+                    }
+                    continue;
+                }
             }
             int res;
             if (ptr) {
@@ -754,6 +840,9 @@ static CheckResult chk_native_args(const TickContext &tc)
                             "(first reported)\n", tc.seq, mism);
         }
         return CheckResult{ 0, first, 0 };
+    }
+    if (nuninit > 0) {
+        return CheckResult{ 1, uninit, 1 };
     }
     if (unbound > 0) {
         return CheckResult{ 1, whyf(tc, "%d unbound pointer field(s) (%s); "

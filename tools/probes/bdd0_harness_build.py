@@ -34,7 +34,8 @@ _COMMON = [
 HARNESS = [os.path.join(_HERE, "bdd0_harness.cpp"),
            os.path.join(_HERE, "bdd0", "scenario.cpp"),
            os.path.join(_HERE, "bdd0", "impl_registry.cpp"),
-           os.path.join(_HERE, "bdd0", "native_replay.cpp")] + _COMMON
+           os.path.join(_HERE, "bdd0", "native_replay.cpp"),
+           os.path.join(_HERE, "bdd0", "path_diff.cpp")] + _COMMON
 SYNTH = [os.path.join(_HERE, "bdd0_synth.cpp"),
          os.path.join(_HERE, "bdd0", "native_model.cpp")] + _COMMON
 

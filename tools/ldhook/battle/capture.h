@@ -130,9 +130,10 @@ void battle_capture_bdd0_leaf(int va, const void *ecx, const int *args,
 
 /* v12: запись листа с явными seq/order (хуки call-сайтов: order выдаётся на
  * входе листа, seq — из кадра 44bdd0 на входе; trap=1 — запись неполная). */
-void battle_capture_bdd0_leaf_rec(int va, const void *ecx, const int *args,
-                                  int nargs, int ret, const int *w, int nw,
-                                  int seq, int order, int trap);
+void battle_capture_bdd0_leaf_rec(int site, int va, const void *ecx,
+                                  const int *args, int nargs, int ret,
+                                  const int *w, int nw, int seq, int order,
+                                  int trap);
 
 /* v12: запись результата НЕ-листового нативного вызова тела (`bdd0_native`).
  * Источник — хуки call-сайтов native_sites.*; kind — NS_K_*, slot — NS_SLOT_*
@@ -141,6 +142,7 @@ void battle_capture_bdd0_leaf_rec(int va, const void *ecx, const int *args,
 void battle_capture_bdd0_native_rec(int site, int target, int slot, int kind,
                                     int ecx, const int *args, int nargs,
                                     int ret, const int *w, int nw,
+                                    const int *ww, int nww,
                                     int seq, int order, int trap);
 
 /* v12: сайт не захукался (5-байтовая проверка/резолв) — маркер в захвате. */

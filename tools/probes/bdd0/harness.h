@@ -14,6 +14,7 @@
 #define BDD0_HARNESS_H
 
 #include <windows.h>
+#include <stdio.h>
 #include <vector>
 #include <string>
 
@@ -33,6 +34,7 @@
  * значения (ret/args/w) в ней недостоверны, replay её НЕ потребляет. */
 struct LeafRec {
     int order, va, ecx, nargs, args[6], ret, w[3], nw, trap;
+    int site;                  /* v12: call-site VA (0 = older record) */
 };
 
 /* v12: не-листовой нативный вызов тела (`bdd0_native`).  slot != 0 — косвенный
@@ -40,12 +42,14 @@ struct LeafRec {
  * kind: 0 int / 1 al / 2 f32 / 3 void / 4 ptr / 5 ptr+w. */
 struct NativeRec {
     int order, site, va, slot, kind, ecx, nargs, args[8], ret, w[3], nw, trap;
+    int ww[32], nww;             /* [unit_off, value] pairs (45eee0 state) */
     NativeRec()
         : order(0), site(0), va(0), slot(0), kind(0), ecx(0), nargs(0), ret(0),
-          nw(0), trap(0)
+          nw(0), trap(0), nww(0)
     {
         for (int i = 0; i < 8; i++) args[i] = 0;
         for (int i = 0; i < 3; i++) w[i] = 0;
+        for (int i = 0; i < 32; i++) ww[i] = 0;
     }
 };
 
@@ -53,8 +57,9 @@ struct NativeRec {
  * заполняются после сопоставления с записью bdd0_native. */
 struct NativeCallLogEnt {
     int order, site, va, slot, ecx, nargs, args[8];
+    int call_seq;              /* глобальный номер запроса (leaf+native) */
     NativeCallLogEnt()
-        : order(0), site(0), va(0), slot(0), ecx(0), nargs(0)
+        : order(0), site(0), va(0), slot(0), ecx(0), nargs(0), call_seq(0)
     {
         for (int i = 0; i < 8; i++) args[i] = 0;
     }
@@ -88,13 +93,15 @@ struct TickRecord {
     int leaf_first, leaf_n;
     /* окно bdd0_native этого seq (индексы в Scenario::natives) */
     int native_first, native_n;
+    int native_eee0_no_ww;     /* 45eee0 record without post-state writes */
     TickRecord()
         : seq(0), tick(0), unit_index(0), p1(0), p2(0), p3(0), u170_in(0),
           gate114(0), has_frame(0), has_unit(0), has_ai(0), has_band(0),
           has_gs(0), band_n(0), has_chain(0), e0(0), e0_44(0), tree(0),
           has_gctx0(0), gctx0(0), self_raw(0), band_raw(0), trap(0),
           has_res(0), res_trap(0), res_al(0), res_out(0), res_u170(0),
-          leaf_first(0), leaf_n(0), native_first(0), native_n(0)
+          leaf_first(0), leaf_n(0), native_first(0), native_n(0),
+          native_eee0_no_ww(0)
     {
         for (int i = 0; i < BDD0_FRAME_LEN; i++) frame[i] = 0;
         for (int i = 0; i < BDD0_UNIT_LEN; i++) unit[i] = 0;
@@ -144,6 +151,7 @@ struct CallLogEnt {
     int nargs;
     int args[6];
     int ret;
+    int call_seq;              /* глобальный номер запроса (leaf+native) */
 };
 
 /* --------------------------- контракт проверок ---------------------------- */
@@ -168,6 +176,7 @@ struct TickContext {
     int trapped;
     const char *trap_why;
     unsigned long trap_addr;
+    int trap_unbound;            /* trap at an unbound materialisation pointer */
     const RegionView *regions;       /* пост-состояние тика */
     int region_n;
     const RegionView *regions_before;/* входной снимок (тот же порядок имён) */
@@ -193,6 +202,10 @@ struct TickContext {
     const unsigned char *region(const char *name) const;
     const unsigned char *region_before(const char *name) const;
 };
+
+/* --path-diff diagnostic (not a check): recorded vs consumed call order. */
+void bdd0_path_diff(const Scenario *sc, const TickRecord *t,
+                    const TickContext &tc, FILE *json);
 
 /* CheckResult: why — стабильная строка проверки (ядро её только печатает).
  * skip=1 — проверке нечем мерить (ядро считает SKIP, а не pass). */
@@ -275,6 +288,8 @@ int arena_scan_writes(Arena *a, char *why, int cap);
 /* Пропущенные handle'ы снимка (указатель не был материализован). */
 int arena_handle_misses(const Arena *a);
 const char *arena_handle_miss_why(const Arena *a);
+/* 1 — адрес ловушки пришёл от неcвязанного указателя (см. handles). */
+int arena_fault_unbound(Arena *a, unsigned long addr);
 /* Перевод указателя из пространства игры в shadow-адрес (нативный слой). */
 void *arena_resolve_ptr(unsigned raw);
 /* Сколько opaque-узлов выдано листам вместо материализации (диагностика:
@@ -294,6 +309,7 @@ int bdd0_leaf_violations(void);
 const char *bdd0_leaf_violation_why(void);
 const CallLogEnt *bdd0_calllog(int *n);
 void bdd0_calllog_reset(void);
+const LeafRec *bdd0_leaf_record_at(int i);
 
 /* v12: поток bdd0_native текущего seq (replay не-листовых RECORD-нативов). */
 void bdd0_native_begin(int seq, const NativeRec *v, int n);
@@ -309,5 +325,9 @@ const NativeRec *bdd0_native_record_at(int i);
  * чтобы no-op'ы не выглядели проверенными. */
 int bdd0_unmodelled_calls(void);
 int bdd0_unmodelled_unit_ai_tick(void);
+
+/* v12: uninitialised native arguments skipped by leaf_args/native_args. */
+void bdd0_uninit_reset(void);
+int bdd0_uninit_skipped(void);
 
 #endif /* BDD0_HARNESS_H */

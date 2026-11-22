@@ -81,6 +81,7 @@ void *g_ls_ret_stk[LS_RET_MAX];
 
 /* ----------------------------- LIFO входов ------------------------------- */
 typedef struct {
+    int site;
     int va;
     int kind;
     int ecx;
@@ -106,7 +107,7 @@ void leaf_sites_reset(void)
     g_ls_ret_n = 0;
 }
 
-void __cdecl cap_leaf_args_record(int va, int kind, int ecx,
+void __cdecl cap_leaf_args_record(int site, int va, int kind, int ecx,
                                   const int *args, int nargs)
 {
     ls_ent *e;
@@ -117,6 +118,7 @@ void __cdecl cap_leaf_args_record(int va, int kind, int ecx,
         return;
     }
     e = &g_ls_ent[g_ls_depth];
+    e->site = site;
     e->va = va;
     e->kind = kind;
     e->ecx = ecx;
@@ -134,7 +136,7 @@ void __cdecl cap_leaf_args_record(int va, int kind, int ecx,
         }
     }
     if (g_ls_sink != NULL && g_ls_sink->enter != NULL) {
-        e->token = g_ls_sink->enter(va, ecx, e->args, e->nargs);
+        e->token = g_ls_sink->enter(site, va, ecx, e->args, e->nargs);
     }
     g_ls_depth++;
 }
@@ -184,38 +186,38 @@ void __cdecl cap_leaf_finish(int va, int ret_bits)
  * Порядок = порядок адресов сайтов. Номера фиксированы (на них ссылаются
  * `g_ls_orig<N>` и диагностика). */
 
-LS_SITE(1,  0x45c6f0, 1, 4,  INT, LS_K_INT_W3_ARG1)   /* 0x44bea1 */
-LS_SITE(2,  0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44bee7 */
-LS_SITE(3,  0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44bef2 */
-LS_SITE(4,  0x45af50, 0, 0,  INT, LS_K_INT)           /* 0x44bef9 */
-LS_SITE(5,  0x44bbf0, 4, 16, INT, LS_K_INT)           /* 0x44c247 */
-LS_SITE(6,  0x44bbf0, 4, 16, INT, LS_K_INT)           /* 0x44c276 */
-LS_SITE(7,  0x45c730, 0, 0,  INT, LS_K_INT)           /* 0x44c36f */
-LS_SITE(8,  0x45c730, 0, 0,  INT, LS_K_INT)           /* 0x44c37e */
-LS_SITE(9,  0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44c3b7 */
-LS_SITE(10, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44c3c6 */
-LS_SITE(11, 0x45af50, 0, 0,  INT, LS_K_INT)           /* 0x44c3cd */
-LS_SITE(12, 0x45c730, 0, 0,  INT, LS_K_INT)           /* 0x44c3fa */
-LS_SITE(13, 0x45c6f0, 1, 4,  INT, LS_K_INT_W3_ARG1)   /* 0x44c41c */
-LS_SITE(14, 0x403e80, 1, 4,  INT, LS_K_INT)           /* 0x44c423 */
-LS_SITE(15, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44c4c4 */
-LS_SITE(16, 0x45b150, 3, 12, F32, LS_K_F32)           /* 0x44c4cb */
-LS_SITE(17, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44c54d */
-LS_SITE(18, 0x45b3e0, 3, 12, AL,  LS_K_AL)            /* 0x44c554 */
-LS_SITE(19, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44c5d9 */
-LS_SITE(20, 0x45b150, 3, 12, F32, LS_K_F32)           /* 0x44c5e0 */
-LS_SITE(21, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44c65f */
-LS_SITE(22, 0x45b3e0, 3, 12, AL,  LS_K_AL)            /* 0x44c666 */
-LS_SITE(23, 0x45c6f0, 1, 4,  INT, LS_K_INT_W3_ARG1)   /* 0x44c6fc */
-LS_SITE(24, 0x44bbf0, 4, 16, INT, LS_K_INT)           /* 0x44c730 */
-LS_SITE(25, 0x458050, 6, 24, INT, LS_K_INT)           /* 0x44c7da */
-LS_SITE(26, 0x45e1d0, 2, 8,  INT, LS_K_INT_W3_RET)    /* 0x44c8c8 */
-LS_SITE(27, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44cd83 */
-LS_SITE(28, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44cd8e */
-LS_SITE(29, 0x45af50, 0, 0,  INT, LS_K_INT)           /* 0x44cd95 */
-LS_SITE(30, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44cfec */
-LS_SITE(31, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44cff7 */
-LS_SITE(32, 0x45af50, 0, 0,  INT, LS_K_INT)           /* 0x44cffe */
+LS_SITE(1,  0x44bea1, 0x45c6f0, 1, 4,  INT, LS_K_INT_W3_ARG1)   /* 0x44bea1 */
+LS_SITE(2,  0x44bee7, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44bee7 */
+LS_SITE(3,  0x44bef2, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44bef2 */
+LS_SITE(4,  0x44bef9, 0x45af50, 0, 0,  INT, LS_K_INT)           /* 0x44bef9 */
+LS_SITE(5,  0x44c247, 0x44bbf0, 4, 16, INT, LS_K_INT)           /* 0x44c247 */
+LS_SITE(6,  0x44c276, 0x44bbf0, 4, 16, INT, LS_K_INT)           /* 0x44c276 */
+LS_SITE(7,  0x44c36f, 0x45c730, 0, 0,  INT, LS_K_INT)           /* 0x44c36f */
+LS_SITE(8,  0x44c37e, 0x45c730, 0, 0,  INT, LS_K_INT)           /* 0x44c37e */
+LS_SITE(9,  0x44c3b7, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44c3b7 */
+LS_SITE(10, 0x44c3c6, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44c3c6 */
+LS_SITE(11, 0x44c3cd, 0x45af50, 0, 0,  INT, LS_K_INT)           /* 0x44c3cd */
+LS_SITE(12, 0x44c3fa, 0x45c730, 0, 0,  INT, LS_K_INT)           /* 0x44c3fa */
+LS_SITE(13, 0x44c41c, 0x45c6f0, 1, 4,  INT, LS_K_INT_W3_ARG1)   /* 0x44c41c */
+LS_SITE(14, 0x44c423, 0x403e80, 1, 4,  INT, LS_K_INT)           /* 0x44c423 */
+LS_SITE(15, 0x44c4c4, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44c4c4 */
+LS_SITE(16, 0x44c4cb, 0x45b150, 3, 12, F32, LS_K_F32)           /* 0x44c4cb */
+LS_SITE(17, 0x44c54d, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44c54d */
+LS_SITE(18, 0x44c554, 0x45b3e0, 3, 12, AL,  LS_K_AL)            /* 0x44c554 */
+LS_SITE(19, 0x44c5d9, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44c5d9 */
+LS_SITE(20, 0x44c5e0, 0x45b150, 3, 12, F32, LS_K_F32)           /* 0x44c5e0 */
+LS_SITE(21, 0x44c65f, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44c65f */
+LS_SITE(22, 0x44c666, 0x45b3e0, 3, 12, AL,  LS_K_AL)            /* 0x44c666 */
+LS_SITE(23, 0x44c6fc, 0x45c6f0, 1, 4,  INT, LS_K_INT_W3_ARG1)   /* 0x44c6fc */
+LS_SITE(24, 0x44c730, 0x44bbf0, 4, 16, INT, LS_K_INT)           /* 0x44c730 */
+LS_SITE(25, 0x44c7da, 0x458050, 6, 24, INT, LS_K_INT)           /* 0x44c7da */
+LS_SITE(26, 0x44c8c8, 0x45e1d0, 2, 8,  INT, LS_K_INT_W3_RET)    /* 0x44c8c8 */
+LS_SITE(27, 0x44cd83, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44cd83 */
+LS_SITE(28, 0x44cd8e, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44cd8e */
+LS_SITE(29, 0x44cd95, 0x45af50, 0, 0,  INT, LS_K_INT)           /* 0x44cd95 */
+LS_SITE(30, 0x44cfec, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44cfec */
+LS_SITE(31, 0x44cff7, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44cff7 */
+LS_SITE(32, 0x44cffe, 0x45af50, 0, 0,  INT, LS_K_INT)           /* 0x44cffe */
 
 #define LS_DEF(n, site, va, nargs, retn, kind)                                \
     { site, va, nargs, retn, kind, (void *)cap_ls##n##_hook, &g_ls_orig##n }

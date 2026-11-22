@@ -39,6 +39,7 @@ static int g_seq = 0;
 static int g_viol = 0;
 static char g_why[192];
 static int g_last_leaf_order = -1;
+static int g_call_seq = 0;
 static CallLogEnt g_log[LEAF_LOG_MAX];
 static int g_log_n = 0;
 /* Параллельно журналу: запись, с которой сопоставлен вызов (для проверки
@@ -53,6 +54,7 @@ void bdd0_leaf_begin(int seq, const LeafRec *v, int n)
     g_v = v; g_n = n; g_i = 0; g_seq = seq;
     g_viol = 0; g_why[0] = '\0';
     g_last_leaf_order = -1;
+    g_call_seq = 0;
     g_log_n = 0;
     for (int k = 0; k < LEAF_LOG_MAX; k++) {
         g_match[k] = NULL;
@@ -139,6 +141,7 @@ static const LeafRec *request(int va, const void *ecx, int nargs, const int *arg
     if (g_log_n < LEAF_LOG_MAX) {
         CallLogEnt &e = g_log[g_log_n];
         e.order = g_log_n;
+        e.call_seq = g_call_seq++;
         e.va = va;
         e.ecx = (int)(size_t)ecx;
         e.nargs = nargs;
@@ -223,6 +226,7 @@ void bdd0_native_begin(int seq, const NativeRec *v, int n)
     g_nviol = 0;
     g_nwhy[0] = '\0';
     g_nlog_n = 0;
+    g_call_seq = 0;
     for (int k = 0; k < NATIVE_LOG_MAX; k++) g_nmatch[k] = NULL;
     g_not_present = (n == 0);
 }
@@ -269,6 +273,7 @@ static const NativeRec *nrequest(int slot, int va, int ecx, const int *args,
     if (g_nlog_n < NATIVE_LOG_MAX) {
         le = &g_nlog[g_nlog_n];
         le->order = g_nlog_n;
+        le->call_seq = g_call_seq++;
         le->site = 0;
         le->va = va;
         le->slot = slot;
@@ -612,6 +617,17 @@ int unit_ai_tick(void *ai, void *rec)
     a[0] = (int)(size_t)rec;
     const NativeRec *r = nrequest(0, 0x45eee0, (int)(size_t)ai, a, 1);
     if (r == NULL) return 0;
+    /* v12 additive: 45eee0 writes BattleAI+0x00..0x38 (unit+0x138..0x170). */
+    if (r->nww > 0 && ai != NULL) {
+        unsigned char *u = (unsigned char *)ai - 0x138;
+        for (int k = 0; k + 1 < r->nww; k += 2) {
+            int off = r->ww[k];
+            unsigned val = (unsigned)r->ww[k + 1];
+            if (off >= 0 && arena_addr_ok(u + off, 4)) {
+                memcpy(u + off, &val, 4);
+            }
+        }
+    }
     return r->ret;
 }
 

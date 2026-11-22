@@ -146,11 +146,14 @@ struct Options {
     const char *capture;
     const char *impl;
     const char *json;
+    const char *path_diff_json;
     int from_seq, limit;
+    int path_diff;
     int verbose;
     std::vector<std::string> checks;      /* --check (пусто = все) */
     std::vector<std::string> no_checks;   /* --no-check */
-    Options() : capture(NULL), impl("port"), json(NULL), from_seq(-1), limit(-1),
+    Options() : capture(NULL), impl("port"), json(NULL),
+                path_diff_json(NULL), from_seq(-1), limit(-1), path_diff(0),
                 verbose(0) {}
 };
 
@@ -179,6 +182,11 @@ static int parse_args(int argc, char **argv, Options &o)
             o.limit = atoi(argv[++i]);
         } else if (strcmp(a, "--json") == 0 && i + 1 < argc) {
             o.json = argv[++i];
+        } else if (strcmp(a, "--path-diff") == 0) {
+            o.path_diff = 1;
+        } else if (strcmp(a, "--path-diff-json") == 0 && i + 1 < argc) {
+            o.path_diff_json = argv[++i];
+            o.path_diff = 1;
         } else if (strcmp(a, "--verbose") == 0) {
             o.verbose = 1;
         } else if (strcmp(a, "--budget-ms") == 0 && i + 1 < argc) {
@@ -255,6 +263,8 @@ int main(int argc, char **argv)
     Options opt;
     if (!parse_args(argc, argv, opt)) return usage();
 
+    fprintf(stderr, "bdd0_harness base=0x%08x\n",
+            (unsigned)(size_t)GetModuleHandleA(NULL));
     register_builtin_checks();
     register_builtin_impls();
 
@@ -313,6 +323,16 @@ int main(int argc, char **argv)
             return 2;
         }
     }
+    FILE *pathj = NULL;
+    if (opt.path_diff_json != NULL) {
+        pathj = fopen(opt.path_diff_json, "wb");
+        if (pathj == NULL) {
+            fprintf(stderr, "cannot write path-diff: %s\n", opt.path_diff_json);
+            if (rf != stdout) fclose(rf);
+            scenario_free(sc);
+            return 2;
+        }
+    }
 
     AddVectoredExceptionHandler(1, bdd0_veh);
 
@@ -321,6 +341,7 @@ int main(int argc, char **argv)
     std::map<std::string, int> skip_why;
     int ran = 0, fails = 0, traps = 0, hangs = 0, gs_missing = 0, leaf_nodes = 0;
     long long sum_wall = 0;
+    long long uninit_total = 0;
     int skipped_ticks = 0;
 
     for (size_t ti = 0; ti < sc->ticks.size(); ti++) {
@@ -475,13 +496,16 @@ int main(int argc, char **argv)
         tc.hang = hang;
         tc.trapped = (g_trap_n > 0) ? 1 : 0;
         tc.trap_addr = g_trap_fault;
+        tc.trap_unbound = tc.trapped
+                          ? arena_fault_unbound(arena, g_trap_fault) : 0;
         static char trap_buf[192];
         if (tc.trapped) {
             _snprintf_s(trap_buf, sizeof(trap_buf), _TRUNCATE,
-                        "trap 0x%08x (%s) at %s; pc=0x%08x", g_trap_code,
+                        "trap 0x%08x (%s) at %s%s; pc=0x%08x", g_trap_code,
                         g_trap_is_write ? "write" : "read/exec",
                         arena_why_addr(arena, g_trap_fault, why_addr,
                                        sizeof(why_addr)),
+                        tc.trap_unbound ? " [unbound materialisation]" : "",
                         g_trap_pc);
             tc.trap_why = trap_buf;
         } else {
@@ -536,6 +560,7 @@ int main(int argc, char **argv)
                     al, out_val, u170, wall_ms, tc.leaf_calls);
         }
 
+        bdd0_uninit_reset();
         for (size_t k = 0; k < enabled.size(); k++) {
             const CheckDef *cd = check_at(enabled[k]);
             CheckResult r;
@@ -572,6 +597,8 @@ int main(int argc, char **argv)
             }
         }
 
+        if (opt.path_diff) bdd0_path_diff(sc, &rec, tc, pathj);
+        uninit_total += bdd0_uninit_skipped();
         leaf_nodes += arena_leaf_nodes(arena);
         arena_set_current(NULL);
         arena_release(arena);
@@ -585,9 +612,9 @@ int main(int argc, char **argv)
         sum_skip += roll[i].skip;
     }
     printf("bdd0_harness summary: capture=%s impl=%s ticks=%d pass=%d skip=%d "
-           "fail=%d traps=%d hangs=%d avg_wall_ms=%lld\n",
+           "fail=%d traps=%d hangs=%d uninit_skipped=%lld avg_wall_ms=%lld\n",
            sc->name.c_str(), impl->name, ran, sum_pass, sum_skip, fails, traps,
-           hangs, ran ? sum_wall / ran : 0);
+           hangs, uninit_total, ran ? sum_wall / ran : 0);
 
     for (size_t k = 0; k < enabled.size(); k++) {
         const CheckDef *cd = check_at(enabled[k]);
@@ -640,6 +667,7 @@ int main(int argc, char **argv)
            "0 = every leaf pointer was materialised)\n", leaf_nodes);
 
     if (rf != stdout) fclose(rf);
+    if (pathj != NULL) fclose(pathj);
     scenario_free(sc);
     return fails > 0 ? 1 : 0;
 }
