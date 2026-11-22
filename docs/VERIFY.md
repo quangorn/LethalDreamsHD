@@ -43,13 +43,13 @@
 префикса `LethalDreams/`) → SNAPSHOT; basename+(size,crc) fallback; basename
 (без контента) → REPO_BASENAME; UNCOVERED — репорт.
 
-Замер на установке (5095 файлов, без `__pycache__`, 18.11.2026; `lethaldreams.dll` и
+Замер на установке (5096 файлов, без `__pycache__`, 22.11.2026; `lethaldreams.dll` и
 `LD-setup.bat` удалены из установки по решению пользователя):
 
-- PRISTINE **2967**, HD_PACK **1379** (включая 30 `data/maps/*.map` с 3x-почвой),
-  ALLOWED **728**, CODE **17**, EXCLUDED **4**, UNCOVERED **0**;
-  `hd.cfg` классифицируется как REPO; `console.py` — REPO_BASENAME; — артефакт
-  пайплайна, в git не входит
+- PRISTINE **2966**, HD_PACK **1379** (включая 30 `data/maps/*.map` с 3x-почвой),
+  ALLOWED **728**, CODE **18** (включая `globalscript.pyc` = `PRISTINE_IDENTICAL`), EXCLUDED **4**,
+  ARCHIVE_BASENAME **1** (`lethaldreams.dll`), REPO_BASENAME **1** (`console.py`, 0 B),
+  UNCOVERED **0**; `hd.cfg` — REPO (артефакт пайплайна, в git не входит).
 - allowlist: `data/video/*.wmv` (glob) + `.log`-класс; отсутствие
   `boolat.wmv`, `russobit_r.wmv` — разрешено (присутствуют в archive, отсутствуют
   в установках; run без exclude это доказывает);
