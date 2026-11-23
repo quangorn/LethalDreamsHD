@@ -84,6 +84,10 @@
 /* v12: снапшот входа `bdd0_in` + поток листьев `bdd0_leaf` (дефолт выключен,
  * обычные прогоны остаются малыми). */
 #define BATTLE_CAPTURE_SNAP_ENV "LDHOOK_BATTLE_CAPTURE_SNAP"
+/* Слой e0a0 (cap/res/grid/eee0_cap+res/листья cb40-c690-c5a0) пишет карты
+ * целиком и растёт с занятостью сетки — для захвата слоя 44bdd0 он не нужен.
+ * LDHOOK_BATTLE_CAPTURE_E0=0 выключает его и держит запись плоской. */
+#define BATTLE_CAPTURE_E0_ENV "LDHOOK_BATTLE_CAPTURE_E0"
 
 #define CAP_LEAF_PATH    0   /* FUN_0045cb40 — результат поиска пути */
 #define CAP_LEAF_HEUR    1   /* FUN_0045c690 — эвристика */

@@ -116,6 +116,8 @@ static int   g_enabled = 0;
 static FILE *g_file = NULL;
 static int   g_max_calls = CAP_MAX_CALLS;
 static int   g_snap = 0;           /* v12: LDHOOK_BATTLE_CAPTURE_SNAP=1 */
+static int   g_e0 = 1;             /* слой e0a0 (cap/res/grid/eee0_cap+res/листья): LDHOOK_BATTLE_CAPTURE_E0=0 выключает */
+static char  g_wbuf[1 << 20];      /* буферизованная запись: 1 МиБ, flush на конце тика */
 static int   g_seq = 0;            /* monotonic счётчик захваченных вызовов e0a0 */
 static int   g_eee0_seq = 0;       /* v9: независимый счётчик вызовов 45eee0 */
 static int   g_bdd0_seq = 0;       /* v10: независимый счётчик вызовов 44bdd0 */
@@ -262,7 +264,10 @@ void battle_capture_init(void)
         ld_info("battle_capture: fopen(%s) FAILED — capture OFF", path);
         return;
     }
-    setvbuf(g_file, NULL, _IONBF, 0);   /* сборочная запись: краш не теряет записи */
+    /* Буферизация 1 МиБ: записи по 1-3 МБ без буфера (WriteFile на каждый
+     * fprintf) тормозили игру; flush — на конце тика (bdd0/eee0 exit),
+     * поэтому краш теряет не больше последнего тика. */
+    setvbuf(g_file, g_wbuf, _IOFBF, sizeof(g_wbuf));
     g_nodes = (cap_node *)malloc((size_t)CAP_MAX_NODES * sizeof(cap_node));
     g_occ = (int *)malloc((size_t)CAP_MAX_NODES * sizeof(int));
     g_occ_nodes = (cap_occ_node *)malloc((size_t)CAP_MAX_NODES *
@@ -323,10 +328,16 @@ void battle_capture_init(void)
         if (sn != NULL && *sn != '\0' && atoi(sn) != 0) {
             g_snap = 1;
         }
+        sn = getenv(BATTLE_CAPTURE_E0_ENV);
+        if (sn != NULL && *sn != '\0' && atoi(sn) == 0) {
+            g_e0 = 0;   /* слой e0a0 не пишется и его листья не ставятся */
+        }
     }
-    cap_leaf_sink_register();
-    ld_info("battle_capture: %s=%s (max=%d snap=%d)", BATTLE_CAPTURE_ENV, path,
-            g_max_calls, g_snap);
+    if (g_e0) {
+        cap_leaf_sink_register();
+    }
+    ld_info("battle_capture: %s=%s (max=%d snap=%d e0=%d)", BATTLE_CAPTURE_ENV,
+            path, g_max_calls, g_snap, g_e0);
 }
 
 int battle_capture_enabled(void)
@@ -468,10 +479,12 @@ static void cap_read_band(BattleAI *self, unsigned int *begin,
     *ok = 0;
     __try {
         if (self != NULL) {
-            const unsigned char *band =
-                (const unsigned char *)self + CAP_BDD0_BAND_OFF;
-            *begin = *(const unsigned int *)(band + 0x20);
-            *end = *(const unsigned int *)(band + 0x24);
+            /* self = unit (ECX вызова 44bdd0): лента — BattleAI+0x3c, а сам
+             * BattleAI встроен со смещением 0x138 → unit+0x194/+0x198. */
+            const unsigned char *ai =
+                (const unsigned char *)self + CAP_BDD0_AI_OFF;
+            *begin = *(const unsigned int *)(ai + CAP_BDD0_BAND_BEGIN);
+            *end = *(const unsigned int *)(ai + CAP_BDD0_BAND_END);
             *ok = 1;
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -1128,6 +1141,9 @@ void battle_capture_tick_begin(void *unit, int tick, int unit_id)
 void battle_capture_e0a0_enter(void *this_, int filter, void *cmp,
                                void *timeout_bits, void *out_code)
 {
+    if (!g_e0) {
+        return;
+    }
     BattleAI *self = (BattleAI *)this_;
     unsigned int timer = 0xFFFFFFFFu, finalb = 0xFFFFFFFFu, distb = 0xFFFFFFFFu;
     unsigned int ctxflags = 0, worldscale = 0;
@@ -1244,6 +1260,9 @@ void battle_capture_e0a0_enter(void *this_, int filter, void *cmp,
 
 void battle_capture_eee0_enter(void *self, void *rec)
 {
+    if (!g_e0) {
+        return;
+    }
     BattleAI *ai = (BattleAI *)self;
     unsigned char *r = (unsigned char *)rec;
     int rec_w[7] = {0, 0, 0, 0, 0, 0, 0};
@@ -1395,6 +1414,9 @@ void battle_capture_eee0_enter(void *self, void *rec)
 
 void battle_capture_latch(void *cand)
 {
+    if (!g_e0) {
+        return;
+    }
     if (!g_enabled || g_closed) {
         return;
     }
@@ -1406,6 +1428,9 @@ void battle_capture_latch(void *cand)
 
 void battle_capture_eee0_exit(int code, void *self)
 {
+    if (!g_e0) {
+        return;
+    }
     BattleAI *ai = (BattleAI *)self;
     unsigned char *self_ptr = (unsigned char *)self;
     int s28 = 0, s2c = 0, s30 = -1, s38 = -1;
@@ -2195,10 +2220,15 @@ void battle_capture_bdd0_exit(int al, void *esp)
                 CAP_BDD0_VER, seq, g_tick, g_unit, al, u170, out, m0, m1, m2,
                 anc, tag, tri0, tri1, tri2, a4n, band_begin, band_end, trap);
     }
+    /* flush на конце тика: буферизация 1 МиБ, краш теряет последний тик */
+    fflush(g_file);
 }
 
 void battle_capture_leaf(int kind, int value, const int *words)
 {
+    if (!g_e0) {
+        return;
+    }
     if (!g_enabled || g_closed) {
         return;
     }
@@ -2263,6 +2293,9 @@ void battle_capture_leaf(int kind, int value, const int *words)
 
 void battle_capture_e0a0_exit(void *node)
 {
+    if (!g_e0) {
+        return;
+    }
     BattleAI *self = (BattleAI *)g_this;
     int code = -1, iters, node_x = -1, node_y = -1;
 

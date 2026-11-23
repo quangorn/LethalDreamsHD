@@ -191,6 +191,9 @@
 - `[P]` capture v13 (аддитивно, 23.11.2026): писатели через out-указатель (`42d9c0` → `ww`, ключи −1..−3),
   replay заполняет ими pos-тройку порта — `battle/capture.cpp`, `bdd0/native_replay.cpp`; гейт веток по id —
   `tools/probes/bdd0_coverage.py`.
+- `[P]` capture v14 (24.11.2026): `band` (begin/end ленты, `unit+0x194/0x198`) в `bdd0_in`/`bdd0_res`,
+  replay применяет его вместо реконструкции из `45af50` — `leaf_value` сравнивает заявки порта
+  (400 вызовов: pass 396). Слой e0a0 отключается `LDHOOK_BATTLE_CAPTURE_E0=0`; запись буферизована 1 МиБ.
 - `[P]` Scope Фазы 5 (решение 5.1c): порт — слой проводки; state/string/GUI site и 9 логических листьев
   нативны намеренно; таблица сайтов `bdd0_native` — `tools/probes/gen_native_sites.py` →
   `battle/native_sites_table.inc`, стубы эмитит `battle/native_sites.cpp`.
