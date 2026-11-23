@@ -250,7 +250,11 @@ static void read_block(const JVal &v, const char *key, unsigned char *dst,
 /* --------------------------------- загрузка ------------------------------ */
 struct ResRec {
     int al, out, u170, has, trap;
+    int has_band;
+    unsigned band_begin, band_end;
     unsigned m[3];
+    ResRec() : al(0), out(0), u170(0), has(0), trap(0), has_band(0),
+               band_begin(0), band_end(0) { m[0] = m[1] = m[2] = 0; }
 };
 
 static void apply_in(TickRecord &t, const JVal &v, int *bad)
@@ -266,6 +270,17 @@ static void apply_in(TickRecord &t, const JVal &v, int *bad)
     t.trap = (int)jint_opt(v, "trap", 0);   /* снимок снят при сбое */
     t.self_raw = (unsigned)jint_opt(v, "self", 0);
     t.band_raw = (unsigned)jint_opt(v, "band_begin", 0);
+    /* v13 (аддитивно): "band":[begin,end] — входное состояние ленты (BattleAI
+     * +0x3c+0x20/+0x24). Старые файлы ключа не имеют → has_band_state=0. */
+    {
+        const JVal *band = jget(v, "band");
+        if (band != NULL && band->t == JVal::ARR && band->a.size() >= 2 &&
+            band->a[0].t == JVal::NUM && band->a[1].t == JVal::NUM) {
+            t.has_band_state = 1;
+            t.band_in_begin = (unsigned)band->a[0].n;
+            t.band_in_end = (unsigned)band->a[1].n;
+        }
+    }
     int exact = 0;
     read_block(v, "frame_b64", t.frame, BDD0_FRAME_LEN, &t.has_frame, &exact);
     if (t.has_frame && !exact && bad != NULL) *bad |= 1;
@@ -314,6 +329,16 @@ static void apply_res(ResRec &r, const JVal &v)
     r.m[0] = (unsigned)jint_opt(v, "m0", 0);
     r.m[1] = (unsigned)jint_opt(v, "m1", 0);
     r.m[2] = (unsigned)jint_opt(v, "m2", 0);
+    /* v13 (аддитивно): после-состояние ленты (begin,end) из bdd0_res. */
+    {
+        const JVal *band = jget(v, "band");
+        if (band != NULL && band->t == JVal::ARR && band->a.size() >= 2 &&
+            band->a[0].t == JVal::NUM && band->a[1].t == JVal::NUM) {
+            r.has_band = 1;
+            r.band_begin = (unsigned)band->a[0].n;
+            r.band_end = (unsigned)band->a[1].n;
+        }
+    }
 }
 
 static void apply_leaf(LeafRec &l, const JVal &v)
@@ -582,6 +607,9 @@ Scenario *load_capture(const char *path)
             t.res_m[0] = it->second.m[0];
             t.res_m[1] = it->second.m[1];
             t.res_m[2] = it->second.m[2];
+            t.has_res_band = it->second.has_band;
+            t.band_post_begin = it->second.band_begin;
+            t.band_post_end = it->second.band_end;
         }
     }
     /* хвост оборван (захват убит mid-tick): seq без bdd0_res и он последний по

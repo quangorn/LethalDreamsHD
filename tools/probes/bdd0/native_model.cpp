@@ -45,8 +45,9 @@ const NativeRec *model_native_at(int i)
 }
 
 /* v12: реплей-слой в генераторе не читает поток. */
-void bdd0_native_begin(int seq, const NativeRec *v, int n)
-{ (void)seq; (void)v; (void)n; }
+void bdd0_native_begin(int seq, const NativeRec *v, int n,
+                       const TickRecord *rec)
+{ (void)seq; (void)v; (void)n; (void)rec; }
 int bdd0_native_calls(void) { return 0; }
 int bdd0_native_violations(void) { return 0; }
 const char *bdd0_native_violation_why(void) { return ""; }
@@ -98,7 +99,7 @@ static int record(int va, const void *ecx, int nargs, const int *args, int ret,
 
 static int record_native(int site, int target, int slot, int kind, int ecx,
                          const int *args, int nargs, int ret, const int *w,
-                         int nw)
+                         int nw, const int *ww = NULL, int nww = 0)
 {
     NativeRec r;
     r.order = g_order++;
@@ -113,6 +114,12 @@ static int record_native(int site, int target, int slot, int kind, int ecx,
     if (w != NULL && nw > 0) {
         r.nw = (nw > 3) ? 3 : nw;
         for (int k = 0; k < r.nw; k++) r.w[k] = w[k];
+    }
+    /* v14: ww-пары [unit_off, value] — после-состояние, записанное нативом
+     * (45eee0: BattleAI+0x00..0x38; band_rec: +0x3c+0x20/+0x24). */
+    if (ww != NULL && nww > 0) {
+        r.nww = (nww > 32) ? 32 : nww;
+        for (int k = 0; k < r.nww; k++) r.ww[k] = ww[k];
     }
     g_nat.push_back(r);
     return ret;
@@ -377,7 +384,25 @@ void pathfinder_init(void *pf)
 int unit_ai_tick(void *ai, void *rec)
 {
     int a[1]; a[0] = (int)g_env.scratch_game + 0xa4;
-    record_native(0x44cbd0, 0x45eee0, 0, 0, (int)g_env.self_game + 0x138, a, 1, 0, NULL, 0);
+    int ww[4] = { 0, 0, 0, 0 };
+    int nww = 0;
+    /* v14: 45eee0 перестраивает ленту — модель пишет после-состояние
+     * (begin,end) в BattleAI+0x3c+0x20/+0x24 (unit+0x194/+0x198) и отдаёт
+     * ww-пару [unit_off, value], как натив. Без этого запись остаётся в старой
+     * семантике (ww нет → resync-fallback). */
+    if (g_env.band_post_game != 0 && ai != NULL) {
+        unsigned begin = g_env.band_post_game;
+        unsigned end = begin + (unsigned)g_env.band_post_n * BDD0_BAND_ELEM;
+        memcpy((unsigned char *)ai + 0x3c + 0x20, &begin, 4);
+        memcpy((unsigned char *)ai + 0x3c + 0x24, &end, 4);
+        ww[0] = 0x138 + 0x3c + 0x20;
+        ww[1] = (int)begin;
+        ww[2] = 0x138 + 0x3c + 0x24;
+        ww[3] = (int)end;
+        nww = 4;
+    }
+    record_native(0x44cbd0, 0x45eee0, 0, 0, (int)g_env.self_game + 0x138, a, 1, 0,
+                  NULL, 0, ww, nww);
     return 0;
 }
 

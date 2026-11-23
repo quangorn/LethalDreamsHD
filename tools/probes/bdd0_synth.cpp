@@ -88,6 +88,9 @@ struct Profile {
     int grid_query;
     int anchor_null;
     unsigned a4n;          /* frame+0x38 (unit+0x74) */
+    int post_band_n;       /* v14: длина ленты ПОСЛЕ тика (45eee0 перестроил);
+                            * < 0 — ключ "band" в bdd0_res не писать (старый
+                            * захват, resync-fallback) */
 };
 
 static const Profile k_profiles[] = {
@@ -95,17 +98,24 @@ static const Profile k_profiles[] = {
      * (grid-anchor на цепочке unit+0xe0) → R14 (grid_recompute) → R17
      * (per-tick record, вторая deref цепочки). */
     { "grid", 1, 8, 0.0f, -1.0f, 0u, 0, 2, 0, 0, 0u, 0, 0,
-      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0x20000000u },
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0x20000000u, 2 },
     /* simple: фаза 3, u170=0 → B1..B8 → B9(≠1) → B12..B21 → join (out=1). */
     { "simple", 1, 0, 0.0f, 1.0f, 3u, 0, 0, 0, 0, 0u, 0, 0,
-      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u },
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, -1 },
     /* band: u170=1 и лента длиной 2 → B10/B11 → ранний выход R22. */
     { "band", 1, 0, 0.0f, 1.0f, 3u, 1, 2, 0, 0, 0u, 0, 0,
-      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u },
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, 2 },
     /* band0: u170=1, end != 0, но begin = 0 → 45af50 даёт 0 (TEST/JZ) →
      * голова NULL. Отличает правило begin==0 от «end != begin». */
     { "band0", 1, 0, 0.0f, 1.0f, 3u, 1, 2, 1, 1, 0u, 0, 0,
-      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u }
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, 2 },
+    /* band_rec: v14-кейс — входная лента ПУСТА (begin=end=0), u170=0
+     * (B9 не уводит в R22), тик доходит до R17, где 45eee0 перестраивает
+     * ленту в post_band_n элементов. bdd0_res несёт "band":[begin,end];
+     * bdd0_in — "band":[0,0]. Так харнесс применяет recorded-band
+     * (leaf_value PASS, не SKIP), а не resync. */
+    { "band_rec", 1, 8, 0.0f, -1.0f, 3u, 1, 0, 0, 0, 0u, 0, 0,
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, 1 }
 };
 
 /* Снимок по профилю: unit 0x180, встроенный BattleAI 0x80 (unit+0x138),
@@ -215,21 +225,27 @@ static void write_jsonl(FILE *f, const TickRecord &in, const TickRecord &post,
     unsigned self = in.self_raw;
     unsigned band_begin = in.band_raw;
     unsigned band_end = band_begin + (unsigned)in.band_n * BDD0_BAND_ELEM;
+    /* v14: после-состояние ленты — из профиля (45eee0 перестроил). */
+    unsigned post_begin = (pf.post_band_n > 0) ? GAME_BAND : 0u;
+    unsigned post_end = post_begin + (unsigned)pf.post_band_n * BDD0_BAND_ELEM;
+    int has_post = (pf.post_band_n >= 0);
     std::string fb = b64(in.frame, BDD0_FRAME_LEN);
     std::string ub = b64(in.unit, BDD0_UNIT_LEN);
     std::string ab = b64(in.ai, BDD0_AI_LEN);
     std::string bb = (in.band_n > 0) ? b64(in.band, in.band_n * BDD0_BAND_ELEM) : "";
     std::string gb = b64(in.gs, BDD0_GS_LEN);
 
-    fprintf(f, "{\"v\":12,\"kind\":\"bdd0_in\",\"seq\":%d,\"tick\":%d,\"unit\":%d,"
+    fprintf(f, "{\"v\":13,\"kind\":\"bdd0_in\",\"seq\":%d,\"tick\":%d,\"unit\":%d,"
                "\"fn\":\"44bdd0\",\"self\":%u,\"p1\":%d,\"p2\":%d,\"p3\":%d,"
-               "\"ai_ctx\":%u,\"u170\":%d,\"gate114\":%u,\"frame_b64\":\"%s\","
+               "\"ai_ctx\":%u,\"u170\":%d,\"gate114\":%u,\"band\":[%u,%u],"
+               "\"frame_b64\":\"%s\","
                "\"unit_b64\":\"%s\",\"ai_b64\":\"%s\",\"band_begin\":%u,"
                "\"band_end\":%u,\"band_cap\":%u,\"band_dirty\":1,\"band_count\":%d,"
                "\"band_b64\":\"%s\",\"gs_b64\":\"%s\",\"e0\":%u,\"e0_44\":%u,"
                "\"tree\":%u,\"gctx0\":%u,\"trap\":0}\n",
             in.seq, in.tick, in.unit_index, self, in.p1, in.p2, in.p3,
-            GAME_CTX, in.u170_in, in.gate114, fb.c_str(), ub.c_str(), ab.c_str(),
+            GAME_CTX, in.u170_in, in.gate114, band_begin, band_end,
+            fb.c_str(), ub.c_str(), ab.c_str(),
             band_begin, band_end, band_end, in.band_n, bb.c_str(), gb.c_str(),
             in.e0, in.e0_44, in.tree, in.gctx0);
 
@@ -276,15 +292,26 @@ static void write_jsonl(FILE *f, const TickRecord &in, const TickRecord &post,
             }
             fputc(']', f);
         }
+        /* v14: ww-пары [unit_off, value] — после-состояние натива
+         * (45eee0: BattleAI+0x00..0x38; band_rec: +0x3c+0x20/+0x24). */
+        if (r->nww > 0) {
+            fputs(",\"ww\":[", f);
+            for (int k = 0; k < r->nww; k++) {
+                fprintf(f, "%s%d", k ? "," : "", r->ww[k]);
+            }
+            fputc(']', f);
+        }
         fputs(",\"trap\":0}\n", f);
     }
 
     fprintf(f, "{\"v\":11,\"kind\":\"bdd0_res\",\"seq\":%d,\"tick\":%d,\"unit\":%d,"
                "\"fn\":\"44bdd0\",\"al\":%d,\"u170\":%d,\"out\":%d,"
                "\"m0\":%u,\"m1\":%u,\"m2\":%u,\"anc\":%d,\"tag\":%u,"
-               "\"tri0\":%u,\"tri1\":%u,\"tri2\":%u,\"a4n\":%d,\"trap\":0}\n",
+               "\"tri0\":%u,\"tri1\":%u,\"tri2\":%u,\"a4n\":%d,",
             seq, in.tick, in.unit_index, al, u170, out, m[0], m[1], m[2],
             pf.anchor_null ? 0 : 1, 0xebu, m[0], m[1], m[2], pf.a4n ? 1 : 0);
+    if (has_post) fprintf(f, "\"band\":[%u,%u],", post_begin, post_end);
+    fputs("\"trap\":0}\n", f);
 }
 
 /* Один тик: арена → модельный тик → запись. Возврат 0 при успехе. */
@@ -307,6 +334,10 @@ static int run_tick(FILE *f, const Profile &pf, int seq, int verbose)
     env.tree_game = in.tree;
     env.band_game = in.band_raw;
     env.scratch_game = GAME_SCRATCH;
+    /* v14: после-состояние ленты для модели 45eee0 (ww-пара [0x5c,0x60]).
+     * post_band_n < 0 — старая семантика без ww (resync-fallback). */
+    env.band_post_game = (pf.post_band_n > 0) ? GAME_BAND : 0u;
+    env.band_post_n = (pf.post_band_n > 0) ? pf.post_band_n : 0;
     ModelCfg cfg;
     cfg.grid_query = pf.grid_query;
     cfg.anchor_null = pf.anchor_null;
@@ -352,7 +383,7 @@ int main(int argc, char **argv)
 {
     if (argc < 2) {
         fputs("usage: bdd0_synth.exe <out.jsonl> "
-              "[grid|simple|band|band0|all] [-v]\n", stderr);
+              "[grid|simple|band|band0|band_rec|all] [-v]\n", stderr);
         return 2;
     }
     const char *out = argv[1];

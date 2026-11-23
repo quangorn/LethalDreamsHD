@@ -8,6 +8,10 @@ Positive: tools/probes/bdd0/corpus/synth_v12_native.jsonl
 Positive: tools/probes/bdd0/corpus/synth_band_begin_zero.jsonl
   rc 0, leaf_seq 1/0/0, leaf_value 1/0/0 — begin == 0 при end != 0: голова
   обязана быть NULL (правило TEST/JZ в 45af50), порт не идёт по длине.
+Positive: tools/probes/bdd0/corpus/synth_band_rec.jsonl
+  rc 0, leaf_value 1/0/0 — входная лента пуста, 45eee0 перестраивает её;
+  bdd0_res несёт "band":[begin,end], записанное в bdd0_native ww [0x5c,0x60];
+  реплей применяет recorded-band и claim головы СВЕРЯЕТСЯ (не SKIP).
 Negatives:
   dropped/trap/order      -> --check native_seq, rc 1
   corrupt_native_args     -> --check native_args, rc 1, arg mismatch reported
@@ -36,14 +40,17 @@ CORPUS = paths.win_path(os.path.join(_HERE, "bdd0", "corpus"))
 
 POS_EXPECT = {
     "synth_v12_native.jsonl": {
-        "native_seq": (3, 0, 0),
-        "native_args": (1, 2, 0),
-        "res_match": (3, 0, 0),
-        "state_match": (3, 0, 0),
-        "leaf_value": (1, 2, 0),
+        "native_seq": (4, 0, 0),
+        "native_args": (1, 3, 0),
+        "res_match": (4, 0, 0),
+        "state_match": (4, 0, 0),
+        "leaf_value": (2, 2, 0),
     },
     "synth_band_begin_zero.jsonl": {
         "leaf_seq": (1, 0, 0),
+        "leaf_value": (1, 0, 0),
+    },
+    "synth_band_rec.jsonl": {
         "leaf_value": (1, 0, 0),
     },
 }
@@ -52,6 +59,7 @@ POS_EXPECT = {
 CASES = [
     ("synth_v12_native.jsonl", 0, None),
     ("synth_band_begin_zero.jsonl", 0, None),
+    ("synth_band_rec.jsonl", 0, None),
     ("corrupt_native_dropped.jsonl", 1, "native_seq"),
     ("corrupt_native_trap.jsonl", 1, "native_seq"),
     ("corrupt_native_order.jsonl", 1, "native_seq"),

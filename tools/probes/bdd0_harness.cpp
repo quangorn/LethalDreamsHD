@@ -619,7 +619,7 @@ int main(int argc, char **argv)
         LeafRec *lv = (rec.leaf_n > 0) ? &sc->leaves[rec.leaf_first] : NULL;
         bdd0_leaf_begin(rec.seq, lv, rec.leaf_n);
         NativeRec *nv = (rec.native_n > 0) ? &sc->natives[rec.native_first] : NULL;
-        bdd0_native_begin(rec.seq, nv, rec.native_n);
+        bdd0_native_begin(rec.seq, nv, rec.native_n, &rec);
 
         /* --- тик --- */
         int al = 0, hang = 0;

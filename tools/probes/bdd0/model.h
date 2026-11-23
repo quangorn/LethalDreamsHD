@@ -20,6 +20,12 @@ struct ModelEnv {
     unsigned tree_game;
     unsigned band_game;    /* band_begin */
     unsigned scratch_game; /* стек-скретч вызывающего (out-тройки) */
+    /* v14: после-состояние ленты — 45eee0 перестраивает её внутри тика.
+     * band_post_game != 0 → модель пишет bdd0_native ww-пару [0x5c,0x60]
+     * (unit+0x194/+0x198 = BattleAI+0x3c+0x20/+0x24), как это делает натив;
+     * иначе (0) — старая запись без ww (resync-fallback). */
+    unsigned band_post_game;
+    int band_post_n;
 };
 
 struct ModelCfg {

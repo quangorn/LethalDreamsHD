@@ -75,6 +75,10 @@ struct TickRecord {
     unsigned gate114;
     int has_frame, has_unit, has_ai, has_band, has_gs;
     int band_n;
+    int has_band_state;        /* bdd0_in "band":[begin,end] присутствует */
+    unsigned band_in_begin, band_in_end;   /* входное состояние ленты (v13) */
+    int has_res_band;          /* bdd0_res "band":[begin,end] присутствует */
+    unsigned band_post_begin, band_post_end;  /* после-состояние ленты (v13) */
     int has_chain;             /* e0/e0_44/tree присутствуют в записи */
     unsigned e0, e0_44, tree;
     int has_gctx0;
@@ -103,11 +107,13 @@ struct TickRecord {
     TickRecord()
         : seq(0), tick(0), unit_index(0), p1(0), p2(0), p3(0), u170_in(0),
           gate114(0), has_frame(0), has_unit(0), has_ai(0), has_band(0),
-          has_gs(0), band_n(0), has_chain(0), e0(0), e0_44(0), tree(0),
+          has_gs(0), band_n(0), has_band_state(0), band_in_begin(0),
+          band_in_end(0), has_res_band(0), band_post_begin(0), band_post_end(0),
+          has_chain(0), e0(0), e0_44(0), tree(0),
           has_gctx0(0), gctx0(0), self_raw(0), band_raw(0), gs_raw(0), trap(0),
           has_res(0), res_trap(0), res_al(0), res_out(0), res_u170(0),
           leaf_first(0), leaf_n(0), native_first(0), native_n(0),
-           native_eee0_no_ww(0), incomplete_tail(0), res_missing_nontail(0)
+          native_eee0_no_ww(0), incomplete_tail(0), res_missing_nontail(0)
     {
         for (int i = 0; i < BDD0_FRAME_LEN; i++) frame[i] = 0;
         for (int i = 0; i < BDD0_UNIT_LEN; i++) unit[i] = 0;
@@ -359,7 +365,8 @@ int bdd0_leaf_claims(void);
 const LeafClaimEnt *bdd0_leaf_claim_at(int i);
 
 /* v12: поток bdd0_native текущего seq (replay не-листовых RECORD-нативов). */
-void bdd0_native_begin(int seq, const NativeRec *v, int n);
+void bdd0_native_begin(int seq, const NativeRec *v, int n,
+                       const TickRecord *rec);
 int bdd0_native_calls(void);
 int bdd0_native_violations(void);
 const char *bdd0_native_violation_why(void);

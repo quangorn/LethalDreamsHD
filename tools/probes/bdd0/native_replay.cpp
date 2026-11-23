@@ -61,6 +61,10 @@ static int g_mut_hit[B0_LEAF_MUTATOR_COUNT];
  * (band_resync_from_stream): вход листа известен, но сверка головы с длиной из
  * bdd0_leaf была бы тавтологией — claim помечается resync и leaf_value → SKIP. */
 static int g_band_resynced = 0;
+/* v13: 1 — после-состояние ленты (begin,end) применено из bdd0_res ("band"):
+ * вход листа известен и НЕ является тавтологией — claim головы сверяется
+ * (mutator'ы 45eee0 больше не форсируют SKIP). */
+static int g_band_applied = 0;
 
 /* Мутация «состоялась» (см. b0_leaf_mutators). Для 45eee0 это так и после
  * восстановления ленты: либо вход неизвестен, либо он реконструирован из
@@ -270,9 +274,12 @@ void bdd0_leaf_claim(unsigned int va, void *ecx, int ret, const int *args,
         e.rec = NULL;
         e.mut = 0;
         e.resync = 0;
-        /* вход листа менялся нативом внутри тика → значение не сверяемо */
+        /* вход листа менялся нативом внутри тика → значение не сверяемо.
+         * v13: если после-состояние ленты применено из bdd0_res ("band"),
+         * вход листа известен и сверка НЕ тавтология — claim сравнивается
+         * (mutator'ы 45eee0 не форсируют SKIP). */
         for (k = 0; k < B0_LEAF_MUTATOR_COUNT; k++) {
-            if (b0_leaf_mutators[k].leaf == va && mut_active(k)) {
+            if (b0_leaf_mutators[k].leaf == va && mut_active(k) && !g_band_applied) {
                 e.mut = k + 1;
                 e.resync = (b0_leaf_mutators[k].mutator == B0_VA_UNIT_AI_TICK) &&
                            g_band_resynced;
@@ -332,10 +339,14 @@ static int g_not_present = 1;
 static NativeCallLogEnt g_nlog[NATIVE_LOG_MAX];
 static const NativeRec *g_nmatch[NATIVE_LOG_MAX];
 static int g_nlog_n = 0;
+/* v13: запись текущего тика (recorded-band: bdd0_res "band":[begin,end]). */
+static const TickRecord *g_rec = NULL;
 
-void bdd0_native_begin(int seq, const NativeRec *v, int n)
+void bdd0_native_begin(int seq, const NativeRec *v, int n,
+                       const TickRecord *rec)
 {
     (void)seq;
+    g_rec = rec;
     g_nv = v;
     g_nn = n;
     g_ni = 0;
@@ -345,6 +356,7 @@ void bdd0_native_begin(int seq, const NativeRec *v, int n)
     g_nlog_n = 0;
     for (int k = 0; k < B0_LEAF_MUTATOR_COUNT; k++) g_mut_hit[k] = 0;
     g_band_resynced = 0;
+    g_band_applied = 0;
     g_call_seq = 0;
     for (int k = 0; k < NATIVE_LOG_MAX; k++) g_nmatch[k] = NULL;
     g_not_present = (n == 0);
@@ -794,13 +806,35 @@ static int band_resync_from_stream(void)
     return 0;
 }
 
+/* v13: после-состояние ленты (begin,end) записано в bdd0_res ("band").
+ * Реплей пишет begin/end в shadow unit+0x138+0x3c+0x20/+0x24 (та же область,
+ * что unit-снимок: BattleAI встроен), и claim головы становится сверяемым —
+ * band_resync (реконструкция длины из потока) выключается. Возврат 1 —
+ * состояние применено; 0 — поля нет (старый захват), работает resync. */
+static int band_apply_recorded(void)
+{
+    unsigned char *unit = arena_region_w(arena_current(), "unit");
+    unsigned begin, end;
+
+    if (unit == NULL || g_rec == NULL || !g_rec->has_res_band) return 0;
+    if (!arena_addr_ok(unit + BDD0_AI_OFF + B0_BATTLE_AI_BAND + 0x20, 8)) return 0;
+    begin = g_rec->band_post_begin;
+    end = g_rec->band_post_end;
+    memcpy(unit + BDD0_AI_OFF + B0_BATTLE_AI_BAND + 0x20, &begin, sizeof(begin));
+    memcpy(unit + BDD0_AI_OFF + B0_BATTLE_AI_BAND + 0x24, &end, sizeof(end));
+    return 1;
+}
+
 /* 45eee0 — unit-AI tick: код 0..4 управляет каскадом. */
 int unit_ai_tick(void *ai, void *rec)
 {
     int a[1];
     a[0] = (int)(size_t)rec;
     const NativeRec *r = nrequest(0, B0_VA_UNIT_AI_TICK, (int)(size_t)ai, a, 1);
-    g_band_resynced = band_resync_from_stream();   /* 45eee0 перестроил ленту */
+    /* v13: recorded-band имеет приоритет над resync (тот остаётся fallback'ом
+     * для захватов без "band" и там claim → SKIP, как раньше). */
+    g_band_applied = band_apply_recorded();
+    g_band_resynced = g_band_applied ? 0 : band_resync_from_stream();
     if (r == NULL) return 0;
     /* v12 additive: 45eee0 writes BattleAI+0x00..0x38 (unit+0x138..0x170). */
     if (r->nww > 0 && ai != NULL) {

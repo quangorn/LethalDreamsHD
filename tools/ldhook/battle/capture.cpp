@@ -60,7 +60,7 @@
 /* v12: снапшот входа (kind bdd0_in) и поток логических листьев (bdd0_leaf).
  * Версия только этих двух родов; пара bdd0_cap/res остаётся CAP_BDD0_VER (11),
  * cap/res/grid/eee0_* — CAP_VERSION (10). */
-#define CAP_BDD0_SNAP_VER   12
+#define CAP_BDD0_SNAP_VER   13         /* v13: bdd0_in/bdd0_res несут "band":[begin,end] */
 #define CAP_BDD0_FRAME_SIZE 0x168  /* локалы 0x00..0x15b + param_1/2/3 (0x15c/0x160/0x164) */
 /* unit-блок 0x180: покрывает все чтения unit из tick.cpp (максимум +0x170;
  * +0x138 — встроенный BattleAI, снимается отдельным блоком ниже). 0x180
@@ -77,6 +77,7 @@
 #define CAP_BDD0_BAND_END   0x60   /* BattleAI+0x24 */
 #define CAP_BDD0_BAND_CAP   0x64   /* BattleAI+0x28 */
 #define CAP_BDD0_BAND_DIRTY 0x7c   /* BattleAI+0x40 */
+#define CAP_BDD0_BAND_OFF   0x3c   /* v13: offset ленты в BattleAI (45c370) */
 #define CAP_BDD0_BAND_ELEM  0x18
 #define CAP_BDD0_BAND_MAX   64     /* потолок материализуемых элементов ленты */
 #define CAP_BDD0_GS_SIZE    0x20   /* объект FUN_00442570, читаемый телом */
@@ -452,6 +453,31 @@ static void cap_read_ai_words(BattleAI *self)
             memcpy(g_ai_words, self, sizeof(g_ai_words));
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+}
+
+/* v13 (аддитивно): голова/конец ленты BattleAI+0x3c+0x20/+0x24 — состояние,
+ * которое 45eee0 перестраивает внутри тика и которое до v13 в захвате не было
+ * записано (offliner восстанавливал длину из следующей записи 45af50).
+ * Чтение под __try; сбой → 0/0 и ok=0. */
+static void cap_read_band(BattleAI *self, unsigned int *begin,
+                          unsigned int *end, int *ok)
+{
+    *begin = 0;
+    *end = 0;
+    *ok = 0;
+    __try {
+        if (self != NULL) {
+            const unsigned char *band =
+                (const unsigned char *)self + CAP_BDD0_BAND_OFF;
+            *begin = *(const unsigned int *)(band + 0x20);
+            *end = *(const unsigned int *)(band + 0x24);
+            *ok = 1;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        *begin = 0;
+        *end = 0;
+        *ok = 0;
     }
 }
 
@@ -1723,10 +1749,10 @@ static void cap_write_bdd0_in(int seq, void *self, void *esp, int p1, int p2,
     if (gctx0_ok) {
         fprintf(g_file, ",\"gctx0\":%d", gctx0);
     }
-    fprintf(g_file, ",\"band_begin\":%u,\"band_end\":%u,"
+    fprintf(g_file, ",\"band\":[%u,%u],\"band_begin\":%u,\"band_end\":%u,"
             "\"band_cap\":%u,\"band_dirty\":%u,\"band_count\":%d,"
             "\"gs_ok\":%d,\"trap\":%d}\n",
-            bb, be, bc, bd, band_count, gs_ok, trap);
+            bb, be, bb, be, bc, bd, band_count, gs_ok, trap);
 }
 
 void battle_capture_bdd0_leaf_rec(int site, int va, const void *ecx,
@@ -2154,12 +2180,21 @@ void battle_capture_bdd0_exit(int al, void *esp)
         anc = -1; a4n = -1;
         tag = tri0 = tri1 = tri2 = 0xFFFFFFFFu;
     }
-    fprintf(g_file, "{\"v\":%d,\"kind\":\"bdd0_res\",\"seq\":%d,\"tick\":%d,"
-            "\"unit\":%d,\"fn\":\"44bdd0\",\"al\":%d,\"u170\":%d,\"out\":%d,"
-            "\"m0\":%u,\"m1\":%u,\"m2\":%u,\"anc\":%d,\"tag\":%u,"
-            "\"tri0\":%u,\"tri1\":%u,\"tri2\":%u,\"a4n\":%d,\"trap\":%d}\n",
-            CAP_BDD0_VER, seq, g_tick, g_unit, al, u170, out, m0, m1, m2,
-            anc, tag, tri0, tri1, tri2, a4n, trap);
+    /* v13 (аддитивно): после-состояние ленты (begin,end) от того же self, что
+     * и ai-снимок — 45eee0 перестроил её внутри тика, и офлайн-харнесс должен
+     * восстановить её точно, а не реконструировать длину из 45af50. */
+    {
+        unsigned int band_begin = 0, band_end = 0;
+        int band_ok = 0;
+        cap_read_band((BattleAI *)fr.self, &band_begin, &band_end, &band_ok);
+        fprintf(g_file, "{\"v\":%d,\"kind\":\"bdd0_res\",\"seq\":%d,\"tick\":%d,"
+                "\"unit\":%d,\"fn\":\"44bdd0\",\"al\":%d,\"u170\":%d,\"out\":%d,"
+                "\"m0\":%u,\"m1\":%u,\"m2\":%u,\"anc\":%d,\"tag\":%u,"
+                "\"tri0\":%u,\"tri1\":%u,\"tri2\":%u,\"a4n\":%d,"
+                "\"band\":[%u,%u],\"trap\":%d}\n",
+                CAP_BDD0_VER, seq, g_tick, g_unit, al, u170, out, m0, m1, m2,
+                anc, tag, tri0, tri1, tri2, a4n, band_begin, band_end, trap);
+    }
 }
 
 void battle_capture_leaf(int kind, int value, const int *words)
