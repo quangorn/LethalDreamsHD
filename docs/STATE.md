@@ -187,6 +187,10 @@
 - `[P]` Фаза 5 закрыта (22.11.2026): тело `44bdd0` R1–R22 портировано (`battle/ai_tick.cpp`, R23 нативен),
   детур на H1 (`0x44bdf5`) с возвратом в родной эпилог `0x44d074`; гейт — офлайн-replay на записанном
   состоянии, пройден (`bdd0_harness --impl port` rc 0); установка не тронута (`--quick` rc 0).
+  Гейт перепроверен на другом сейве (23.11.2026, 418 вызовов) на capture v13.
+- `[P]` capture v13 (аддитивно, 23.11.2026): писатели через out-указатель (`42d9c0` → `ww`, ключи −1..−3),
+  replay заполняет ими pos-тройку порта — `battle/capture.cpp`, `bdd0/native_replay.cpp`; гейт веток по id —
+  `tools/probes/bdd0_coverage.py`.
 - `[P]` Scope Фазы 5 (решение 5.1c): порт — слой проводки; state/string/GUI site и 9 логических листьев
   нативны намеренно; таблица сайтов `bdd0_native` — `tools/probes/gen_native_sites.py` →
   `battle/native_sites_table.inc`, стубы эмитит `battle/native_sites.cpp`.
