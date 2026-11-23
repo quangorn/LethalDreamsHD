@@ -3,8 +3,8 @@
  *
  * Десять логических листьев отвечают детерминированно и из снимка:
  *   45c6f0 ctx_pos_get      — пишет 3 dword `[ctx+0xc]` в out
- *   45c370 band_head        — `[ai+0x3c] != 0 ? ai+0x3c : NULL`
- *   45af50 band_count       — `([+0x24]−[+0x20])/0x18`
+ *   45c370 band_head        — begin==0 ? NULL : (count ? ai+0x3c : NULL)
+ *   45af50 band_count       — begin==0 ? 0 : ([+0x24]−[+0x20])/0x18
  *   45c730 band_cursor      — `[[[ctx]+0xc]+0xc]+0x234` (в синтетике NULL)
  *   45b150 band_interp_gate — ST(0) = arg1 + cfg.interp_add
  *   45b3e0 band_target_moved— cfg.moved
@@ -17,9 +17,11 @@
  * общим order. Каждый вызов пишется в поток с `ret` в ПРОСТРАНСТВЕ ИГРЫ.
  */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "../../ldhook/battle/native.h"
+#include "../../ldhook/battle/ported.h"
 #include "harness.h"
 #include "model.h"
 
@@ -70,6 +72,10 @@ const LeafRec *bdd0_leaf_record_at(int i) { (void)i; return NULL; }
 int bdd0_leaf_applied_w(int i, int *w3) { (void)i; (void)w3; return 0; }
 int bdd0_leaf_consumed(void) { return 0; }
 const LeafRec *bdd0_leaf_pending(void) { return NULL; }
+/* Заявки портированных листьев: генератор их не судит (поток он создаёт сам,
+ * проверки не запускаются). */
+int bdd0_leaf_claims(void) { return 0; }
+const LeafClaimEnt *bdd0_leaf_claim_at(int i) { (void)i; return NULL; }
 
 static int record(int va, const void *ecx, int nargs, const int *args, int ret,
                   const int *w, int nw)
@@ -114,6 +120,65 @@ static int record_native(int site, int target, int slot, int kind, int ecx,
 
 static unsigned rd(const void *p) { unsigned v; memcpy(&v, p, 4); return v; }
 
+/* Заявка портированного листа (battle/ported.h): в генераторе это ПРОИЗВОДИТЕЛЬ
+ * потока — запись bdd0_leaf пишется в игровом пространстве, как у модельных
+ * листьев. Порт (b0_band_head) считает значение в shadow-адресах, поэтому
+ * указатели переводятся в игровой адрес по правилу листа. Правило обязательно:
+ * порт без него писал бы shadow-адрес арены прямо в синтетический захват. */
+struct PortedLeafModel {
+    unsigned va;
+    int ret_ptr;               /* 1 — возврат указатель (нужно правило) */
+};
+
+static const PortedLeafModel k_ported_model[] = {
+    { B0_LEAF_BAND_HEAD, 1 }
+};
+
+static const PortedLeafModel *ported_model_find(unsigned va)
+{
+    for (int i = 0; i < (int)(sizeof(k_ported_model) /
+                               sizeof(k_ported_model[0])); i++) {
+        if (k_ported_model[i].va == va) return &k_ported_model[i];
+    }
+    return NULL;
+}
+
+void bdd0_leaf_claim(unsigned int va, void *ecx, int ret, const int *args,
+                     int nargs)
+{
+    const PortedLeafModel *pm = ported_model_find(va);
+    int game_ecx = 0;
+    int game_ret = ret;
+
+    if (pm == NULL) {
+        fprintf(stderr, "synth: ported leaf 0x%x has no model rule\n", va);
+        exit(2);
+    }
+    if (ecx != NULL) {
+        if (va == B0_LEAF_BAND_HEAD) {
+            /* получатель 45c370 — BattleAI = self+0x138 */
+            game_ecx = (int)g_env.self_game + BDD0_AI_OFF;
+        } else {
+            fprintf(stderr, "synth: ported leaf 0x%x has a receiver but no "
+                            "game-space rule\n", va);
+            exit(2);
+        }
+    }
+    if (pm->ret_ptr) {
+        if (va == B0_LEAF_BAND_HEAD) {
+            /* 45c370: значение != 0 → лента BattleAI+0x3c, иначе NULL */
+            game_ret = (ret != 0)
+                ? (int)g_env.self_game + BDD0_AI_OFF + 0x3c : 0;
+        } else {
+            fprintf(stderr, "synth: ported leaf 0x%x returns a pointer but "
+                            "has no game-space rule (shadow address would leak)\n",
+                    va);
+            exit(2);
+        }
+    }
+    record((int)va, (void *)(size_t)game_ecx, nargs, args, game_ret, NULL, 0);
+}
+
 namespace native {
 
 void *ctx_pos_get(void *ctx, float *out_f)
@@ -129,18 +194,32 @@ void *ctx_pos_get(void *ctx, float *out_f)
 
 void *band_head(void *ai)
 {
-    int found = (ai != NULL && rd((const unsigned char *)ai + 0x3c) != 0);
-    int ret = found ? (int)g_env.self_game : 0;   /* &BattleAI[0] == unit */
+    /* Голова ленты: длина 0 (begin == 0 или end == begin) → NULL, иначе
+     * &band (то же правило, что в теле листа и в порте b0_band_head). Запись —
+     * в ИГРОВОМ пространстве: адрес ленты = BattleAI+0x3c. Обёртка нужна
+     * только синтетике/ABI: порт 0x45c370 не запрашивает (b0_band_head). */
+    int n = 0;
+    if (ai != NULL) {
+        const unsigned char *band = (const unsigned char *)ai + 0x3c;
+        unsigned begin = rd(band + 0x20);
+        if (begin != 0) {
+            n = (int)(rd(band + 0x24) - begin) / BDD0_BAND_ELEM;
+        }
+    }
+    int ret = (n != 0) ? (int)g_env.self_game + BDD0_AI_OFF + 0x3c : 0;
     record(0x45c370, ai, 0, NULL, ret, NULL, 0);
-    return found ? (unsigned char *)ai + 0x3c : NULL;
+    return (n != 0) ? (unsigned char *)ai + 0x3c : NULL;
 }
 
 int band_count(void *band)
 {
     int n = 0;
     if (band != NULL) {
-        n = (int)(rd((const unsigned char *)band + 0x24) -
-                  rd((const unsigned char *)band + 0x20)) / BDD0_BAND_ELEM;
+        unsigned begin = rd((const unsigned char *)band + 0x20);
+        if (begin != 0) {
+            n = (int)(rd((const unsigned char *)band + 0x24) - begin) /
+                BDD0_BAND_ELEM;
+        }
     }
     return record(0x45af50, band, 0, NULL, n, NULL, 0);
 }

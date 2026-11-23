@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "harness.h"
+#include "../../ldhook/battle/ported.h"
 
 #define OK()        do { CheckResult r_ = { 1, "", 0 }; return r_; } while (0)
 #define FAIL(s)     do { CheckResult r_ = { 0, (s), 0 }; return r_; } while (0)
@@ -409,19 +410,20 @@ int bdd0_leaf_applied_w(int i, int *w3);        /* native_replay.cpp */
 struct LeafAbi {
     int va, nargs;
     int ptr[6];
+    int ret_ptr;               /* 1 — возврат указатель (символьно), 0 — int */
 };
 
 static const LeafAbi k_leaf_abi[] = {
-    { 0x45c6f0, 1, { 1, 0, 0, 0, 0, 0 } },   /* ctx_pos_get: out */
-    { 0x45c370, 0, { 0, 0, 0, 0, 0, 0 } },   /* band_head */
-    { 0x45af50, 0, { 0, 0, 0, 0, 0, 0 } },   /* band_count */
-    { 0x45c730, 0, { 0, 0, 0, 0, 0, 0 } },   /* band_cursor */
-    { 0x45b150, 3, { 0, 0, 0, 0, 0, 0 } },   /* band_interp_gate: bits/int/bits */
-    { 0x45b3e0, 3, { 0, 0, 0, 0, 0, 0 } },   /* band_target_moved: bits/int/bits */
-    { 0x403e80, 1, { 1, 0, 0, 0, 0, 0 } },   /* pos3_equal: b */
-    { 0x458050, 6, { 0, 0, 0, 0, 1, 1 } },   /* grid_anchor: flag_slot, world */
-    { 0x45e1d0, 2, { 1, 1, 0, 0, 0, 0 } },   /* grid_recompute: pos, req */
-    { 0x44bbf0, 4, { 0, 0, 0, 0, 0, 0 } }    /* grid_query: 4 dword */
+    { 0x45c6f0, 1, { 1, 0, 0, 0, 0, 0 }, 1 },   /* ctx_pos_get: out */
+    { 0x45c370, 0, { 0, 0, 0, 0, 0, 0 }, 1 },   /* band_head: &band */
+    { 0x45af50, 0, { 0, 0, 0, 0, 0, 0 }, 0 },   /* band_count */
+    { 0x45c730, 0, { 0, 0, 0, 0, 0, 0 }, 1 },   /* band_cursor */
+    { 0x45b150, 3, { 0, 0, 0, 0, 0, 0 }, 0 },   /* band_interp_gate: ST(0) bits */
+    { 0x45b3e0, 3, { 0, 0, 0, 0, 0, 0 }, 0 },   /* band_target_moved: AL */
+    { 0x403e80, 1, { 1, 0, 0, 0, 0, 0 }, 0 },   /* pos3_equal: 0/1 */
+    { 0x458050, 6, { 0, 0, 0, 0, 1, 1 }, 1 },   /* grid_anchor: anchor */
+    { 0x45e1d0, 2, { 1, 1, 0, 0, 0, 0 }, 1 },   /* grid_recompute: triple */
+    { 0x44bbf0, 4, { 0, 0, 0, 0, 0, 0 }, 0 }    /* grid_query: 4 dword */
 };
 
 static const LeafAbi *leaf_abi_find(int va)
@@ -712,6 +714,195 @@ static CheckResult chk_leaf_args(const TickContext &tc)
     }
     if (ncmp == 0) {
         SKIP("no comparable argument fields");
+    }
+    OK();
+}
+
+/* ------------------------------- leaf_value ----------------------------- */
+/* Значение ПОРТИРОВАННОГО листа (battle/ported.h) против записи потока:
+ * порт считает лист сам и заявляет значение claim'ом (b0_leaf_claim), replay
+ * сопоставляет заявку с записью (leaf_seq), а здесь сверяются: ret (указатель
+ * символьно — тем же cmp_ptr, что в leaf_args; int/float-биты — побитово),
+ * получатель ecx (символьно) и необязательные args. Заявка без записи —
+ * расхождение потока, его уже судит leaf_seq (здесь SKIP). Заявка после
+ * реконструкции входа из потока (resync) или после натива-мутатора — SKIP:
+ * сверять нечего. */
+int bdd0_leaf_claims(void);                    /* native_replay.cpp */
+const LeafClaimEnt *bdd0_leaf_claim_at(int i); /* native_replay.cpp */
+
+static CheckResult chk_leaf_value(const TickContext &tc)
+{
+    int n = bdd0_leaf_claims();
+
+    if (!tc.ran_body) {
+        SKIP("impl does not execute the body: no ported-leaf claims");
+    }
+    if (tc.hang) {
+        SKIP("hang: ported-leaf claims incomplete");
+    }
+    if (tc.leaf_violation) {
+        /* поток не сопоставлен: сверять значение не с чем (это leaf_seq) */
+        SKIP("leaf_seq reports the leaf stream mismatch");
+    }
+    if (n <= 0) {
+        SKIP("no ported-leaf claims in this tick");
+    }
+
+    FrameAnchor fa;
+    fa.base = 0;
+    fa.set = 0;
+    static char first[192];
+    first[0] = '\0';
+    static char nocmp[96];
+    nocmp[0] = '\0';
+    static char mutated[160];
+    mutated[0] = '\0';
+    int mism = 0, ncmp = 0, nno = 0, nmut = 0;
+
+    for (int i = 0; i < n; i++) {
+        const LeafClaimEnt &c = *bdd0_leaf_claim_at(i);
+        const LeafRec *r = c.rec;
+        if (r == NULL) {
+            SKIP("claim not matched to a capture record");
+        }
+        if (c.mut > 0) {
+            /* вход листа менял натив внутри тика (b0_leaf_mutators): replay
+             * моделирует только свои ww-записи, сверять значение не с чем.
+             * resync — частный случай: длина ленты взята из bdd0_leaf, поэтому
+             * решение головы было бы тавтологией. */
+            nmut++;
+            if (mutated[0] == '\0') {
+                _snprintf_s(mutated, sizeof(mutated), _TRUNCATE,
+                            "leaf claim #%d va=0x%x: %s", i, c.va,
+                            c.resync ? B0_BAND_RESYNC_WHY
+                                     : b0_leaf_mutators[c.mut - 1].why);
+            }
+            continue;
+        }
+        const LeafAbi *abi = leaf_abi_find(c.va);
+        if (abi == NULL) {
+            return CheckResult{ 1, whyf(tc, "leaf claim #%d va=0x%x: argument "
+                                            "ABI unknown to the check", i,
+                                        c.va), 1 };
+        }
+        int res = abi->ret_ptr ? cmp_ptr(tc, fa, (unsigned)c.ret,
+                                         (unsigned)r->ret)
+                               : ((c.ret == r->ret) ? AC_EQ : AC_NE);
+        if (res == AC_EQ) {
+            ncmp++;
+        } else if (res == AC_ANCHOR) {
+            /* сдвиг кадра задан; поле этим не проверено и за pass не считается */
+        } else if (res == AC_NE) {
+            mism++;
+            ncmp++;
+            if (first[0] == '\0') {
+                _snprintf_s(first, sizeof(first), _TRUNCATE,
+                            "leaf claim #%d va=0x%x ret port=0x%08x native="
+                            "0x%08x (seq %d)", i, c.va, (unsigned)c.ret,
+                            (unsigned)r->ret, tc.seq);
+            }
+        } else {
+            nno++;
+            if (nocmp[0] == '\0') {
+                _snprintf_s(nocmp, sizeof(nocmp), _TRUNCATE,
+                            "leaf claim #%d va=0x%x ret=0x%08x", i, c.va,
+                            (unsigned)r->ret);
+            }
+        }
+
+        /* Получатель (ECX) — часть значения листа: порт и натив адресуют один
+         * и тот же блок, поэтому сравнение символьно (те же базы, что в
+         * leaf_args), а не точным равенством shadow/игровых адресов. */
+        {
+            unsigned pv = (unsigned)c.ecx;
+            unsigned nv = (unsigned)r->ecx;
+            int res_ecx = cmp_ptr(tc, fa, pv, nv);
+            if (res_ecx == AC_EQ) {
+                ncmp++;
+            } else if (res_ecx == AC_ANCHOR) {
+                /* сдвиг кадра задан; поле этим не проверено */
+            } else if (res_ecx == AC_NE) {
+                mism++;
+                ncmp++;
+                if (first[0] == '\0') {
+                    _snprintf_s(first, sizeof(first), _TRUNCATE,
+                                "leaf claim #%d va=0x%x ecx port=0x%08x "
+                                "native=0x%08x (seq %d)", i, c.va, pv, nv,
+                                tc.seq);
+                }
+            } else {
+                nno++;
+                if (nocmp[0] == '\0') {
+                    _snprintf_s(nocmp, sizeof(nocmp), _TRUNCATE,
+                                "leaf claim #%d va=0x%x ecx=0x%08x", i, c.va,
+                                nv);
+                }
+            }
+        }
+
+        /* необязательные аргументы: порт вправе их не сообщать (nargs = 0);
+         * если сообщил — сверяем по ABI листа, как в leaf_args */
+        if (c.nargs != abi->nargs) {
+            mism++;
+            ncmp++;
+            if (first[0] == '\0') {
+                _snprintf_s(first, sizeof(first), _TRUNCATE,
+                            "leaf claim #%d va=0x%x argc port=%d abi=%d "
+                            "(seq %d)", i, c.va, c.nargs, abi->nargs, tc.seq);
+            }
+        }
+        if (c.nargs > 0 && r->nargs == 0) {
+            SKIP("recorded record has no args[] (older bdd0_leaf format)");
+        }
+        for (int f = 0; f < c.nargs; f++) {
+            unsigned pv = (unsigned)c.args[f];
+            unsigned nv = (unsigned)r->args[f];
+            res = abi->ptr[f] ? cmp_ptr(tc, fa, pv, nv)
+                              : ((pv == nv) ? AC_EQ : AC_NE);
+            if (res == AC_EQ) {
+                ncmp++;
+            } else if (res == AC_ANCHOR) {
+                /* сдвиг кадра задан; поле этим не проверено */
+            } else if (res == AC_NE) {
+                mism++;
+                ncmp++;
+                if (first[0] == '\0') {
+                    _snprintf_s(first, sizeof(first), _TRUNCATE,
+                                "leaf claim #%d va=0x%x arg[%d] port=0x%08x "
+                                "native=0x%08x (seq %d)", i, c.va, f, pv, nv,
+                                tc.seq);
+                }
+            } else {
+                nno++;
+                if (nocmp[0] == '\0') {
+                    _snprintf_s(nocmp, sizeof(nocmp), _TRUNCATE,
+                                "leaf claim #%d va=0x%x arg[%d]=0x%08x", i,
+                                c.va, f, nv);
+                }
+            }
+        }
+    }
+
+    if (mism > 0) {
+        /* первое расхождение — в отчёт ядра; остальные — счётчиком в сводку */
+        if (mism > 1) {
+            fprintf(stderr, "leaf_value: seq %d: %d mismatched fields "
+                            "(first reported)\n", tc.seq, mism);
+        }
+        return CheckResult{ 0, first, 0 };
+    }
+    if (nmut > 0) {
+        /* часть заявок не сверена: вход листа менялся внутри тика */
+        return CheckResult{ 1, whyf(tc, "%d claim(s) not compared: %s", nmut,
+                                    mutated), 1 };
+    }
+    if (nno > 0) {
+        /* ни одного расхождения, но часть значений сравнить не с чем */
+        return CheckResult{ 1, whyf(tc, "%d value field(s) not comparable "
+                                        "(%s)", nno, nocmp), 1 };
+    }
+    if (ncmp == 0) {
+        SKIP("no comparable claimed values");
     }
     OK();
 }
@@ -1045,6 +1236,8 @@ void register_builtin_checks(void)
                      NEED_POST_STATE | NEED_BODY });
     register_check({ "leaf_args",    chk_leaf_args,
                      NEED_CALLLOG | NEED_BODY });
+    register_check({ "leaf_value",   chk_leaf_value,
+                     NEED_POST_STATE | NEED_BODY });
     register_check({ "handles",      chk_handles,
                      NEED_HANDLES });
 }

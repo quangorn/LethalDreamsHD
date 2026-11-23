@@ -164,6 +164,33 @@ struct CallLogEnt {
     int last_label;            /* id метки тела перед вызовом (-1 не-trace) */
 };
 
+/* Заявка портированного листа (battle/ported.h: b0_ported_leaf_va): порт считает
+ * значение сам и сообщает его claim'ом, replay-слой сопоставляет заявку со
+ * следующей записью потока bdd0_leaf (leaf_seq) и продвигает поток. Значение
+ * сверяет проверка leaf_value: ret — то, что вернул порт (указатель — shadow-
+ * адрес), rec — сопоставленная запись (NULL — расхождение потока). args/nargs —
+ * необязательные аргументы листа (0 — сверять нечего). */
+struct LeafClaimEnt {
+    int order;                 /* 0-based внутри тика */
+    int va;
+    int ecx;                   /* получатель (this) — символьно, как в leaf_args */
+    int ret;
+    int nargs;
+    int args[6];
+    const LeafRec *rec;
+    int mut;                   /* b0_leaf_mutators: индекс+1 натива, менявшего
+                                  вход листа до заявки (0 — не менялся) */
+    int resync;                /* 1 — вход листа восстановлен из bdd0_leaf
+                                  (band_resync_from_stream): сверка была бы
+                                  тавтологией, leaf_value → SKIP */
+    LeafClaimEnt()
+        : order(0), va(0), ecx(0), ret(0), nargs(0), rec(NULL), mut(0),
+          resync(0)
+    {
+        for (int i = 0; i < 6; i++) args[i] = 0;
+    }
+};
+
 /* --------------------------- контракт проверок ---------------------------- */
 enum {
     NEED_DECISIONS  = 1u << 0, /* al/out/u170/m0..m2 тика */
@@ -326,6 +353,10 @@ const char *bdd0_leaf_violation_why(void);
 const CallLogEnt *bdd0_calllog(int *n);
 void bdd0_calllog_reset(void);
 const LeafRec *bdd0_leaf_record_at(int i);
+
+/* v12: заявки портированных листьев (battle/ported.h) текущего тика. */
+int bdd0_leaf_claims(void);
+const LeafClaimEnt *bdd0_leaf_claim_at(int i);
 
 /* v12: поток bdd0_native текущего seq (replay не-листовых RECORD-нативов). */
 void bdd0_native_begin(int seq, const NativeRec *v, int n);

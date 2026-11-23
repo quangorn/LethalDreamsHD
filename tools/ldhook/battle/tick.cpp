@@ -56,6 +56,7 @@
 #include "../ldhook_internal.h"
 #include "battle.h"
 #include "native.h"
+#include "ported.h"
 /* === BEGIN LABEL TRACE === */
 /* Label trace, gated by -DB0_TRACE_LABELS=1.
  * B0_LBL(id): label id -> ring; B0_TST(gate, cond): condition + direction as one
@@ -425,6 +426,44 @@ static int b0_float_bits(float f)
     return bits;
 }
 
+/* --- Порт листа 0x45c370 (band_head) ------------------------------------ *
+ * Листинг: `MOV ESI,ECX; ADD ESI,0x3c` → `EAX = band_count(ESI)` →
+ * `NEG EAX; SBB EAX,EAX; AND EAX,ESI` = длина != 0 ? ESI : 0, `RET`.
+ * Длина ленты — тело листа 0x45af50: `MOV EAX,[ECX+0x20]; TEST EAX,EAX;
+ * JZ RET; MOV ECX,[ECX+0x24]; SUB ECX,EAX; <magic>/0x18` — при begin == 0
+ * длина 0 независимо от end (TEST/JZ @0x45af50). Считаем её здесь, потому что
+ * лист ещё не портирован (запрос 45af50 в потоке остаётся за callers тика).
+ * Возврат — указатель ВНУТРИ блока BattleAI (ai+0x3c), поэтому в харнессе он
+ * остаётся shadow-адресом: claim сверяет его проверка leaf_value. */
+static int b0_band_count(const void *band)
+{
+    unsigned begin, end;
+
+    if (band == NULL) {
+        return 0;
+    }
+    memcpy(&begin, (const unsigned char *)band + 0x20, sizeof(begin));
+    if (begin == 0) {
+        return 0;                       /* TEST EAX,EAX / JZ @0x45af50 */
+    }
+    memcpy(&end, (const unsigned char *)band + 0x24, sizeof(end));
+    return (int)(end - begin) / B0_BAND_ELEM;
+}
+
+static void *b0_band_head(void *ai_)
+{
+    unsigned char *ai = (unsigned char *)ai_;
+    unsigned char *band = ai + B0_BATTLE_AI_BAND;
+    void *res;
+
+    /* ESI = ai + 0x3c; AND из NEG/SBB/AND: длина 0 → NULL.
+     * ECX = unit+0x138 всегда (все 12 сайтов), поэтому NULL-получатель
+     * недостижим; гейт оставлен, чтобы порт не разыменовывал мусор. */
+    res = (ai != NULL && b0_band_count(band) != 0) ? band : NULL;
+    B0_LEAF_CLAIM(B0_LEAF_BAND_HEAD, ai, res, NULL, 0);
+    return res;
+}
+
 /* --- R1..R4: B0..B29 --------------------------------------------------- *
  * Цепочка player-флагов (B16..B18 и её клоны B25..B27): player_get(unit,1) →
  * 42da60(player,1) → 435d50; три идентичных прогона, различаются только
@@ -552,11 +591,11 @@ B0_LBL(0);
 
     /* B10/B11 (0x44bee5..0x44bf06) — голова ленты (дважды) и её длина;
      * count > 1 → ранний выход «успех» (B148, R22). */
-    head = native::band_head(unit + 0x138);             /* 0x44bee5..0x44bee7 */
+    head = b0_band_head(unit + 0x138);                  /* 0x44bee5..0x44bee7 */
     if (B0_TST(6, (head == NULL)))  {
         goto b12;                                       /* 0x44beec/0x44beee je */
     }
-    head = native::band_head(unit + 0x138);             /* 0x44bef0..0x44bef2 */
+    head = b0_band_head(unit + 0x138);                  /* 0x44bef0..0x44bef2 */
     count = native::band_count(head);                   /* 0x44bef7..0x44bef9 */
     if (B0_TST(7, (count > 1)))  {
         goto b148_r22;                                  /* 0x44befe/0x44bf01 jg 0x44d02e */
@@ -928,7 +967,7 @@ B0_LBL(16);
     }
 
     /* B53 (0x44c3b5..0x44c3c3) — голова ленты (45c370); NULL → B77. */
-    head = native::band_head(unit_x + 0x138);           /* 0x44c3b7 */
+    head = b0_band_head(unit_x + 0x138);                /* 0x44c3b7 */
     if (B0_TST(36, (head == NULL)))  {
         goto b77_join;                                  /* 0x44c3be je 0x44c715 */
     }
@@ -936,7 +975,7 @@ B0_LBL(16);
     /* B54 (0x44c3c4..0x44c3ec) — повторный 45c370 → 45af50; длина ≤1
      * (знаковое `JLE`) → B77; затем 442570(ECX=EBP=unit,0) и фаза == 3,
      * иначе B77; fall → B55 (R8). */
-    head = native::band_head(unit_x + 0x138);           /* 0x44c3c6 */
+    head = b0_band_head(unit_x + 0x138);                /* 0x44c3c6 */
     count = native::band_count(head);                   /* 0x44c3cd */
     if (B0_TST(37, (count <= 1)))  {
         goto b77_join;                                  /* 0x44c3d5 jle 0x44c715 */
@@ -1569,9 +1608,9 @@ B0_LBL(42);
     /* B123/B124 (0x44cd81..0x44cd9d) — head (ECX = ESI = ctx) и count:
      * head == NULL → только float-гейт (count пропущен); count > 1
      * (`CMP EAX,1; JG`, знаковое) → R22 B144. */
-    head = native::band_head(unit_x + 0x138);           /* 0x44cd83 */
+    head = b0_band_head(unit_x + 0x138);                /* 0x44cd83 */
     if (B0_TST(68, (head != NULL)))  {
-        head = native::band_head(unit_x + 0x138);       /* 0x44cd8e */
+        head = b0_band_head(unit_x + 0x138);            /* 0x44cd8e */
         count = native::band_count(head);               /* 0x44cd95 */
         if (B0_TST(69, (count > 1)))  {
             goto b144_r22;                              /* 0x44cd9d jg 0x44cfea */
@@ -1761,11 +1800,11 @@ B0_LBL(51);
      * frame+0x164.
      * B144/B145 (0x44cfea..0x44d006) — head, затем count; head == NULL →
      * B154, count ≤ 1 (знаковое `JLE`) → B154. */
-    head = native::band_head(unit_x + 0x138);           /* 0x44cfec */
+    head = b0_band_head(unit_x + 0x138);                /* 0x44cfec */
     if (B0_TST(80, (head == NULL)))  {
         goto b154_r22;                                  /* 0x44cff3 je 0x44d058 */
     }
-    head = native::band_head(unit_x + 0x138);           /* 0x44cff7 */
+    head = b0_band_head(unit_x + 0x138);                /* 0x44cff7 */
     count = native::band_count(head);                   /* 0x44cffe */
     if (B0_TST(81, (count <= 1)))  {
         goto b154_r22;                                  /* 0x44d006 jle 0x44d058 */
@@ -1894,7 +1933,7 @@ B0_LBL(58);
     res = native::game_state_get(unit_x, 0);            /* 0x44c529 */
     memcpy(band_triple, (const unsigned char *)res + 4, 12); /* 0x44c52e..0x44c544 */
     *(void **)(frame + 0x1c) = band_triple;             /* 0x44c549 mov %esp,0x28(%esp) */
-    head = native::band_head(unit_x + 0x138);           /* 0x44c54d */
+    head = b0_band_head(unit_x + 0x138);                /* 0x44c54d */
     if (B0_TST(88, ((unsigned char)native::band_target_moved(head, band_triple[0], b0_float_bits(band_triple[1]), band_triple[2]) == 0)))  {
         goto b66;                                       /* 0x44c55b je 0x44c5a5 */
     }
@@ -1945,7 +1984,7 @@ B0_LBL(60);
     res = native::game_state_get(unit_x, 0);            /* 0x44c5b5 */
     memcpy(band_triple, (const unsigned char *)res + 4, 12); /* 0x44c5ba..0x44c5d0 */
     *(void **)(frame + 0x1c) = band_triple;             /* 0x44c5d5 mov %esp,0x28(%esp) */
-    head = native::band_head(unit_x + 0x138);           /* 0x44c5d9 */
+    head = b0_band_head(unit_x + 0x138);                /* 0x44c5d9 */
     native::band_interp_gate(head, band_triple[0],
                              b0_float_bits(band_triple[1]), band_triple[2],
                              &gate);                    /* 0x44c5e0 */
@@ -1986,7 +2025,7 @@ B0_LBL(61);
     res = native::game_state_get(unit_x, 0);            /* 0x44c63b */
     memcpy(band_triple, (const unsigned char *)res + 4, 12); /* 0x44c640..0x44c656 */
     *(void **)(frame + 0x1c) = band_triple;             /* 0x44c65b mov %esp,0x28(%esp) */
-    head = native::band_head(unit_x + 0x138);           /* 0x44c65f */
+    head = b0_band_head(unit_x + 0x138);                /* 0x44c65f */
     if (B0_TST(93, ((unsigned char)native::band_target_moved(head, band_triple[0], b0_float_bits(band_triple[1]), band_triple[2]) == 0)))  {
         goto b46;                     /* 0x44c66d je 0x44c365 — back-edge в R7 B46 */
     }
@@ -2080,7 +2119,7 @@ B0_LBL(64);
     res = native::game_state_get(unit, 0);              /* 0x44c49c..0x44c4a0 */
     memcpy(band_triple, (const unsigned char *)res + 4, 12); /* 0x44c4a5..0x44c4bb */
     *(void **)(frame + 0x1c) = band_triple;             /* 0x44c4c0 mov %esp,0x28(%esp) */
-    head = native::band_head(unit + 0x138);             /* 0x44c4be..0x44c4c4 */
+    head = b0_band_head(unit + 0x138);                  /* 0x44c4be..0x44c4c4 */
     native::band_interp_gate(head, band_triple[0],
                              b0_float_bits(band_triple[1]), band_triple[2],
                              &gate);                    /* 0x44c4c9..0x44c4cb */

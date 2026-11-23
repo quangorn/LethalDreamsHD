@@ -122,7 +122,9 @@ void *ctx_pos_get(void *ctx, float *out_f);
 
 /* FUN_0045c370 (0x45c370..0x45c382) — голова ленты `this+0x3c`: count != 0 ?
  * &this[0x3c] : 0 (sign-mask `neg/sbb/and`). __thiscall, ECX = BattleAI,
- * 0 стек-аргументов (`ret`). site: 0x44bee7/0x44bef2. */
+ * 0 стек-аргументов (`ret`). site: 0x44bee7/0x44bef2.
+ * ВНИМАНИЕ: порт этот лист уже считает сам (tick.cpp b0_band_head + claim);
+ * нативная обёртка остаётся только для replay/синтетических путей. */
 void *band_head(void *ai);
 
 /* FUN_0045af50 (0x45af50..0x45af70) — длина ленты = ([+0x24]−[+0x20])/0x18

@@ -10,7 +10,8 @@
  *
  * Запуск: bdd0_synth.exe <out.jsonl> [profile]
  *   profiles: grid (R12/R14/R17, цепочка unit+0xe0), simple (B1..B21),
- *             band (B10/B11 → R22), all (все три тика в одном файле — дефолт).
+ *             band (B10/B11 → R22), band0 (begin=0/end!=0 → голова NULL;
+ *             отдельный файл, в "all" не входит), all (grid+simple+band).
  * Сырые (игровые) адреса — фиктивные, но консистентные: self, unit+0xe0,
  * [+0x44], [+0x238], band_begin, ai_ctx.
  */
@@ -77,6 +78,8 @@ struct Profile {
     unsigned phase;        /* gs[0] — состояние игры (0/non-3 → R4/R5) */
     int u170;
     int band_n;
+    int band_begin_zero;   /* лента длиной band_n, но begin = 0 (end != 0) */
+    int no_all;            /* не включать в профиль "all" (отдельный кейс) */
     unsigned gctx0;
     int unit34;            /* msg-гейт unit+0x34 */
     int unit118;           /* → bit3 param_2 */
@@ -91,13 +94,17 @@ static const Profile k_profiles[] = {
     /* grid: state != 3, фаза > порога → R4 B23 → R5 → band-loop entry → R12
      * (grid-anchor на цепочке unit+0xe0) → R14 (grid_recompute) → R17
      * (per-tick record, вторая deref цепочки). */
-    { "grid", 1, 8, 0.0f, -1.0f, 0u, 0, 2, 0u, 0, 0,
+    { "grid", 1, 8, 0.0f, -1.0f, 0u, 0, 2, 0, 0, 0u, 0, 0,
       { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0x20000000u },
     /* simple: фаза 3, u170=0 → B1..B8 → B9(≠1) → B12..B21 → join (out=1). */
-    { "simple", 1, 0, 0.0f, 1.0f, 3u, 0, 0, 0u, 0, 0,
+    { "simple", 1, 0, 0.0f, 1.0f, 3u, 0, 0, 0, 0, 0u, 0, 0,
       { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u },
     /* band: u170=1 и лента длиной 2 → B10/B11 → ранний выход R22. */
-    { "band", 1, 0, 0.0f, 1.0f, 3u, 1, 2, 0u, 0, 0,
+    { "band", 1, 0, 0.0f, 1.0f, 3u, 1, 2, 0, 0, 0u, 0, 0,
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u },
+    /* band0: u170=1, end != 0, но begin = 0 → 45af50 даёт 0 (TEST/JZ) →
+     * голова NULL. Отличает правило begin==0 от «end != begin». */
+    { "band0", 1, 0, 0.0f, 1.0f, 3u, 1, 2, 1, 1, 0u, 0, 0,
       { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u }
 };
 
@@ -155,7 +162,7 @@ static void fill_record(TickRecord &t, const Profile &pf, int seq, int tick)
     memset(t.ai, 0, sizeof(t.ai));
     {
         unsigned ctx = GAME_CTX;
-        unsigned begin = (pf.band_n > 0) ? GAME_BAND : 0u;
+        unsigned begin = (pf.band_n > 0 && !pf.band_begin_zero) ? GAME_BAND : 0u;
         unsigned end = begin + (unsigned)pf.band_n * BDD0_BAND_ELEM;
         unsigned cap = end;
         unsigned dirty = 1;
@@ -164,7 +171,7 @@ static void fill_record(TickRecord &t, const Profile &pf, int seq, int tick)
         memcpy(t.ai + 0x0c, &pf.ai_pos[0], 4);
         memcpy(t.ai + 0x10, &pf.ai_pos[1], 4);
         memcpy(t.ai + 0x14, &pf.ai_pos[2], 4);
-        memcpy(t.ai + 0x3c, &one, 4);          /* band_head: [ai+0x3c] != 0 */
+        memcpy(t.ai + 0x3c, &one, 4);          /* первое dword объекта ленты */
         memcpy(t.ai + 0x5c, &begin, 4);
         memcpy(t.ai + 0x60, &end, 4);
         memcpy(t.ai + 0x64, &cap, 4);
@@ -178,7 +185,8 @@ static void fill_record(TickRecord &t, const Profile &pf, int seq, int tick)
     /* лента */
     t.band_n = pf.band_n;
     t.has_band = (pf.band_n > 0) ? 1 : 0;
-    t.band_raw = (pf.band_n > 0) ? GAME_BAND : 0u;
+    /* begin = 0 → вектор пуст: сырой адрес ленты в снимке тоже 0 */
+    t.band_raw = (pf.band_n > 0 && !pf.band_begin_zero) ? GAME_BAND : 0u;
     memset(t.band, 0, sizeof(t.band));
     for (int i = 0; i < pf.band_n; i++) {
         float x = (float)i;
@@ -343,8 +351,8 @@ static int run_tick(FILE *f, const Profile &pf, int seq, int verbose)
 int main(int argc, char **argv)
 {
     if (argc < 2) {
-        fputs("usage: bdd0_synth.exe <out.jsonl> [grid|simple|band|all] [-v]\n",
-              stderr);
+        fputs("usage: bdd0_synth.exe <out.jsonl> "
+              "[grid|simple|band|band0|all] [-v]\n", stderr);
         return 2;
     }
     const char *out = argv[1];
@@ -359,6 +367,7 @@ int main(int argc, char **argv)
     int rc = 0, seq = 0;
     for (size_t i = 0; i < sizeof(k_profiles) / sizeof(k_profiles[0]); i++) {
         const Profile &pf = k_profiles[i];
+        if (pf.no_all && strcmp(which, "all") == 0) continue;
         if (strcmp(which, "all") != 0 && strcmp(which, pf.name) != 0) continue;
         seq++;
         rc |= run_tick(f, pf, seq, verbose);

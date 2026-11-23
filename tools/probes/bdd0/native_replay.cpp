@@ -12,6 +12,11 @@
  * Так `band_head → band_count`, `grid_anchor → record` и т.п. не разыменовывают
  * игровую память.
  *
+ * Портированные листья (battle/ported.h, b0_ported_leaf_va) в потоке НЕ
+ * запрашиваются: их запись снимает claim (`bdd0_leaf_claim`) — порт считает
+ * значение сам и сообщает его, поток продвигается, значение сверяет проверка
+ * `leaf_value`. Запрос портированного листа — нарушение потока (leaf_seq).
+ *
  * Побочные записи листа (dword'ы, которые натив писал ЧЕРЕЗ указатель) берутся
  * из необязательного ключа `w` записи; если его нет — из документированной
  * семантики листа (45c6f0 = три dword `[ctx+0xc]`), см. native.h.
@@ -21,6 +26,7 @@
 #include <string.h>
 
 #include "../../ldhook/battle/native.h"
+#include "../../ldhook/battle/ported.h"
 #include "harness.h"
 
 #define LEAF_LOG_MAX 512
@@ -42,6 +48,27 @@ static int g_last_leaf_order = -1;
 static int g_call_seq = 0;
 static CallLogEnt g_log[LEAF_LOG_MAX];
 static int g_log_n = 0;
+/* Заявки портированных листьев (battle/ported.h): значение считает порт, запись
+ * потока снимает claim. Своя нумерация (order) — журнал заявок не смешивается
+ * с журналом запросов, но поток у них общий (g_i). */
+#define LEAF_CLAIM_MAX 128
+static LeafClaimEnt g_claim[LEAF_CLAIM_MAX];
+static int g_claim_n = 0;
+/* Сработавшие mutator'ы (battle/ported.h, b0_leaf_mutators): натив отработал —
+ * вход портированного листа мог измениться, заявка перестаёт быть сверяемой. */
+static int g_mut_hit[B0_LEAF_MUTATOR_COUNT];
+/* 1 — после-состояние, меняемое mutator'ом, восстановлено из потока
+ * (band_resync_from_stream): вход листа известен, но сверка головы с длиной из
+ * bdd0_leaf была бы тавтологией — claim помечается resync и leaf_value → SKIP. */
+static int g_band_resynced = 0;
+
+/* Мутация «состоялась» (см. b0_leaf_mutators). Для 45eee0 это так и после
+ * восстановления ленты: либо вход неизвестен, либо он реконструирован из
+ * потока (тавтология) — claim в обоих случаях не сверяем. */
+static int mut_active(int k)
+{
+    return g_mut_hit[k] ? 1 : 0;
+}
 /* Параллельно журналу: запись, с которой сопоставлен вызов (для проверки
  * `leaf_args`), и dword'ы, которые обёртка реально записала ЧЕРЕЗ указатель
  * (их сверяют с `w` записи; сами по себе из записи не берутся). */
@@ -56,6 +83,7 @@ void bdd0_leaf_begin(int seq, const LeafRec *v, int n)
     g_last_leaf_order = -1;
     g_call_seq = 0;
     g_log_n = 0;
+    g_claim_n = 0;
     for (int k = 0; k < LEAF_LOG_MAX; k++) {
         g_match[k] = NULL;
         g_aw_nw[k] = 0;
@@ -134,10 +162,53 @@ static void viol(const char *fmt, ...)
     g_viol = 1;
 }
 
+/* Сопоставление запроса/заявки со следующей записью потока: trap, va, порядок,
+ * исчерпание. Возврат NULL — нарушение потока (g_viol), его судит leaf_seq;
+ * «не NULL» — запись отдана (поток продвинут). */
+static const LeafRec *match_next(unsigned va, const char *what, int idx)
+{
+    const LeafRec *r;
+
+    if (g_viol) return NULL;
+    if (g_i >= g_n) {
+        viol("%s #%d: leaf stream exhausted, requested va=0x%x, %d records "
+             "for seq %d", what, idx, va, g_n, g_seq);
+        return NULL;
+    }
+    r = &g_v[g_i];
+    if (r->trap) {
+        /* запись снята после сбоя/рассинхрона: ret/args/w в ней недостоверны.
+         * Не потребляем её и не отдаём значения — поток разошёлся. */
+        viol("%s #%d: capture record trap=1 va=0x%x (seq %d): unreliable",
+             what, idx, r->va, g_seq);
+        return NULL;
+    }
+    if (r->va != (int)va) {
+        viol("%s #%d: requested va=0x%x, recorded va=0x%x (seq %d)",
+             what, idx, va, r->va, g_seq);
+        return NULL;
+    }
+    if (r->order != g_i) {
+        /* старый поток: order = индекс листа; новый: общий order с
+         * bdd0_native, поэтому проверяется только возрастание. */
+        if (r->order <= g_last_leaf_order) {
+            viol("%s #%d: order %d after %d (seq %d)", what, idx, r->order,
+                 g_last_leaf_order, g_seq);
+            return NULL;
+        }
+    }
+    g_i++;
+    g_last_leaf_order = r->order;
+    return r;
+}
+
 /* Запрос листа: журнал + строгое сопоставление с потоком. NULL — нарушения
  * нет и запись отдана; иначе NULL-запись (вызывающий берёт модель). */
 static const LeafRec *request(int va, const void *ecx, int nargs, const int *args)
 {
+    int idx = g_log_n;
+    const LeafRec *r;
+
     if (g_log_n < LEAF_LOG_MAX) {
         CallLogEnt &e = g_log[g_log_n];
         e.order = g_log_n;
@@ -159,40 +230,81 @@ static const LeafRec *request(int va, const void *ecx, int nargs, const int *arg
         viol("leaf call log overflow at call %d (va=0x%x)", g_log_n, va);
     }
     if (g_viol) return NULL;
-    if (g_i >= g_n) {
-        viol("leaf stream exhausted at call %d: requested va=0x%x, "
-             "%d records for seq %d", g_i, va, g_n, g_seq);
+    if (b0_leaf_ported((unsigned)va)) {
+        /* Тело листа портировано: порт обязан сообщить значение claim'ом
+         * (проверка leaf_value), иначе запись потока никто не сверяет. */
+        viol("leaf call #%d: va=0x%x is ported, the port must claim it "
+             "(seq %d)", idx, va, g_seq);
         return NULL;
     }
-    const LeafRec *r = &g_v[g_i];
-    if (r->trap) {
-        /* запись снята после сбоя/рассинхрона: ret/args/w в ней недостоверны.
-         * Не потребляем её и не отдаём значения — поток разошёлся. */
-        viol("leaf #%d trap=1 va=0x%x (seq %d): capture record is unreliable",
-             g_i, r->va, g_seq);
-        return NULL;
-    }
-    if (r->va != va) {
-        viol("leaf #%d: requested va=0x%x, recorded va=0x%x (seq %d)",
-             g_i, va, r->va, g_seq);
-        return NULL;
-    }
-    if (r->order != g_i) {
-        /* старый поток: order = индекс листа; новый: общий order с
-         * bdd0_native, поэтому проверяется только возрастание. */
-        if (r->order <= g_last_leaf_order) {
-            viol("leaf #%d: order %d after %d (seq %d)", g_i, r->order,
-                 g_last_leaf_order, g_seq);
-            return NULL;
-        }
-    }
-    g_i++;
-    g_last_leaf_order = r->order;
-    if (g_log_n > 0) {
+    r = match_next((unsigned)va, "leaf call", idx);
+    if (r != NULL && g_log_n > 0) {
         g_log[g_log_n - 1].ret = r->ret;
         g_match[g_log_n - 1] = r;
     }
     return r;
+}
+
+/* Заявка портированного листа (battle/ported.h, b0_ported_leaf_va): журнал
+ * заявок + сопоставление с потоком. Запись потока ПОТРЕБЛЯЕТСЯ (leaf_seq не
+ * ждёт запроса, leaf_args не видит лист), значение сверяет leaf_value. */
+void bdd0_leaf_claim(unsigned int va, void *ecx, int ret, const int *args,
+                     int nargs)
+{
+    int idx = g_claim_n;
+    int appended = 0;
+    const LeafRec *r;
+
+    if (g_claim_n < LEAF_CLAIM_MAX) {
+        LeafClaimEnt &e = g_claim[g_claim_n];
+        int k;
+
+        e.order = g_claim_n;
+        e.va = (int)va;
+        e.ecx = (int)(size_t)ecx;
+        e.ret = ret;
+        e.nargs = (nargs > 0 && nargs <= 6) ? nargs : 0;
+        for (k = 0; k < 6; k++) {
+            e.args[k] = (args != NULL && k < e.nargs) ? args[k] : 0;
+        }
+        e.rec = NULL;
+        e.mut = 0;
+        e.resync = 0;
+        /* вход листа менялся нативом внутри тика → значение не сверяемо */
+        for (k = 0; k < B0_LEAF_MUTATOR_COUNT; k++) {
+            if (b0_leaf_mutators[k].leaf == va && mut_active(k)) {
+                e.mut = k + 1;
+                e.resync = (b0_leaf_mutators[k].mutator == B0_VA_UNIT_AI_TICK) &&
+                           g_band_resynced;
+                break;
+            }
+        }
+        g_claim_n++;
+        appended = 1;
+    } else {
+        viol("leaf claim log overflow at claim %d (va=0x%x)", g_claim_n, va);
+    }
+    if (!b0_leaf_ported(va)) {
+        viol("leaf claim #%d: va=0x%x is not a ported leaf (seq %d)", idx, va,
+             g_seq);
+        return;
+    }
+    r = match_next(va, "leaf claim", idx);
+    /* запись — только реально добавленной заявке (иначе перезапишем чужую) */
+    if (r != NULL && appended) {
+        g_claim[idx].rec = r;
+    }
+}
+
+int bdd0_leaf_claims(void)
+{
+    return g_claim_n;
+}
+
+const LeafClaimEnt *bdd0_leaf_claim_at(int i)
+{
+    if (i < 0 || i >= g_claim_n) return NULL;
+    return &g_claim[i];
 }
 
 static unsigned read_u32(const void *p)
@@ -231,6 +343,8 @@ void bdd0_native_begin(int seq, const NativeRec *v, int n)
     g_nviol = 0;
     g_nwhy[0] = '\0';
     g_nlog_n = 0;
+    for (int k = 0; k < B0_LEAF_MUTATOR_COUNT; k++) g_mut_hit[k] = 0;
+    g_band_resynced = 0;
     g_call_seq = 0;
     for (int k = 0; k < NATIVE_LOG_MAX; k++) g_nmatch[k] = NULL;
     g_not_present = (n == 0);
@@ -326,6 +440,10 @@ static const NativeRec *nrequest(int slot, int va, int ecx, const int *args,
     }
     g_ni++;
     g_nlast = r->order;
+    /* натив отработал: входы связанных портированных листьев могли измениться */
+    for (i = 0; i < B0_LEAF_MUTATOR_COUNT; i++) {
+        if (b0_leaf_mutators[i].mutator == (unsigned)r->va) g_mut_hit[i] = 1;
+    }
     if (le != NULL) {
         le->site = r->site;
         g_nmatch[le->order] = r;
@@ -379,26 +497,34 @@ void *ctx_pos_get(void *ctx, float *out_f)
     return out_f;
 }
 
-/* 45c370 — голова ленты: [ai+0x3c] != 0 ? ai+0x3c : NULL. */
+/* 45c370 — голова ленты: begin == 0 ? NULL : (count ? ai+0x3c : NULL).
+ * Реализация только для полноты ABI: порт 0x45c370 не запрашивает (см.
+ * b0_band_head/claim в battle/tick.cpp), обёртка нужна replay/синтетике. */
 void *band_head(void *ai)
 {
     const LeafRec *r = request(0x45c370, ai, 0, NULL);
     if (r != NULL) return ret_ptr(r);
-    if (ai != NULL && arena_addr_ok((const unsigned char *)ai + 0x3c, 4) &&
-        read_u32((const unsigned char *)ai + 0x3c) != 0) {
-        return (unsigned char *)ai + 0x3c;
+    if (ai != NULL && arena_addr_ok((const unsigned char *)ai + 0x3c + 0x20, 8)) {
+        const unsigned char *band = (const unsigned char *)ai + 0x3c;
+        unsigned begin = read_u32(band + 0x20);
+        if (begin != 0 &&
+            (int)(read_u32(band + 0x24) - begin) / BDD0_BAND_ELEM != 0) {
+            return (unsigned char *)ai + 0x3c;
+        }
     }
     return NULL;
 }
 
-/* 45af50 — длина ленты: ([+0x24] − [+0x20]) / 0x18 (знаковое). */
+/* 45af50 — длина ленты: begin == 0 → 0 (TEST/JZ), иначе
+ * ([+0x24] − [+0x20]) / 0x18 (знаковое). */
 int band_count(void *band)
 {
     const LeafRec *r = request(0x45af50, band, 0, NULL);
     if (r != NULL) return r->ret;
     if (band != NULL && arena_addr_ok((const unsigned char *)band + 0x20, 8)) {
-        return (int)(read_u32((const unsigned char *)band + 0x24) -
-                     read_u32((const unsigned char *)band + 0x20)) /
+        unsigned begin = read_u32((const unsigned char *)band + 0x20);
+        if (begin == 0) return 0;
+        return (int)(read_u32((const unsigned char *)band + 0x24) - begin) /
                BDD0_BAND_ELEM;
     }
     return 0;
@@ -635,12 +761,46 @@ void pathfinder_init(void *pf)
     (void)pf;
 }
 
+/* Лента BattleAI+0x3c: её после-состояние (begin/end) в захвате НЕ записано —
+ * ww-записи 45eee0 покрывают BattleAI+0x00..0x38 (unit+0x138..0x170). Поэтому
+ * после перестройки ленты длину восстанавливаем из СЛЕДУЮЩЕЙ записи 45af50 того
+ * же seq: её ret — длина ленты после 45eee0. Это реконструкция состояния (как
+ * ww-записи нативов), но не подмена значения порта: после неё claim головы
+ * совпал бы лишь потому, что порт читал ту же запись — поэтому leaf_value
+ * помечает такие claims resync и даёт SKIP (B0_BAND_RESYNC_WHY).
+ * Разрешено только пока лист длины не портирован (иначе сверка была бы
+ * тавтологией: порт читал бы то, что сам же и заявил). Возврат 1 — состояние
+ * восстановлено. */
+static int band_resync_from_stream(void)
+{
+    unsigned char *unit = arena_region_w(arena_current(), "unit");
+    unsigned char *band;
+    unsigned begin;
+    int i;
+
+    if (unit == NULL || b0_leaf_ported(B0_LEAF_BAND_COUNT)) return 0;
+    begin = (unsigned)(size_t)arena_region_w(arena_current(), "band");
+    if (begin == 0) return 0;
+    band = unit + BDD0_AI_OFF + B0_BATTLE_AI_BAND;
+    for (i = g_i; i < g_n; i++) {
+        unsigned end;
+
+        if (g_v[i].va != (int)B0_LEAF_BAND_COUNT || g_v[i].trap) continue;
+        end = begin + (unsigned)(g_v[i].ret * (int)BDD0_BAND_ELEM);
+        memcpy(band + 0x20, &begin, sizeof(begin));     /* [band+0x20] = begin */
+        memcpy(band + 0x24, &end, sizeof(end));         /* [band+0x24] = end   */
+        return 1;
+    }
+    return 0;
+}
+
 /* 45eee0 — unit-AI tick: код 0..4 управляет каскадом. */
 int unit_ai_tick(void *ai, void *rec)
 {
     int a[1];
     a[0] = (int)(size_t)rec;
-    const NativeRec *r = nrequest(0, 0x45eee0, (int)(size_t)ai, a, 1);
+    const NativeRec *r = nrequest(0, B0_VA_UNIT_AI_TICK, (int)(size_t)ai, a, 1);
+    g_band_resynced = band_resync_from_stream();   /* 45eee0 перестроил ленту */
     if (r == NULL) return 0;
     /* v12 additive: 45eee0 writes BattleAI+0x00..0x38 (unit+0x138..0x170). */
     if (r->nww > 0 && ai != NULL) {
