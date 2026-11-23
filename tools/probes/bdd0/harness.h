@@ -178,6 +178,7 @@ struct CallLogEnt {
  * необязательные аргументы листа (0 — сверять нечего). */
 struct LeafClaimEnt {
     int order;                 /* 0-based внутри тика */
+    int call_seq;              /* сквозной номер вызова в тике (как в CallLogEnt) */
     int va;
     int ecx;                   /* получатель (this) — символьно, как в leaf_args */
     int ret;
@@ -190,8 +191,8 @@ struct LeafClaimEnt {
                                   (band_resync_from_stream): сверка была бы
                                   тавтологией, leaf_value → SKIP */
     LeafClaimEnt()
-        : order(0), va(0), ecx(0), ret(0), nargs(0), rec(NULL), mut(0),
-          resync(0)
+        : order(0), call_seq(0), va(0), ecx(0), ret(0), nargs(0), rec(NULL),
+          mut(0), resync(0)
     {
         for (int i = 0; i < 6; i++) args[i] = 0;
     }

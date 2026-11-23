@@ -267,6 +267,7 @@ void bdd0_leaf_claim(unsigned int va, void *ecx, int ret, const int *args,
         e.va = (int)va;
         e.ecx = (int)(size_t)ecx;
         e.ret = ret;
+        e.call_seq = g_call_seq++;
         e.nargs = (nargs > 0 && nargs <= 6) ? nargs : 0;
         for (k = 0; k < 6; k++) {
             e.args[k] = (args != NULL && k < e.nargs) ? args[k] : 0;

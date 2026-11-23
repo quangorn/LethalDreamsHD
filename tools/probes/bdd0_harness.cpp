@@ -378,13 +378,25 @@ static void print_label_trace(int seq, const char *implname, int pass, int al,
     int nn = 0, nl = 0;
     const NativeCallLogEnt *nlog = bdd0_native_calllog(&nn);
     const CallLogEnt *llog = bdd0_calllog(&nl);
-    int i = 0, j = 0;
-    while (i < nn || j < nl) {
-        int leaf_first;
-        if (j >= nl) leaf_first = 0;
-        else if (i >= nn) leaf_first = 1;
-        else leaf_first = (llog[j].call_seq < nlog[i].call_seq);
-        if (leaf_first) {
+    int nc = bdd0_leaf_claims();
+    int i = 0, j = 0, c = 0;
+    while (i < nn || j < nl || c < nc) {
+        int sl = (j < nl) ? llog[j].call_seq : 0x7fffffff;
+        int sn = (i < nn) ? nlog[i].call_seq : 0x7fffffff;
+        const LeafClaimEnt *cl = (c < nc) ? bdd0_leaf_claim_at(c) : NULL;
+        int sc = (cl != NULL) ? cl->call_seq : 0x7fffffff;
+        int pick;
+        if (sl <= sn && sl <= sc) pick = 0;
+        else if (sn <= sc) pick = 1;
+        else pick = 2;
+        if (pick == 2) {
+            /* портированный лист: сайт — из сопоставленной записи потока */
+            printf("  call #%d leaf va=0x%06x site=0x%06x label=- claim=1\n",
+                   c, cl->va, (cl->rec != NULL) ? (int)cl->rec->site : 0);
+            c++;
+            continue;
+        }
+        if (pick == 0) {
             const LeafRec *r = bdd0_leaf_record_at(j);
             printf("  call #%d leaf va=0x%06x site=0x%06x label=%s\n",
                    j, llog[j].va, (r != NULL) ? r->site : 0,
