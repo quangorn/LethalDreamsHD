@@ -260,8 +260,7 @@ static void skip_all_checks(const std::vector<int> &enabled,
 static void write_report(FILE *f, const char *scenario, const TickRecord &rec,
                          const char *impl, const char *check, const char *why,
                          int al, int u170, int out, long long wall_ms,
-                         long long leaf_calls, const char *capture,
-                         const char *replay)
+                         long long leaf_calls, const char *replay)
 {
     fprintf(f, "{\"v\":1,\"kind\":\"harness_fail\",\"scenario\":\"%s\","
                "\"seq\":%d,\"tick\":%d,\"unit\":%d,\"impl\":\"%s\","
@@ -283,7 +282,6 @@ static void write_report(FILE *f, const char *scenario, const TickRecord &rec,
                "\"replay\":\"%s --impl %s --check %s --from-seq %d --limit 1\"}\n",
             rec.p1, rec.p2, rec.p3, json_esc(replay).c_str(),
             json_esc(impl).c_str(), json_esc(check).c_str(), rec.seq);
-    (void)capture;
 }
 
 /* Тик с проглоченными данными: каждая включённая проверка получает FAIL с
@@ -299,7 +297,7 @@ static void fail_all_checks(const std::vector<int> &enabled,
         roll[enabled[k]].fail++;
         (*fails)++;
         write_report(rf, scenario, rec, impl, cd->name, reason, 0, 0, -1, 0, 0,
-                     capture, capture);
+                     capture);
     }
 }
 
@@ -862,7 +860,7 @@ int main(int argc, char **argv)
 #endif
                 write_report(rf, sc->name.c_str(), rec, impl->name, cd->name,
                              r.why != NULL ? r.why : "", al, u170, out_val,
-                             wall_ms, tc.leaf_calls, opt.capture, opt.capture);
+                             wall_ms, tc.leaf_calls, opt.capture);
             }
         }
 
@@ -903,18 +901,10 @@ int main(int argc, char **argv)
         _snprintf_s(ncpart, sizeof(ncpart), _TRUNCATE,
                     " noncomparable_skipped=%lld", noncomp_total);
     }
-    /* incomplete_tail печатается только при ненулевом: хвост, снятый до конца,
-     * — свой тик, и он не должен выглядеть как «всё проверено». */
-    char tailpart[48];
-    tailpart[0] = '\0';
-    if (sc->incomplete_tail > 0) {
-        _snprintf_s(tailpart, sizeof(tailpart), _TRUNCATE,
-                    " incomplete_tail=%d", sc->incomplete_tail);
-    }
     printf("bdd0_harness summary: capture=%s impl=%s ticks=%d pass=%d skip=%d "
-           "fail=%d traps=%d hangs=%d uninit_skipped=%lld%s%s avg_wall_ms=%lld\n",
+           "fail=%d traps=%d hangs=%d uninit_skipped=%lld%s avg_wall_ms=%lld\n",
            sc->name.c_str(), impl->name, ran, sum_pass, sum_skip, fails, traps,
-           hangs, uninit_total, ncpart, tailpart, ran ? sum_wall / ran : 0);
+           hangs, uninit_total, ncpart, ran ? sum_wall / ran : 0);
 
     for (size_t k = 0; k < enabled.size(); k++) {
         const CheckDef *cd = check_at(enabled[k]);

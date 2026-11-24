@@ -26,9 +26,10 @@ import paths  # noqa: E402
 
 OUTDIR = paths.win_path(os.path.join(_ROOT, "build", "ldhook"))
 _COMMON = [
-    os.path.join(_HERE, "bdd0", "registry.cpp"),
-    os.path.join(_HERE, "bdd0", "checks_builtin.cpp"),
     os.path.join(_HERE, "bdd0", "arena.cpp"),
+    # native_stubs.cpp обязателен обеим сборкам: tick.cpp зовёт msg/string/log
+    # и pathfinder_dtor, grid.cpp — native::tree_lookup, b0_45eee0_dispatch —
+    # s6_port_enabled/s6_unit_ai_tick. Линк SYNTH без него даёт LNK2019.
     os.path.join(_HERE, "bdd0", "native_stubs.cpp"),
     os.path.join(_HERE, "bdd0", "grid_replay.cpp"),
     os.path.join(_ROOT, "tools", "ldhook", "battle", "tick.cpp"),
@@ -38,11 +39,15 @@ _COMMON = [
     # bdd0/grid_replay.cpp — реестровый battle_replay.cpp сюда не линкуется.
     os.path.join(_ROOT, "tools", "ldhook", "battle", "grid.cpp"),
 ]
+# Реестр проверок и сами проверки судит только ядро харнесса; генератор
+# (bdd0_synth.exe) их символов не зовёт.
 HARNESS = [os.path.join(_HERE, "bdd0_harness.cpp"),
            os.path.join(_HERE, "bdd0", "scenario.cpp"),
            os.path.join(_HERE, "bdd0", "impl_registry.cpp"),
            os.path.join(_HERE, "bdd0", "native_replay.cpp"),
-           os.path.join(_HERE, "bdd0", "path_diff.cpp")] + _COMMON
+           os.path.join(_HERE, "bdd0", "path_diff.cpp"),
+           os.path.join(_HERE, "bdd0", "registry.cpp"),
+           os.path.join(_HERE, "bdd0", "checks_builtin.cpp")] + _COMMON
 SYNTH = [os.path.join(_HERE, "bdd0_synth.cpp"),
          os.path.join(_HERE, "bdd0", "native_model.cpp")] + _COMMON
 

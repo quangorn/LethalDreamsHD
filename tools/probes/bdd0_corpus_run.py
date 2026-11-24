@@ -98,7 +98,9 @@ import paths  # noqa: E402
 HARNESS = paths.win_path(os.path.join(_ROOT, "build", "ldhook", "bdd0_harness.exe"))
 CORPUS = paths.win_path(os.path.join(_HERE, "bdd0", "corpus"))
 
-POS_EXPECT = {
+# Expected per-check counts (pass, skip, fail) per corpus file, positives
+# and negatives alike.
+EXPECT = {
     "synth_v12_native.jsonl": {
         "native_seq": (4, 0, 0),
         "native_args": (1, 3, 0),
@@ -226,8 +228,8 @@ def main():
         rc, text, counts = run(name, check)
         ok = (rc == want_rc)
         detail = "rc=%d" % rc
-        if name in POS_EXPECT:
-            for k, v in POS_EXPECT[name].items():
+        if name in EXPECT:
+            for k, v in EXPECT[name].items():
                 got = counts.get(k)
                 detail += " %s=%s" % (k, got)
                 if got != v:
