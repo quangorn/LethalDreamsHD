@@ -48,6 +48,12 @@ Positive: tools/probes/bdd0/corpus/synth_chain_nested.jsonl
   0x458142 → 0x456b60 (args[0] = world, ret = узел) снята ВНУТРИ 0x458050;
   порт replay-ит 0x458050 целиком, поэтому загрузчик выносит такую запись из
   окна тика (BDD0_NESTED_SITE_GRID_ANCHOR) и поток остаётся самосогласованным.
+Positive: tools/probes/bdd0/corpus/synth_eee0_missing.jsonl
+  rc 0, native_seq 1/0/0, res_match 0/1/0, leaf_value 1/0/0, `eee0_synth=1` —
+  запись bdd0_native для 0x45eee0 вырезана из synth_band_rec: так выглядит
+  захват с LDHOOK_BATTLE_CAPTURE_E0=0. Harness подаёт пост-состояние u170 из
+  независимого `bdd0_res` (единственное поле ww, читаемое телом после вызова),
+  поток не двигает; u170 в res_match честно SKIP (значение стало входом).
 Negatives:
   dropped/trap/order      -> --check native_seq, rc 1
   corrupt_native_args     -> --check native_args, rc 1, arg mismatch reported
@@ -144,6 +150,11 @@ POS_EXPECT = {
     "corrupt_ctx_pos.jsonl": {
         "leaf_value": (0, 0, 1),
     },
+    "synth_eee0_missing.jsonl": {
+        "native_seq": (1, 0, 0),
+        "res_match": (0, 1, 0),
+        "leaf_value": (1, 0, 0),
+    },
 }
 
 # name, expected rc, single check to run (None = all)
@@ -158,6 +169,7 @@ CASES = [
     ("synth_pos3_nan.jsonl", 0, None),
     ("synth_ctx_pos.jsonl", 0, None),
     ("synth_chain_nested.jsonl", 0, None),
+    ("synth_eee0_missing.jsonl", 0, None),
     ("corrupt_ctx_pos.jsonl", 1, "leaf_value"),
     ("corrupt_native_dropped.jsonl", 1, "native_seq"),
     ("corrupt_native_trap.jsonl", 1, "native_seq"),
@@ -226,6 +238,12 @@ def main():
                 has_nested = "nested_leaf=1" in text
                 ok = ok and has_nested
                 detail += " nested_leaf=%s" % ("1" if has_nested else "0")
+            if name == "synth_eee0_missing.jsonl":
+                # запись 0x45eee0 отсутствует → мост из bdd0_res сработал,
+                # res_match честно SKIP (u170 не считается независимым)
+                has_synth = "eee0_synth=1" in text
+                ok = ok and has_synth
+                detail += " eee0_synth=%s" % ("1" if has_synth else "0")
         elif check == "native_args":
             na = counts.get("native_args", (0, 0, 0))
             if name == "corrupt_native_args.jsonl":

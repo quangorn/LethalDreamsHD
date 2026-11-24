@@ -402,7 +402,9 @@ int bdd0_native_violations(void);
 const char *bdd0_native_violation_why(void);
 int bdd0_native_consumed(void);
 const NativeRec *bdd0_native_pending(void);
-const NativeCallLogEnt *bdd0_native_calllog(int *n);
+/* v15: 1 — запись bdd0_native для 0x45eee0 отсутствовала и восстановлена из
+ * bdd0_res (захват с LDHOOK_BATTLE_CAPTURE_E0=0); u170 тогда не независим. */
+int bdd0_eee0_synth(void);const NativeCallLogEnt *bdd0_native_calllog(int *n);
 const NativeRec *bdd0_native_record_at(int i);
 
 /* Счётчики «не смоделировано» (native_stubs.cpp): печатаются в сводке прогона,

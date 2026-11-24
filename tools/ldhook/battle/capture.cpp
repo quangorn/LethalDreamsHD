@@ -330,12 +330,13 @@ void battle_capture_init(void)
         }
         sn = getenv(BATTLE_CAPTURE_E0_ENV);
         if (sn != NULL && *sn != '\0' && atoi(sn) == 0) {
-            g_e0 = 0;   /* слой e0a0 не пишется и его листья не ставятся */
+            g_e0 = 0;   /* слой e0a0 не пишется (cap/res/grid/eee0_*) */
         }
     }
-    if (g_e0) {
-        cap_leaf_sink_register();
-    }
+    /* Потоки листьев и нативов тела 44bdd0 (bdd0_leaf/bdd0_native) — это слой
+     * снапшота, не e0a0: регистрируются всегда, иначе с E0=0 харнессу нечего
+     * сверять. Слой e0a0 глушится только в своих точках записи (g_e0). */
+    cap_leaf_sink_register();
     ld_info("battle_capture: %s=%s (max=%d snap=%d e0=%d)", BATTLE_CAPTURE_ENV,
             path, g_max_calls, g_snap, g_e0);
 }
@@ -1260,9 +1261,6 @@ void battle_capture_e0a0_enter(void *this_, int filter, void *cmp,
 
 void battle_capture_eee0_enter(void *self, void *rec)
 {
-    if (!g_e0) {
-        return;
-    }
     BattleAI *ai = (BattleAI *)self;
     unsigned char *r = (unsigned char *)rec;
     int rec_w[7] = {0, 0, 0, 0, 0, 0, 0};
@@ -1279,16 +1277,10 @@ void battle_capture_eee0_enter(void *self, void *rec)
         g_eee0_native_valid = 0;
         return;
     }
-    if (g_seq >= g_max_calls) {
-        g_closed = 1;
-        fclose(g_file);
-        g_file = NULL;
-        ld_info("battle_capture: reached max=%d — file closed", g_max_calls);
-        return;
-    }
-
-    g_in_eee0 = 1;
-    g_cur_eee0_seq = ++g_eee0_seq;
+    /* Запись bdd0_native для 0x45eee0 (сайт 0x44cbd0) принадлежит bdd0-слою:
+     * порт запрашивает этот натив в R17, и без записи поток нативов неполон.
+     * Поэтому она снимается и при LDHOOK_BATTLE_CAPTURE_E0=0 — флаг глушит
+     * только e0a0-слой (eee0_cap/eee0_res и карты кандидатов). */
     g_eee0_native_valid = 0;
     if (g_snap && g_bdd0_sp > 0) {
         bdd0_frame *fr = &g_bdd0_stack[g_bdd0_sp - 1];
@@ -1298,6 +1290,20 @@ void battle_capture_eee0_enter(void *self, void *rec)
         g_eee0_native_arg = (int)(size_t)rec;
         g_eee0_native_valid = 1;
     }
+    if (!g_e0) {
+        return;                     /* e0a0-слой выключен */
+    }
+    if (g_seq >= g_max_calls) {
+        g_closed = 1;
+        g_eee0_native_valid = 0;
+        fclose(g_file);
+        g_file = NULL;
+        ld_info("battle_capture: reached max=%d — file closed", g_max_calls);
+        return;
+    }
+
+    g_in_eee0 = 1;
+    g_cur_eee0_seq = ++g_eee0_seq;
     g_eee0_b9_valid = 0;
     g_eee0_b9_null = 0;
     g_eee0_b9_addr = 0;
@@ -1428,9 +1434,6 @@ void battle_capture_latch(void *cand)
 
 void battle_capture_eee0_exit(int code, void *self)
 {
-    if (!g_e0) {
-        return;
-    }
     BattleAI *ai = (BattleAI *)self;
     unsigned char *self_ptr = (unsigned char *)self;
     int s28 = 0, s2c = 0, s30 = -1, s38 = -1;
@@ -1444,22 +1447,9 @@ void battle_capture_eee0_exit(int code, void *self)
         g_eee0_native_valid = 0;
         return;
     }
-    if (!g_eee0_b9_valid && g_path_n == CAP_WORDS && g_path[0] != 0x7fffffff) {
-        int cnt = g_chain_leaf[0];
-        for (k = 0; k < CAP_WORDS; k++) g_eee0_b9_w[k] = g_path[k];
-        g_eee0_b9_addr = g_pptr[0];
-        g_eee0_b9_null = 0;
-        g_eee0_b9_scale = g_cb40_scale;
-        g_eee0_b9_scale_ok = g_cb40_scale_ok;
-        for (k = 0; k < CAP_GATE_WORDS; k++) g_eee0_b9_gate[k] = g_gate[k];
-        g_eee0_b9_chain[0] = (cnt >= 0 && cnt <= CAP_CHAIN_MAX) ? cnt : 0;
-        for (k = 0; k < g_eee0_b9_chain[0] * CAP_CHAIN_WORDS; k++) {
-            g_eee0_b9_chain[1 + k] = g_chain_leaf[1 + k];
-        }
-        g_eee0_b9_valid = 1;
-    }
-    g_in_eee0 = 0;
-
+    /* bdd0_native для 0x45eee0 пишется ПЕРВЫМ и независимо от e0a0-слоя:
+     * при LDHOOK_BATTLE_CAPTURE_E0=0 порт всё равно запрашивает этот натив в
+     * R17, и без записи тик не воспроизводится (поток нативов неполон). */
     if (g_eee0_native_valid && g_snap && g_file != NULL) {
         /* 45eee0 writes BattleAI+0x00..0x38 (unit+0x138..0x170).  List from
          * the listing: 45c330 resets +0x04/+0x08/+0x0c/+0x10/+0x14/+0x18..
@@ -1494,6 +1484,24 @@ void battle_capture_eee0_exit(int code, void *self)
                                        wtrap);
         g_eee0_native_valid = 0;
     }
+    if (!g_e0) {
+        return;                     /* e0a0-слой (eee0_cap/eee0_res) выключен */
+    }
+    if (!g_eee0_b9_valid && g_path_n == CAP_WORDS && g_path[0] != 0x7fffffff) {
+        int cnt = g_chain_leaf[0];
+        for (k = 0; k < CAP_WORDS; k++) g_eee0_b9_w[k] = g_path[k];
+        g_eee0_b9_addr = g_pptr[0];
+        g_eee0_b9_null = 0;
+        g_eee0_b9_scale = g_cb40_scale;
+        g_eee0_b9_scale_ok = g_cb40_scale_ok;
+        for (k = 0; k < CAP_GATE_WORDS; k++) g_eee0_b9_gate[k] = g_gate[k];
+        g_eee0_b9_chain[0] = (cnt >= 0 && cnt <= CAP_CHAIN_MAX) ? cnt : 0;
+        for (k = 0; k < g_eee0_b9_chain[0] * CAP_CHAIN_WORDS; k++) {
+            g_eee0_b9_chain[1 + k] = g_chain_leaf[1 + k];
+        }
+        g_eee0_b9_valid = 1;
+    }
+    g_in_eee0 = 0;
 
     if (ai == NULL) {
         return;

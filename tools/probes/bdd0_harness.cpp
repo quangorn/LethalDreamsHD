@@ -556,6 +556,7 @@ int main(int argc, char **argv)
     /* причины SKIP: печатаются в сводке, чтобы «пропущено» не было молчаливым */
     std::map<std::string, int> skip_why;
     int ran = 0, fails = 0, traps = 0, hangs = 0, gs_missing = 0, leaf_nodes = 0;
+    int eee0_synth = 0;
     int leaf_identity = 0;
     long long sum_wall = 0;
     long long uninit_total = 0;
@@ -802,6 +803,7 @@ int main(int argc, char **argv)
         if (rec.has_gs) tc.avail |= NEED_GAMESTATE;
         else gs_missing++;
         if (ran_body) tc.avail |= NEED_BODY;
+        if (bdd0_eee0_synth()) eee0_synth++;
         if (rec.leaf_n > 0 || !ran_body) tc.avail |= NEED_CALLLOG;
         if (ran_body || rec.has_res) tc.avail |= NEED_DECISIONS;
 
@@ -927,6 +929,11 @@ int main(int argc, char **argv)
     printf("  bdd0_native: records=%d, last tick consumed=%d; "
            "native_site_skipped=%d\n",
            sc->native_records, bdd0_native_consumed(), sc->native_missing_n);
+    if (eee0_synth > 0) {
+        printf("  eee0_synth=%d (bdd0_native 0x45eee0 missing in %d tick(s): "
+               "post-state u170 taken from bdd0_res, res_match.u170 not "
+               "counted as an independent pass)\n", eee0_synth, eee0_synth);
+    }
     if (sc->native_missing_n > 0) {
         printf("  %s\n", sc->native_missing_why.c_str());
     }

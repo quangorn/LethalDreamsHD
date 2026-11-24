@@ -71,6 +71,10 @@ static int g_band_resynced = 0;
  * вход листа известен и НЕ является тавтологией — claim головы сверяется
  * (mutator'ы 45eee0 больше не форсируют SKIP). */
 static int g_band_applied = 0;
+/* v15: тик, в котором запись bdd0_native для 0x45eee0 отсутствует и была
+ * восстановлена из bdd0_res (см. B0_EEE0_SYNTH_WHY). 1 — u170 подан в арену
+ * из записи исхода, поэтому res_match не считает его независимым. */
+static int g_eee0_synth = 0;
 
 /* Мутация «состоялась» (см. b0_leaf_mutators). Для 45eee0 это так и после
  * восстановления ленты: либо вход неизвестен, либо он реконструирован из
@@ -433,6 +437,7 @@ void bdd0_native_begin(int seq, const NativeRec *v, int n,
     for (int k = 0; k < B0_LEAF_MUTATOR_COUNT; k++) g_mut_hit[k] = 0;
     g_band_resynced = 0;
     g_band_applied = 0;
+    g_eee0_synth = 0;
     g_call_seq = 0;
     for (int k = 0; k < NATIVE_LOG_MAX; k++) g_nmatch[k] = NULL;
     g_not_present = (n == 0);
@@ -561,9 +566,41 @@ static void *ret_ptr(const LeafRec *r)
                                 (unsigned)r->site, (unsigned)r->va);
 }
 
+/* Записи bdd0_native для 0x45eee0 нет, хотя поток тика присутствует: захват
+ * снят с LDHOOK_BATTLE_CAPTURE_E0=0 (точка записи юнит-AI тика жила в
+ * e0a0-слое — исправлено в capture.cpp, v15). Восстанавливать её из одной
+ * bdd0_res можно только там, где исход тика записан и не помечен trap.
+ * Строгие условия (иначе — обычное нарушение потока, а не подстановка):
+ *   - записей 0x45eee0 в потоке этого тика НЕТ ВООБЩЕ (в норме она одна: в
+ *     cap_v14_trim 392 записи на 400 тиков, ни одного тика с двумя);
+ *   - подстановка — не более одной на тик;
+ *   - у тика есть bdd0_res с не-trap исходом.
+ * Возврат 1 — на этой позиции потока записи 0x45eee0 нет. */
+static int eee0_record_missing(void)
+{
+    const NativeRec *p;
+    int i;
+
+    if (g_not_present || g_nv == NULL || g_nviol) return 0;
+    if (g_rec == NULL || !g_rec->has_res || g_rec->res_trap) return 0;
+    if (g_eee0_synth) return 0;                 /* одна подстановка на тик */
+    for (i = 0; i < g_nn; i++) {
+        if (g_nv[i].slot == 0 && g_nv[i].va == (int)B0_VA_UNIT_AI_TICK) {
+            return 0;                           /* запись в потоке есть */
+        }
+    }
+    p = bdd0_native_pending();
+    (void)p;
+    return 1;                                   /* записи нет вовсе */
+}
+
+int bdd0_eee0_synth(void)
+{
+    return g_eee0_synth;
+}
+
 /* ------------------------------- листья --------------------------------- */
 namespace native {
-
 /* 45c6f0 — 3 dword из `[*(ctx)+0xc]` в out; EAX = out (тело возврат не читает).
  * Реализация только для полноты ABI: порт 0x45c6f0 не запрашивает (см.
  * b0_read_pos_from_ctx/claim в battle/tick.cpp), обёртка нужна replay/синтетике. */
@@ -904,13 +941,36 @@ static int band_apply_recorded(void)
 /* 45eee0 — unit-AI tick: код 0..4 управляет каскадом. */
 int unit_ai_tick(void *ai, void *rec)
 {
+    static NativeRec synth;
+    const NativeRec *r;
     int a[1];
+
     a[0] = (int)(size_t)rec;
-    const NativeRec *r = nrequest(0, B0_VA_UNIT_AI_TICK, (int)(size_t)ai, a, 1);
-    /* v13: recorded-band имеет приоритет над resync (тот остаётся fallback'ом
-     * для захватов без "band" и там claim → SKIP, как раньше). */
-    g_band_applied = band_apply_recorded();
-    g_band_resynced = g_band_applied ? 0 : band_resync_from_stream();
+    if (eee0_record_missing()) {
+        /* v15: записи нет (см. eee0_record_missing). Тело после вызова читает
+         * только BattleAI+0x38 — подаём независимо снятое `bdd0_res.u170`;
+         * поток не потребляется, позиции прочих записей не сдвигаются. */
+        g_eee0_synth = 1;
+        synth = NativeRec();
+        synth.va = (int)B0_VA_UNIT_AI_TICK;
+        synth.site = 0x44cbd0;
+        synth.ecx = (int)(size_t)ai;
+        synth.nargs = 1;
+        synth.args[0] = a[0];
+        synth.ret = 0;                          /* EAX телом не читается */
+        synth.ww[0] = 0x170;
+        synth.ww[1] = (int)g_rec->res_u170;
+        synth.nww = 2;
+        r = &synth;
+        g_band_applied = band_apply_recorded();
+        g_band_resynced = g_band_applied ? 0 : band_resync_from_stream();
+    } else {
+        r = nrequest(0, B0_VA_UNIT_AI_TICK, (int)(size_t)ai, a, 1);
+        /* v13: recorded-band имеет приоритет над resync (тот остаётся
+         * fallback'ом для захватов без "band" и там claim → SKIP, как раньше). */
+        g_band_applied = band_apply_recorded();
+        g_band_resynced = g_band_applied ? 0 : band_resync_from_stream();
+    }
     if (r == NULL) return 0;
     /* v12 additive: 45eee0 writes BattleAI+0x00..0x38 (unit+0x138..0x170). */
     if (r->nww > 0 && ai != NULL) {

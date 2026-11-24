@@ -1006,6 +1006,8 @@ static CheckResult chk_native_seq(const TickContext &tc)
 /* res_match — исход порта (al/out/u170) против записанного bdd0_res того же
  * seq.  Это первая проверка уровня РЕШЕНИЯ (не механики): любое расхождение
  * означает, что порт принял другой исход.  Нет res / res_trap — SKIP. */
+int bdd0_eee0_synth(void);                    /* native_replay.cpp */
+
 static CheckResult chk_res_match(const TickContext &tc)
 {
     if (!tc.ran_body) {
@@ -1022,8 +1024,15 @@ static CheckResult chk_res_match(const TickContext &tc)
     int ok_al = (al_port == al_rec);
     int ok_out = (tc.out_slot == tc.rec->res_out);
     int ok_u170 = (tc.u170 == tc.rec->res_u170);
+    int synth = bdd0_eee0_synth();
     if (!ok_u170 && tc.rec->native_eee0_no_ww && ok_al && ok_out) {
         SKIP("u170 writes not captured in bdd0_native (older 45eee0 record)");
+    }
+    /* v15: запись 0x45eee0 отсутствовала, u170 подан в арену ИЗ bdd0_res —
+     * сравнение этого поля перестало быть независимым (не pass; SKIP со
+     * счётом, как B0_POS_RESYNC_WHY у листа 45c6f0). al/out остаются сверкой. */
+    if (synth && ok_al && ok_out) {
+        SKIP(B0_EEE0_SYNTH_WHY);
     }
     if (!ok_al || !ok_out || !ok_u170) {
         return CheckResult{ 0, whyf(tc, "outcome mismatch: al port=%d "
