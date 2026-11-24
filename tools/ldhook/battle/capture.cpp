@@ -60,7 +60,7 @@
 /* v12: снапшот входа (kind bdd0_in) и поток логических листьев (bdd0_leaf).
  * Версия только этих двух родов; пара bdd0_cap/res остаётся CAP_BDD0_VER (11),
  * cap/res/grid/eee0_* — CAP_VERSION (10). */
-#define CAP_BDD0_SNAP_VER   13         /* v13: bdd0_in/bdd0_res несут "band":[begin,end] */
+#define CAP_BDD0_SNAP_VER   15         /* v15: bdd0_in несёт независимую тройку "ctx_pos" */
 #define CAP_BDD0_FRAME_SIZE 0x168  /* локалы 0x00..0x15b + param_1/2/3 (0x15c/0x160/0x164) */
 /* unit-блок 0x180: покрывает все чтения unit из tick.cpp (максимум +0x170;
  * +0x138 — встроенный BattleAI, снимается отдельным блоком ниже). 0x180
@@ -1641,6 +1641,8 @@ static void cap_write_bdd0_in(int seq, void *self, void *esp, int p1, int p2,
 {
     int frame_ok = 1, unit_ok = 1, ai_ok = 1, trap = 0;
     int band_ok = 1, band_n = 0, gs_ok = 0, gctx0_ok = 0;
+    int ctx_pos_ok = 0;
+    int ctx_pos[3] = { 0, 0, 0 };
     unsigned int bb = 0, be = 0, bc = 0, bd = 0;
     unsigned int e0_v = 0, e044_v = 0, tree_v = 0;
     int gctx0 = 0;
@@ -1722,6 +1724,24 @@ static void cap_write_bdd0_in(int seq, void *self, void *esp, int p1, int p2,
         } __except (EXCEPTION_EXECUTE_HANDLER) {
             gctx0_ok = 0;
         }
+        /* v15 (аддитивно): pos-тройка листа 45c6f0 — независимый источник.
+         * Цепочка: unit+0x138 (game_ctx, то же значение, что `ai_ctx`) → +0xc
+         * (указатель на тройку) → три dword. Объект ctx лежит в куче игры и в
+         * снимке его нет, поэтому до v15 харнесс реконструировал тройку из `w`
+         * записи 45c6f0 (тавтология, B0_POS_RESYNC_WHY). NULL-указатель или
+         * сбой чтения — ключ "ctx_pos":null (значения нет). */
+        __try {
+            const void *gctx = *(void * const *)((const unsigned char *)self + 0x138);
+            if (gctx != NULL) {
+                const void *tri = *(void * const *)((const unsigned char *)gctx + 0xc);
+                if (tri != NULL) {
+                    memcpy(ctx_pos, tri, sizeof(ctx_pos));
+                    ctx_pos_ok = 1;
+                }
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            ctx_pos_ok = 0;
+        }
     }
     /* v12 (аддитивно): объект состояния игры FUN_00442570 (0x20 Б). Accessor
      * вызывается под __try; тело всё равно зовёт его 4+ раз за тик. */
@@ -1773,6 +1793,15 @@ static void cap_write_bdd0_in(int seq, void *self, void *esp, int p1, int p2,
     }
     if (gctx0_ok) {
         fprintf(g_file, ",\"gctx0\":%d", gctx0);
+    }
+    /* v15: независимая pos-тройка `[*(unit+0x138)+0xc]` (лист 45c6f0). Ключ
+     * пишется всегда: null — ctx нет или чтение не удалось; харнесс тогда
+     * работает по-старому (реконструкция из `w`). */
+    fputs(",\"ctx_pos\":", g_file);
+    if (ctx_pos_ok) {
+        fprintf(g_file, "[%d,%d,%d]", ctx_pos[0], ctx_pos[1], ctx_pos[2]);
+    } else {
+        fputs("null", g_file);
     }
     fprintf(g_file, ",\"band\":[%u,%u],\"band_begin\":%u,\"band_end\":%u,"
             "\"band_cap\":%u,\"band_dirty\":%u,\"band_count\":%d,"

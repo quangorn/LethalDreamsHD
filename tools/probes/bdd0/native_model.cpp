@@ -73,8 +73,14 @@ static int fbits(float f) { int b; memcpy(&b, &f, 4); return b; }
 void bdd0_leaf_begin(int seq, const LeafRec *v, int n)
 {
     unsigned char *pos = arena_region_w(arena_current(), "ctx_pos");
+    const TickRecord *tr = arena_record(arena_current());
     (void)seq; (void)v; (void)n;
-    if (pos != NULL) memcpy(pos, g_env.ctx_pos, 12);
+    /* v15: запись несёт независимый снимок ctx_pos — его уже положил
+     * arena_build, перезапись профилем сделала бы фикстуру неотличимой от
+     * реконструкции (и скрыла бы испорченный ctx_pos). */
+    if (pos != NULL && (tr == NULL || !tr->has_ctx_pos)) {
+        memcpy(pos, g_env.ctx_pos, 12);
+    }
 }
 int bdd0_leaf_calls(void) { return 0; }
 int bdd0_leaf_violations(void) { return 0; }
@@ -93,12 +99,13 @@ int bdd0_leaf_claims(void) { return 0; }
 const LeafClaimEnt *bdd0_leaf_claim_at(int i) { (void)i; return NULL; }
 
 static int record(int va, const void *ecx, int nargs, const int *args, int ret,
-                  const int *w, int nw)
+                  const int *w, int nw, int site = 0)
 {
     LeafRec r;
     memset(&r, 0, sizeof(r));
     r.order = g_order++;
     r.va = va;
+    r.site = site;
     r.ecx = (int)(size_t)ecx;
     r.nargs = (nargs > 8) ? 8 : nargs;
     for (int k = 0; k < r.nargs; k++) r.args[k] = args[k];
@@ -373,6 +380,18 @@ void *grid_anchor(void *grid, int a1, int a2, int a3, int a4, int *flag_slot,
         *flag_slot = keep | (g_cfg.anchor_null ? 0 : 1);
     }
     record(0x458050, grid, 6, a, ret, NULL, 0);
+    /* v15: вложенный вызов сайта 0x458142 → 0x456b60 (chain_head) внутри
+     * 0x458050 (`CALL 0x456b60` после проверки статуса == 2). Порт 0x458050
+     * не исполняет, поэтому запись выносится загрузчиком из окна тика
+     * (BDD0_NESTED_SITE_GRID_ANCHOR); профиль nested_chain её и создаёт,
+     * чтобы корпус показывал: такой захват остаётся самосогласованным. */
+    if (g_cfg.nested_chain) {
+        int na[1];
+
+        na[0] = (int)(size_t)world;          /* args[0] = world */
+        record(0x456b60, (void *)(size_t)ret, 1, na, ret, NULL, 0,
+               (int)BDD0_NESTED_SITE_GRID_ANCHOR);
+    }
     return g_cfg.anchor_null ? NULL : arena_resolve_ptr(g_env.tree_game);
 }
 

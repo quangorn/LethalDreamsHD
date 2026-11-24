@@ -7,7 +7,8 @@
  * Доменных правил в ядре нет: проверки живут в checks_builtin.cpp и видят только
  * read-only TickContext; реализация — за ImplDef; нативный слой — native_*.cpp.
  *
- * Данные захвата v12 (bdd0_in / bdd0_leaf / bdd0_native / bdd0_res) описаны в
+ * Данные захвата v12 (bdd0_in / bdd0_leaf / bdd0_native / bdd0_res) и v15
+ * (bdd0_in "ctx_pos" — независимая pos-тройка листа 45c6f0) описаны в
  * tools/ldhook/battle/capture.h; загрузчик — scenario.cpp.
  */
 #ifndef BDD0_HARNESS_H
@@ -26,6 +27,14 @@
 #define BDD0_BAND_ELEM  0x18      /* элемент ленты (45af50: (end-begin)/0x18) */
 #define BDD0_BAND_MAX   64        /* потолок материализуемых элементов ленты */
 #define BDD0_GS_LEN     0x20      /* объект FUN_00442570, читаемый телом */
+
+/* Сайты вызовов ВНУТРИ листа, который порт НЕ исполняет: 0x458050
+ * (grid_anchor) replay-ится записью целиком, поэтому вложенный вызов
+ * 0x456b60 (сайт 0x458142) порт не может ни запросить, ни заявить — его
+ * запись выносится из окна тика в счётчик nested (leaf_seq от неё не зависит).
+ * Сайт из этого списка убирается, когда 0x458050 будет портирован: тогда
+ * b0_chain_head станет вызываемым и заявка 0x456b60 начнёт сверяться. */
+#define BDD0_NESTED_SITE_GRID_ANCHOR 0x458142
 
 /* Один вызов логического листа из потока bdd0_leaf.
  * w/nw — dword'ы, которые лист записал ЧЕРЕЗ указатель (45c6f0 out-тройка,
@@ -83,6 +92,11 @@ struct TickRecord {
     unsigned e0, e0_44, tree;
     int has_gctx0;
     unsigned gctx0;            /* *(int*)ai_ctx — первый dword game_ctx */
+    /* v15: независимая pos-тройка листа 45c6f0 = `[*(unit+0x138)+0xc]`.
+     * Есть ключ "ctx_pos" (массив из 3) — тройка берётся отсюда, а не из `w`
+     * записи листа, поэтому заявка 45c6f0 сверяется как обычное значение. */
+    int has_ctx_pos;
+    int ctx_pos[3];
     unsigned self_raw;         /* bdd0_in self = адрес unit в игре */
     unsigned band_raw;         /* bdd0_in band_begin = адрес ленты */
     unsigned gs_raw;           /* возврат 442570 = адрес объекта состояния игры */
@@ -110,7 +124,8 @@ struct TickRecord {
           has_gs(0), band_n(0), has_band_state(0), band_in_begin(0),
           band_in_end(0), has_res_band(0), band_post_begin(0), band_post_end(0),
           has_chain(0), e0(0), e0_44(0), tree(0),
-          has_gctx0(0), gctx0(0), self_raw(0), band_raw(0), gs_raw(0), trap(0),
+          has_gctx0(0), gctx0(0), has_ctx_pos(0), self_raw(0), band_raw(0),
+          gs_raw(0), trap(0),
           has_res(0), res_trap(0), res_al(0), res_out(0), res_u170(0),
           leaf_first(0), leaf_n(0), native_first(0), native_n(0),
           native_eee0_no_ww(0), incomplete_tail(0), res_missing_nontail(0)
@@ -120,6 +135,7 @@ struct TickRecord {
         for (int i = 0; i < BDD0_AI_LEN; i++) ai[i] = 0;
         for (int i = 0; i < (int)sizeof(band); i++) band[i] = 0;
         for (int i = 0; i < BDD0_GS_LEN; i++) gs[i] = 0;
+        ctx_pos[0] = ctx_pos[1] = ctx_pos[2] = 0;
         res_m[0] = res_m[1] = res_m[2] = 0;
     }
 };
@@ -138,14 +154,18 @@ struct Scenario {
     std::string leaf_missing_why;
     int native_missing_n;      /* native_site_skipped: RECORD-сайт не захукался */
     std::string native_missing_why;
+    int nested_leaf_n;         /* записи bdd0_leaf из сайта ВНУТРИ листа, который
+                                  порт не исполняет (0x458142 в 0x458050): в
+                                  окно тика не входят, см. макрос
+                                  BDD0_NESTED_SITE_GRID_ANCHOR */
     int input_trap;            /* bdd0_in с trap=1 (снимок недостоверен) */
     int outcome_trap;          /* bdd0_res с trap=1 (исход недостоверен) */
     int incomplete_tail;       /* тиков, у которых seq без res и он последний */
     int res_missing_nontail;   /* res отсутствует ниже последнего seq: аномалия */
     Scenario() : snap_records(0), leaf_records(0), native_records(0),
                  truncated(0), records(0), leaf_missing_n(0),
-                 native_missing_n(0), input_trap(0), outcome_trap(0),
-                 incomplete_tail(0), res_missing_nontail(0) {}
+                 native_missing_n(0), nested_leaf_n(0), input_trap(0),
+                 outcome_trap(0), incomplete_tail(0), res_missing_nontail(0) {}
 };
 
 /* Загрузчик (scenario.cpp). Ошибка формата → std::runtime_error (rc 2). */
@@ -322,6 +342,8 @@ Arena *arena_current(void);
 
 const RegionView *arena_regions(const Arena *a);
 int arena_region_n(const Arena *a);
+/* Запись, из которой собрана арена (ctx_pos и т.п. — источники захвата). */
+const TickRecord *arena_record(const Arena *a);
 const RegionView *arena_views(const Arena *a);
 const RegionView *arena_pre_views(const Arena *a);
 unsigned char *arena_region_w(Arena *a, const char *name);

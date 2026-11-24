@@ -203,7 +203,9 @@ python3 tools/probes/leaf_stream_diff.py <capture.jsonl> <res_port.jsonl> [--ext
 `res_port.leaf.path` по seq (общий префикс + маркер `EXTRA` хвоста); rc 0/1/2.
 
 Версии захвата по родам записей: `CAP_VERSION 10` (`cap`/`res`/`grid`/`eee0_*`),
-`CAP_BDD0_VER 11` (пара `bdd0_cap`/`bdd0_res`), v12 (`bdd0_in`, `bdd0_leaf`). Ключи по версиям: v3 — `ai_words` (скалярный блок
+`CAP_BDD0_VER 11` (пара `bdd0_cap`/`bdd0_res`), v12 (`bdd0_in`, `bdd0_leaf`), v15
+(`bdd0_in."ctx_pos"` — независимая тройка `[*(unit+0x138)+0xc]`; старые файлы
+читаются прежним путём, 45c6f0 остаётся SKIP-тавтологией). Ключи по версиям: v3 — `ai_words` (скалярный блок
 BattleAI), v4 — `ai_words_after`; v5 — запись `grid` перед первой `cap` (уровни/размеры,
 `cells` (LDPos-вид, метрики, ключи, связи), `rows`, статусы world-дерева, внешние входы
 эвристики, `res.timer`); v6 — значения гейта листьев + стек-арги cb40; v7 — `scale`/`scale_ok`:

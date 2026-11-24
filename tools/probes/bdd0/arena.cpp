@@ -24,8 +24,10 @@
  *   (game_ctx); тело читает `*(u32)game_ctx` (бит3) в B43/B50.
  *   Плюс шестая (лист 45c6f0): `[*(unit+0x138)+0xc]` — указатель на pos-тройку
  *   внутри объекта ctx. Сам объект лежит в куче игры и в снимок не попадает,
- *   поэтому область "ctx_pos" (12 Б) восстанавливается из потока (w записи
- *   45c6f0, native_replay.cpp bdd0_leaf_begin), а ctx+0xc указывает на неё.
+ *   поэтому область "ctx_pos" (12 Б) заполняется независимым снимком
+ *   `[*(unit+0x138)+0xc]` (bdd0_in "ctx_pos", v15), а у файлов без ключа —
+ *   из потока (w записи 45c6f0, native_replay.cpp bdd0_leaf_begin); ctx+0xc
+ *   указывает на неё.
  *
  * Каждое звено получает shadow-объект (node_e0 0x240, node_e044 0x240, tree
  * 0x40, ctx 0x20) и поле указателя ПЕРЕПИСЫВАЕТСЯ на него; сырой адрес звена
@@ -197,6 +199,11 @@ const RegionView *arena_regions(const Arena *a)
 int arena_region_n(const Arena *a)
 {
     return (a == NULL) ? 0 : (int)a->views.size();
+}
+
+const TickRecord *arena_record(const Arena *a)
+{
+    return (a == NULL) ? NULL : a->rec;
 }
 
 unsigned char *arena_out_slot(Arena *a)
@@ -548,12 +555,15 @@ Arena *arena_build(const TickRecord *rec)
             write_u32(cr->base, rec->gctx0);
             write_u32(slot, (unsigned)(size_t)cr->base);
             /* лист 45c6f0: `[ctx+0xc]` — указатель на pos-тройку. Содержимое
-             * области "ctx_pos" кладёт восстанавливающий слой (native_replay.cpp
-             * bdd0_leaf_begin / модель синтетики), здесь только связка. */
+             * области "ctx_pos" — независимый снимок `[*(unit+0x138)+0xc]`
+             * (v15, ключ "ctx_pos"); у файлов без ключа тройку кладёт
+             * восстанавливающий слой (native_replay.cpp bdd0_leaf_begin /
+             * модель синтетики), здесь только связка. */
             {
                 unsigned char *cp = arena_region_w(a, "ctx_pos");
 
                 if (cp != NULL) {
+                    if (rec->has_ctx_pos) memcpy(cp, rec->ctx_pos, 12);
                     write_u32(cr->base + 0xc, (unsigned)(size_t)cp);
                 }
             }

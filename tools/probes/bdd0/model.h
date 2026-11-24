@@ -40,6 +40,9 @@ struct ModelCfg {
     int anchor_null;       /* 458050: возврат NULL */
     float interp_add;      /* 45b150: ST(0) = arg1 + interp_add */
     int moved;             /* 45b3e0: возврат */
+    /* v15: 458050 дополнительно пишет вложенный лист 0x456b60 (сайт 0x458142)
+     * — проверка того, что записи таких сайтов не ломают поток тика. */
+    int nested_chain;
 };
 
 void model_set(const ModelEnv &env, const ModelCfg &cfg);

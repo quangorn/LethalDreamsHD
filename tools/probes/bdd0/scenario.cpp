@@ -317,6 +317,20 @@ static void apply_in(TickRecord &t, const JVal &v, int *bad)
         t.gctx0 = (unsigned)jint_opt(v, "gctx0", 0);
         t.has_gctx0 = 1;
     }
+    /* v15 (аддитивно): "ctx_pos":[x,y,z] — независимая pos-тройка листа
+     * 45c6f0 (`[*(unit+0x138)+0xc]`). null/отсутствие ключа — тройки нет,
+     * старые файлы идут прежним путём (реконструкция из `w`). */
+    {
+        const JVal *cp = jget(v, "ctx_pos");
+        if (cp != NULL && cp->t == JVal::ARR && cp->a.size() >= 3 &&
+            cp->a[0].t == JVal::NUM && cp->a[1].t == JVal::NUM &&
+            cp->a[2].t == JVal::NUM) {
+            t.has_ctx_pos = 1;
+            t.ctx_pos[0] = (int)cp->a[0].n;
+            t.ctx_pos[1] = (int)cp->a[1].n;
+            t.ctx_pos[2] = (int)cp->a[2].n;
+        }
+    }
 }
 
 static void apply_res(ResRec &r, const JVal &v)
@@ -508,6 +522,13 @@ Scenario *load_capture(const char *path)
                 if (ver < 12) continue;
                 LeafRec l;
                 apply_leaf(l, v);
+                /* Сайт внутри листа, который порт replay-ит целиком (0x458050):
+                 * запись снята, но claim/request её не получит — выносим из окна
+                 * тика и считаем отдельно, иначе leaf_seq видел бы «лишнюю». */
+                if (l.site == BDD0_NESTED_SITE_GRID_ANCHOR) {
+                    sc->nested_leaf_n++;
+                    continue;
+                }
                 leaves.push_back(std::make_pair(
                     (int)jint_opt(v, "seq", 0), l));
                 sc->leaf_records++;

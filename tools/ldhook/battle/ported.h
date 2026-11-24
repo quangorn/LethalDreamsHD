@@ -118,7 +118,9 @@ static const B0LeafMutator b0_leaf_mutators[] = {
  * куче игры (в снимок не попадает), replay кладёт её в арену "ctx_pos" из `w`
  * записи. Значение такой заявки производно от записи, поэтому leaf_value
  * считает эти dword'ы НЕсравнимыми с причиной (SKIP со счётом, не PASS);
- * ret/args/ecx и порядок заявок остаются реальными сверками. */
+ * ret/args/ecx и порядок заявок остаются реальными сверками.
+ * С capture v15 тройка снимается независимо в `bdd0_in` "ctx_pos" — тогда
+ * причина неприменима: заявка сверяется побитово, как обычное значение. */
 #define B0_POS_RESYNC_WHY \
     "ctx triple reconstructed from the 45c6f0 record w (ctx heap object not captured)"
 

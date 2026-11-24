@@ -962,6 +962,11 @@ int main(int argc, char **argv)
         printf("  leaf_missing=%d (%s)\n", sc->leaf_missing_n,
                sc->leaf_missing_why.c_str());
     }
+    if (sc->nested_leaf_n > 0) {
+        printf("  nested_leaf=%d (bdd0_leaf from a site INSIDE a leaf the port "
+               "replays wholesale, e.g. 0x458142 in 0x458050: kept out of the "
+               "tick window, not compared)\n", sc->nested_leaf_n);
+    }
     printf("  leaf_nodes=%d (unbound raw game pointers bound to identity cells; "
            "0 = every leaf pointer was materialised)\n", leaf_nodes);
     if (leaf_identity > 0) {

@@ -97,6 +97,15 @@ struct Profile {
     int ctx_null;          /* ai_ctx = 0 → нулевая ветка листа 45c6f0 */
     int gs_nan;            /* 0 — обычные значения; k+1 — gs_pos[k] = NaN
                             * (проверка правила маски 0x44 на unordered) */
+    /* v15: ключ "ctx_pos" в bdd0_in — независимый снимок тройки
+     * `[*(unit+0x138)+0xc]`. 0 — ключа нет (старый формат, тройка
+     * восстанавливается из `w`); 1 — ключ = истинная тройка (лист 45c6f0
+     * сверяется как значение); 2 — ключ ИСПОРЧЕН (первый dword иной), запись
+     * листа несёт истину — фикстура «битый захват». */
+    int ctx_pos_mode;
+    /* v15: 458050 пишет вложенный лист 0x456b60 (сайт 0x458142) — проверка,
+     * что такие записи не ломают поток тика (харнесс выносит их из окна). */
+    int nested_chain;
 };
 
 static const Profile k_profiles[] = {
@@ -161,7 +170,26 @@ static const Profile k_profiles[] = {
      * обязан вернуть 0; прочтение маски как «равно или unordered» вернуло бы 1
      * — этот профиль его и ловит. no_all=1. */
     { "pos3_nan", 1, 0, 0.0f, -1.0f, 3u, 0, 2, 0, 1, 0u, 0, 0,
-      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, -1, 0, 0, 3 }
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, -1, 0, 0, 3 },
+    /* ctx_pos: как pos3_eq по пути, но v15-захват несёт независимую тройку
+     * `[*(unit+0x138)+0xc]`. Заявка листа 45c6f0 тогда сверяется побитово
+     * (leaf_value PASS на w), а не идёт в «несравнимо». no_all=1. */
+    { "ctx_pos", 1, 0, 0.0f, -1.0f, 3u, 0, 2, 0, 1, 0u, 0, 0,
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, -1, 0, 0, 0, 1 },
+    /* ctx_pos_bad: тот же тик, что "simple" (единственный вызов 45c6f0,
+     * тройка не участвует в ветвлениях), но ключ "ctx_pos" ИСПОРЧЕН (x = 4.0
+     * вместо 1.0), а запись листа 45c6f0 несёт истинную тройку. Харнесс обязан
+     * взять ctx_pos из записи и FAIL leaf_value с `w[0] port=… native=…` —
+     * доказательство, что тройка сверяется, а не вакуумна. no_all=1. */
+    { "ctx_pos_bad", 1, 0, 0.0f, 1.0f, 3u, 0, 0, 0, 1, 0u, 0, 0,
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, -1, 0, 0, 0, 2 },
+    /* chain_nested: путь grid (R12 → 458050), поэтому 0x458050 пишет вложенный
+     * лист 0x456b60 (сайт 0x458142, args[0] = world, ret = узел). Запись
+     * выносится из окна тика ⇒ rc 0, leaf_seq 1/0/0, nested_leaf=1;
+     * ctx_pos есть (как в любом v15-захвате). no_all=1. */
+    { "chain_nested", 1, 8, 0.0f, -1.0f, 0u, 0, 2, 0, 1, 0u, 0, 0,
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0x20000000u, 2, 0, 0,
+      0, 1, 1 }
 };
 
 /* Снимок по профилю: unit 0x180, встроенный BattleAI 0x80 (unit+0x138),
@@ -267,6 +295,13 @@ static void fill_record(TickRecord &t, const Profile &pf, int seq, int tick)
     }
     t.has_gctx0 = 1;
     t.gctx0 = pf.gctx0;
+    /* v15: независимый снимок тройки `[*(unit+0x138)+0xc]` — та же позиция
+     * юнита, что в профиле (ai_pos). Арена получает её от записи, а не от
+     * модели; модель тройку только читает через объектный граф. */
+    t.has_ctx_pos = (pf.ctx_pos_mode != 0) ? 1 : 0;
+    for (int k = 0; k < 3; k++) {
+        t.ctx_pos[k] = fbits(pf.ai_pos[k]);
+    }
 }
 
 /* -------------------------------- вывод --------------------------------- */
@@ -289,26 +324,42 @@ static void write_jsonl(FILE *f, const TickRecord &in, const TickRecord &post,
     std::string ab = b64(in.ai, BDD0_AI_LEN);
     std::string bb = (in.band_n > 0) ? b64(in.band, in.band_n * BDD0_BAND_ELEM) : "";
     std::string gb = b64(in.gs, BDD0_GS_LEN);
+    /* v15: ключ "ctx_pos" (независимый снимок). mode 2 — ИСПОРЧЕННЫЙ: первый
+     * dword иной, чем у записи листа (модель пишет истину) — фикстура дефекта. */
+    int cp[3];
+    memcpy(cp, in.ctx_pos, sizeof(cp));
+    if (pf.ctx_pos_mode == 2) {
+        float tx = pf.ai_pos[0] + 3.0f;
 
-    fprintf(f, "{\"v\":13,\"kind\":\"bdd0_in\",\"seq\":%d,\"tick\":%d,\"unit\":%d,"
+        memcpy(&cp[0], &tx, 4);
+    }
+
+    fprintf(f, "{\"v\":15,\"kind\":\"bdd0_in\",\"seq\":%d,\"tick\":%d,\"unit\":%d,"
                "\"fn\":\"44bdd0\",\"self\":%u,\"p1\":%d,\"p2\":%d,\"p3\":%d,"
                "\"ai_ctx\":%u,\"u170\":%d,\"gate114\":%u,\"band\":[%u,%u],"
                "\"frame_b64\":\"%s\","
                "\"unit_b64\":\"%s\",\"ai_b64\":\"%s\",\"band_begin\":%u,"
                "\"band_end\":%u,\"band_cap\":%u,\"band_dirty\":1,\"band_count\":%d,"
                "\"band_b64\":\"%s\",\"gs_b64\":\"%s\",\"e0\":%u,\"e0_44\":%u,"
-               "\"tree\":%u,\"gctx0\":%u,\"trap\":0}\n",
+               "\"tree\":%u,\"gctx0\":%u",
             in.seq, in.tick, in.unit_index, self, in.p1, in.p2, in.p3,
             ai_ctx, in.u170_in, in.gate114, band_begin, band_end,
             fb.c_str(), ub.c_str(), ab.c_str(),
             band_begin, band_end, band_end, in.band_n, bb.c_str(), gb.c_str(),
             in.e0, in.e0_44, in.tree, in.gctx0);
+    /* v15: независимая pos-тройка листа 45c6f0 (`[*(unit+0x138)+0xc]`).
+     * Ключ пишут только профили, которые его моделируют (реальные v15-захваты
+     * пишут его всегда: null при NULL-ctx или сбое чтения). */
+    if (pf.ctx_pos_mode != 0) {
+        fprintf(f, ",\"ctx_pos\":[%d,%d,%d]", cp[0], cp[1], cp[2]);
+    }
+    fputs(",\"trap\":0}\n", f);
 
     for (int i = 0; i < model_leaf_count(); i++) {
         const LeafRec *r = model_leaf_at(i);
         fprintf(f, "{\"v\":12,\"kind\":\"bdd0_leaf\",\"seq\":%d,\"order\":%d,"
-                   "\"va\":\"%x\",\"ecx\":%d,\"args\":[",
-                seq, r->order, r->va, r->ecx);
+                   "\"site\":\"%x\",\"va\":\"%x\",\"ecx\":%d,\"args\":[",
+                seq, r->order, r->site, r->va, r->ecx);
         for (int k = 0; k < r->nargs; k++) {
             fprintf(f, "%s%d", k ? "," : "", r->args[k]);
         }
@@ -402,6 +453,7 @@ static int run_tick(FILE *f, const Profile &pf, int seq, int verbose)
     cfg.anchor_null = pf.anchor_null;
     cfg.interp_add = 0.0f;
     cfg.moved = 0;
+    cfg.nested_chain = pf.nested_chain;
     model_set(env, cfg);
     model_leaf_reset();
 
@@ -443,7 +495,8 @@ int main(int argc, char **argv)
     if (argc < 2) {
         fputs("usage: bdd0_synth.exe <out.jsonl> "
               "[grid|simple|band|band0|band_rec|band_trunc|band_trunc_neg|"
-              "pos_null|pos3_eq|pos3_neq|pos3_nan|all] [-v]\n", stderr);
+              "pos_null|pos3_eq|pos3_neq|pos3_nan|ctx_pos|ctx_pos_bad|"
+              "chain_nested|all] [-v]\n", stderr);
         return 2;
     }
     const char *out = argv[1];

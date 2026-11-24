@@ -20,9 +20,11 @@
  * Побочные записи листа (dword'ы, которые натив писал ЧЕРЕЗ указатель) берутся
  * из необязательного ключа `w` записи; если его нет — из документированной
  * семантики листа (45c6f0 = три dword `[ctx+0xc]`), см. native.h. Портированный
- * 45c6f0 читает эту тройку из арены ("ctx_pos"), которую bdd0_leaf_begin
- * восстанавливает из `w` первой записи 45c6f0 тика (куча ctx в снимок не
- * попадает), поэтому его claim помечается resync и leaf_value считает поля w
+ * 45c6f0 читает эту тройку из арены ("ctx_pos"): с capture v15 её содержимое —
+ * независимый снимок `[*(unit+0x138)+0xc]` (bdd0_in "ctx_pos"), и claim
+ * сверяется как обычное значение; у файлов без ключа тройку восстанавливает
+ * bdd0_leaf_begin из `w` первой записи 45c6f0 тика (куча ctx в снимок не
+ * попадает), и тогда claim помечается resync — leaf_value считает поля w
  * несравнимыми (B0_POS_RESYNC_WHY), а не PASS.
  */
 #include <stdio.h>
@@ -84,19 +86,24 @@ static const LeafRec *g_match[LEAF_LOG_MAX];
 static int g_aw_nw[LEAF_LOG_MAX];
 static int g_aw[LEAF_LOG_MAX][3];
 
-/* 45c6f0: троица-результат лежит в куче игры (`[*(unit+0x138)+0xc]`) и в
- * снимок не попадает. Арена даёт под неё область "ctx_pos" (arena.cpp: ctx+0xc
- * → эта область), а содержимое восстанавливается из ПОТОКА — `w` первой записи
- * 45c6f0 этого тика (весь тик позиция одна и та же: в захватах при двух вызовах
- * w совпадают). Так порт исполняет свой код чтения (this → ctx → +0xc → тройка),
- * а claim сверяет вычисленное с записью; без реконструкции порт читал бы нули.
- * Записи без `w` (старый формат) оставляют нули — leaf_value тогда SKIP. */
+/* 45c6f0: троица-результат лежит в куче игры (`[*(unit+0x138)+0xc]`). Арена
+ * даёт под неё область "ctx_pos" (arena.cpp: ctx+0xc → эта область). Источник
+ * содержимого:
+ *   - capture v15 (`bdd0_in` "ctx_pos") — НЕЗАВИСИМЫЙ снимок цепочки
+ *     `[*(unit+0x138)+0xc]`, его уже положил arena_build; заявка 45c6f0 тогда
+ *     сверяется как обычное значение (resync НЕ ставится);
+ *   - старые файлы без ключа — реконструкция из `w` первой записи 45c6f0 этого
+ *     тика (позиция одна на тик: в захватах при двух вызовах w совпадают);
+ *     зеркально claim помечается resync, и w идёт в «несравнимо», а не в PASS.
+ * Записи без `w` (совсем старый формат) оставляют нули — leaf_value SKIP. */
+static int g_ctx_pos_captured = 0;
+
 static void ctx_pos_from_stream(void)
 {
     unsigned char *pos = arena_region_w(arena_current(), "ctx_pos");
     int i;
 
-    if (pos == NULL) return;
+    if (pos == NULL || g_ctx_pos_captured) return;
     for (i = 0; i < g_n; i++) {
         if (g_v[i].va != (int)B0_LEAF_READ_POS || g_v[i].trap) continue;
         if (g_v[i].nw < 3) continue;
@@ -107,6 +114,8 @@ static void ctx_pos_from_stream(void)
 
 void bdd0_leaf_begin(int seq, const LeafRec *v, int n)
 {
+    const TickRecord *tr = arena_record(arena_current());
+
     g_v = v; g_n = n; g_i = 0; g_seq = seq;
     g_viol = 0; g_why[0] = '\0';
     g_last_leaf_order = -1;
@@ -118,6 +127,9 @@ void bdd0_leaf_begin(int seq, const LeafRec *v, int n)
         g_aw_nw[k] = 0;
         g_aw[k][0] = g_aw[k][1] = g_aw[k][2] = 0;
     }
+    /* v15: тик несёт независимую тройку ctx_pos — реконструкция из потока не
+     * нужна и была бы тавтологией. */
+    g_ctx_pos_captured = (tr != NULL && tr->has_ctx_pos) ? 1 : 0;
     ctx_pos_from_stream();
 }
 
@@ -276,12 +288,14 @@ static const LeafRec *request(int va, const void *ecx, int nargs, const int *arg
 }
 
 /* Заявленная тройка — ровно та, что лежит в реконструкции "ctx_pos": сравнение
- * с `w` записи было бы тавтологией (см. battle/ported.h b0_leaf_w_recon). */
+ * с `w` записи было бы тавтологией (см. battle/ported.h b0_leaf_w_recon).
+ * Только для файлов без v15-ключа "ctx_pos": когда тройка снята независимо из
+ * игры, совпадение с ней заявки НЕ делает сверку тавтологией. */
 static int claim_w_is_recon(const LeafClaimEnt &e)
 {
     unsigned char *pos = arena_region_w(arena_current(), "ctx_pos");
 
-    if (pos == NULL || e.nw != 3) return 0;
+    if (g_ctx_pos_captured || pos == NULL || e.nw != 3) return 0;
     return memcmp(pos, e.w, 12) == 0;
 }
 
@@ -351,11 +365,14 @@ void bdd0_leaf_claim_w(unsigned int va, void *ecx, int ret, const int *args,
     /* запись — только реально добавленной заявке (иначе перезапишем чужую) */
     if (r != NULL && appended) {
         g_claim[idx].rec = r;
-        /* out-записи листьев из b0_leaf_w_recon: заявленная тройка — ровно
-         * реконструкция из потока ("ctx_pos"), сравнивать её с записью
-         * бессмысленно (тавтология). Заявка помечается resync, и leaf_value
-         * считает поля w несравнимыми (B0_POS_RESYNC_WHY), а не pass.
-         * Тройка, отличная от реконструкции, сверяется побитово как обычно. */
+        /* out-записи листьев из b0_leaf_w_recon: у файлов БЕЗ v15 "ctx_pos"
+         * заявленная тройка — ровно реконструкция из потока ("ctx_pos"),
+         * сравнивать её с записью бессмысленно (тавтология). Заявка
+         * помечается resync, и leaf_value считает поля w несравнимыми
+         * (B0_POS_RESYNC_WHY), а не pass. С независимым снимком ctx_pos
+         * (v15) тройка пришла из игры — resync не ставится, w сверяется
+         * побитово как обычное значение. Тройка, отличная от реконструкции,
+         * сверяется побитово и в старом формате. */
         if (b0_leaf_w_recon_why(va) != NULL && claim_w_is_recon(g_claim[idx])) {
             g_claim[idx].resync = 1;
         }

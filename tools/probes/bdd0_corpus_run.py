@@ -38,6 +38,16 @@ Positive: tools/probes/bdd0/corpus/synth_pos3_nan.jsonl
   (leaf_value fail, самопроверка генератора rc 2). Это единственный кейс,
   который проверяет правило unordered: модель и порт иначе просто повторяют
   друг друга.
+Positive: tools/probes/bdd0/corpus/synth_ctx_pos.jsonl
+  rc 0, leaf_seq 1/0/0, leaf_value 1/0/0 — v15-захват несёт независимую
+  pos-тройку `bdd0_in."ctx_pos"` (`[*(unit+0x138)+0xc]`): заявка листа 45c6f0
+  сверяется побитово по w (не SKIP-тавтология B0_POS_RESYNC_WHY), а сама
+  тройка участвует в ветвлении 403e80 — тик всё равно воспроизводится.
+Positive: tools/probes/bdd0/corpus/synth_chain_nested.jsonl
+  rc 0, leaf_seq 1/0/0, `nested_leaf=1` — запись bdd0_leaf нового сайта
+  0x458142 → 0x456b60 (args[0] = world, ret = узел) снята ВНУТРИ 0x458050;
+  порт replay-ит 0x458050 целиком, поэтому загрузчик выносит такую запись из
+  окна тика (BDD0_NESTED_SITE_GRID_ANCHOR) и поток остаётся самосогласованным.
 Negatives:
   dropped/trap/order      -> --check native_seq, rc 1
   corrupt_native_args     -> --check native_args, rc 1, arg mismatch reported
@@ -59,6 +69,12 @@ Negatives:
                              native=0`: ret листа 403e80 — сверяемое поле даже
                              на тике с равными тройками (pos3_eq), т.е. истинная
                              ветка не вакуумна.
+  corrupt_ctx_pos         -> --check leaf_value, rc 1, `va=0x45c6f0 w[0]
+                             port=0x40800000 native=0x3f800000`: bdd0_in
+                             "ctx_pos" испорчен (x = 4.0), запись листа несёт
+                             истину (1.0). С v15 арена берёт тройку из захвата,
+                             поэтому расхождение видно ПО ИМЕНИ поля — проверка
+                             ctx_pos не вакуумна.
  
 Build first: python3 tools/probes/bdd0_harness_build.py
 Usage: python3 tools/probes/bdd0_corpus_run.py
@@ -118,6 +134,16 @@ POS_EXPECT = {
     "corrupt_band_count.jsonl": {
         "leaf_value": (1, 0, 1),
     },
+    "synth_ctx_pos.jsonl": {
+        "leaf_seq": (1, 0, 0),
+        "leaf_value": (1, 0, 0),
+    },
+    "synth_chain_nested.jsonl": {
+        "leaf_seq": (1, 0, 0),
+    },
+    "corrupt_ctx_pos.jsonl": {
+        "leaf_value": (0, 0, 1),
+    },
 }
 
 # name, expected rc, single check to run (None = all)
@@ -130,6 +156,9 @@ CASES = [
     ("synth_pos3_eq.jsonl", 0, None),
     ("synth_pos3_neq.jsonl", 0, None),
     ("synth_pos3_nan.jsonl", 0, None),
+    ("synth_ctx_pos.jsonl", 0, None),
+    ("synth_chain_nested.jsonl", 0, None),
+    ("corrupt_ctx_pos.jsonl", 1, "leaf_value"),
     ("corrupt_native_dropped.jsonl", 1, "native_seq"),
     ("corrupt_native_trap.jsonl", 1, "native_seq"),
     ("corrupt_native_order.jsonl", 1, "native_seq"),
@@ -149,6 +178,7 @@ LEAF_VALUE_NEG = {
     "corrupt_pos_w_count.jsonl": "w count",
     "corrupt_pos_w_value.jsonl": "w[1]",
     "corrupt_pos3_ret.jsonl": "va=0x403e80 ret",
+    "corrupt_ctx_pos.jsonl": "va=0x45c6f0 w[0]",
 }
 
 # negatives whose failure must be attributed to leaf_seq, not leaf_value
@@ -190,6 +220,12 @@ def main():
                 detail += " %s=%s" % (k, got)
                 if got != v:
                     ok = False
+            if name == "synth_chain_nested.jsonl":
+                # запись вложенного сайта 0x458142 действительно снята и
+                # вынесена из окна тика (а не отсутствует вовсе)
+                has_nested = "nested_leaf=1" in text
+                ok = ok and has_nested
+                detail += " nested_leaf=%s" % ("1" if has_nested else "0")
         elif check == "native_args":
             na = counts.get("native_args", (0, 0, 0))
             if name == "corrupt_native_args.jsonl":
