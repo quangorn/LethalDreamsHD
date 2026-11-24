@@ -195,7 +195,8 @@
   replay применяет его вместо реконструкции из `45af50` — `leaf_value` сравнивает заявки порта
   (400 вызовов: pass 396). Слой e0a0 отключается `LDHOOK_BATTLE_CAPTURE_E0=0`; запись буферизована 1 МиБ.
 - `[P]` Фаза 5.2 (24.11.2026): портированы `45c370` (band head), `45af50` (длина ленты), `45c6f0` (тройка
-  позиции, `b0_read_pos_from_ctx`) — claim + `leaf_value`. Out-writes сверяет `B0_LEAF_CLAIM_W` (`ported.h`);
+  позиции, `b0_read_pos_from_ctx`), `403e80` (`b0_pos3_equal`; в захватах всегда `ret=0`, истинная ветвь —
+  только синтетика) — claim + `leaf_value`. Out-writes сверяет `B0_LEAF_CLAIM_W` (`ported.h`);
   `w` листа `45c6f0` пока несравним (тройка `ctx` не в захвате) — capture v15.
   Для capture без `band` длина реконструируется из записи `45af50`, а claim'ы таких
   тиков помечаются `resync` → SKIP (тавтологический PASS невозможен) — `battle/ported.h` (mutators),

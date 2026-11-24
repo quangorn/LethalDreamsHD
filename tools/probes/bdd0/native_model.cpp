@@ -59,6 +59,13 @@ const NativeRec *bdd0_native_record_at(int i) { (void)i; return NULL; }
 
 static int fbits(float f) { int b; memcpy(&b, &f, 4); return b; }
 
+/* Адрес объекта состояния игры в сценарном (игровом) пространстве: натив
+ * 442570 возвращает `self+0x64` (подтверждено захватами: ret = ecx+0x64),
+ * поэтому модель пишет тот же адрес. Из него выводятся gs_raw (scenario.cpp),
+ * привязка области "gs" (arena.cpp) и классификация указателей на gs-поля
+ * (checks_builtin.cpp native_ptr_base — gs проверяется раньше unit). */
+#define MODEL_GS_OFF 0x64
+
 /* Модель НЕ читает записанный поток (она его пишет): интерфейс replay-слоя
  * вырожден, чтобы bdd0_synth линковался без native_replay.cpp. Единственная
  * работа — заполнить "ctx_pos" (тройка [ctx+0xc] листа 45c6f0): в генераторе
@@ -147,7 +154,8 @@ struct PortedLeafModel {
 static const PortedLeafModel k_ported_model[] = {
     { B0_LEAF_BAND_HEAD, 1 },
     { B0_LEAF_BAND_COUNT, 0 },
-    { B0_LEAF_READ_POS, 1 }
+    { B0_LEAF_READ_POS, 1 },
+    { B0_LEAF_POS3_EQUAL, 0 }
 };
 
 static const PortedLeafModel *ported_model_find(unsigned va)
@@ -196,6 +204,38 @@ void bdd0_leaf_claim_w(unsigned int va, void *ecx, int ret, const int *args,
         a[0] = (int)g_env.scratch_game;
         record((int)va, (void *)(size_t)((int)g_env.self_game + BDD0_AI_OFF),
                1, a, (int)g_env.scratch_game, w3, 3);
+        return;
+    }
+    if (va == B0_LEAF_POS3_EQUAL) {
+        /* 403e80: правило = почленное равенство float-троек (unordered = «не
+         * равно»: в C `==` на NaN ложно). В синтетике оба указателя — shadow
+         * арены, поэтому модель пересчитывает ответ по ним и требует, чтобы
+         * порт заявил ровно его (иначе поток разойдётся с портом).
+         * Запись потока — в игровом пространстве: ECX = out вызывающего
+         * (кадровый скретч scratch_game), arg[0] = result+4 = объект состояния
+         * +4 (MODEL_GS_OFF), ret = 0/1 как есть. */
+        int eq = 1;
+        int a1[1];
+        int k;
+
+        if (ecx == NULL || nargs != 1 || args == NULL) {
+            fprintf(stderr, "synth: 403e80 claim without both pointers\n");
+            exit(2);
+        }
+        for (k = 0; k < 3; k++) {
+            float x, y;
+
+            memcpy(&x, (const unsigned char *)ecx + k * 4, 4);
+            memcpy(&y, (const unsigned char *)(size_t)args[0] + k * 4, 4);
+            if (!(x == y)) { eq = 0; break; }
+        }
+        if (eq != ret) {
+            fprintf(stderr, "synth: 403e80 claim ret=%d disagrees with the "
+                            "model rule (%d)\n", ret, eq);
+            exit(2);
+        }
+        a1[0] = (int)g_env.self_game + MODEL_GS_OFF + 4;
+        record((int)va, (void *)(size_t)g_env.scratch_game, 1, a1, ret, NULL, 0);
         return;
     }
     if (ecx != NULL) {
@@ -362,7 +402,8 @@ static void *reg(const char *name) { return arena_region_w(arena_current(), name
 void *game_state_get(void *unit, int flags)
 {
     int a[1]; a[0] = flags;
-    record_native(0x44be0e, 0x442570, 0, 4, (int)g_env.self_game, a, 1, 1, NULL, 0);
+    record_native(0x44be0e, 0x442570, 0, 4, (int)g_env.self_game, a, 1,
+                  (int)g_env.self_game + MODEL_GS_OFF, NULL, 0);
     return reg("gs");
 }
 

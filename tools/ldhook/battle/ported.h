@@ -35,6 +35,11 @@
  * = 0; иначе ECX = [EAX+0xc] (указатель на тройку), out[0..2] = [ECX+0..8];
  * EAX = out. Значимый результат листа — записанная тройка (claim_W). */
 #define B0_LEAF_READ_POS 0x45c6f0u
+/* Равенство float-троек (FUN_00403e80): 1 ⟺ все три пары `[a+i*4]`/`[b+i*4]`
+ * сравнились равными (unordered считается НЕравным — маска 0x44 через PF).
+ * __thiscall: ECX = a (первый указатель), единственный стек-аргумент b
+ * (`MOV EDX,[ESP+4]` @0x403e82), `RET 4`; EAX = 0/1, вызывающий тестирует AL. */
+#define B0_LEAF_POS3_EQUAL 0x403e80u
 
 #ifdef BATTLE_REPLAY
 /* VA портированных листьев: список живёт только в replay-сборке. В живом
@@ -43,7 +48,8 @@
 static const unsigned int b0_ported_leaf_va[] = {
     B0_LEAF_BAND_HEAD,
     B0_LEAF_BAND_COUNT,
-    B0_LEAF_READ_POS
+    B0_LEAF_READ_POS,
+    B0_LEAF_POS3_EQUAL
 };
 
 #define B0_PORTED_LEAF_COUNT \

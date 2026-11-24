@@ -309,7 +309,7 @@ const char *b0_cond_names[] = {
     "(unsigned char)native::band_target_moved(head, band_triple[0], b0_float_bits(band_triple[1]), band_triple[2]) == 0",
     "*(const unsigned char *)(unit_x + 0x34) == 0",
     "native::band_cursor(unit + 0x138) != *(void *const *)((const unsigned char *)res + 0x14)",
-    "!native::pos3_equal(out, (const unsigned char *)res + 4)",
+    "!b0_pos3_equal(out, (const unsigned char *)res + 4)",
     "*(const unsigned char *)(unit + 0x34) == 0",
     "*(const int *)(unit + 0x170) != 1",
     "b0_gate_41_jp(gate, 4.0f)",
@@ -516,6 +516,56 @@ static void *b0_read_pos_from_ctx(void *this_, float *out)
         B0_LEAF_CLAIM_W(B0_LEAF_READ_POS, this_, out, a, 1, w, 3);
     }
     return out;                                     /* 0x45c6f8/0x45c70c: EAX=out */
+}
+
+/* --- Порт листа 0x403e80 (pos3_equal) ----------------------------------- *
+ * Листинг `0x403e80..0x403eb5` (53 Б, сверено с двоичным кодом установки):
+ *   FLD  dword [ECX]        ; 0x403e80 — a[0]
+ *   MOV  EDX,[ESP+4]        ; 0x403e82 — EDX = b (единственный стек-аргумент)
+ *   FCOMP dword [EDX]       ; 0x403e86
+ *   FNSTSW AX; TEST AH,0x44 ; 0x403e88..0x403e8a — C2|C3
+ *   JP   0x403eb1           ; 0x403e8d — «не равно» → XOR EAX,EAX; RET 4
+ *   … те же 8 инструкций для пар +4 (0x403e8f) и +8 (0x403e9c)
+ *   0x403ea9: MOV EAX,1; RET 4 — все три пары равны.
+ * ABI (сверено по сайту 0x44c423 и телу): `int __thiscall(ECX = a,
+ * stack = b)`, `RET 4` — один стек-аргумент, второй указатель в ECX; результат
+ * в EAX, вызывающий тестирует AL (`TEST AL,AL` в порте — `!eq`). Не cdecl с
+ * двумя аргументами: на стеке лежит ровно один (`RET 4`), второй берётся из
+ * ECX через `FLD [ECX]`.
+ * Маска 0x44 (C2|C3) тестируется через PF: JP взят при чётном числе битов
+ * результата, т.е. при (C3,C2) ∈ {(0,0) — a>b и a<b, (1,1) — unordered};
+ * JNP остаётся только на (1,0) = равенство. Значит JP взят ⟺ NOT(a == b),
+ * unordered считается НЕравным — то же правило, что у b0_gate_44_jp (B6..B8),
+ * поэтому 1 — только при почленном равенстве всех трёх пар.
+ * Представление — float (24-битная мантисса), как у m32-операндов натива
+ * (`FLD m32`/`FCOMP m32`): продвижение к double точно и на равенство не влияет,
+ * но сравнение в double не отражало бы исходную разрядность; для NaN `==` ложно
+ * ⇒ `!(x == y)` даёт 0 — совпадает с «unordered = не равно». /fp:precise даёт
+ * IEEE-семантику `==` (без предположения «NaN нет»).
+ * Указатели на сайте 0x44c423 не NULL (out = frame+0x20, b = result+4); натив
+ * их не проверяет — guard не добавлен (fidelity). */
+static int b0_pos3_equal(const void *a, const void *b)
+{
+    int i;
+    int eq = 1;
+
+    for (i = 0; i < 3; i++) {
+        float x, y;
+
+        memcpy(&x, (const unsigned char *)a + i * 4, sizeof(x)); /* FLD m32 */
+        memcpy(&y, (const unsigned char *)b + i * 4, sizeof(y)); /* FCOMP m32 */
+        if (!(x == y)) {                /* TEST AH,0x44 / JP → not_equal */
+            eq = 0;
+            break;
+        }
+    }
+    {
+        int arg[1];
+
+        arg[0] = (int)(size_t)b;        /* единственный стек-аргумент листа */
+        B0_LEAF_CLAIM(B0_LEAF_POS3_EQUAL, a, eq, arg, 1);
+    }
+    return eq;                          /* 0x403ea9 MOV EAX,1 / XOR EAX,EAX */
 }
 
 /* --- R1..R4: B0..B29 --------------------------------------------------- *
@@ -2134,7 +2184,7 @@ B0_LBL(63);
      * 403e80 (ECX = EAX = out). AL=0 (позиция не совпала) → B59. */
     res = native::game_state_get(unit, 0);              /* 0x44c408..0x44c40c */
     b0_read_pos_from_ctx(unit + 0x138, out);            /* 0x44c41a..0x44c41c */
-    if (B0_TST(96, (!native::pos3_equal(out, (const unsigned char *)res + 4))))  {
+    if (B0_TST(96, (!b0_pos3_equal(out, (const unsigned char *)res + 4))))  {
         goto b59;                                       /* 0x44c42a je 0x44c489 */
     }
 

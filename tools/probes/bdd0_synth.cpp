@@ -95,6 +95,8 @@ struct Profile {
     int post_band_extra;   /* байты сверх post_band_n*0x18 (некратный шаг —
                             * проверка усечения 45af50); 0 — обычная лента */
     int ctx_null;          /* ai_ctx = 0 → нулевая ветка листа 45c6f0 */
+    int gs_nan;            /* 0 — обычные значения; k+1 — gs_pos[k] = NaN
+                            * (проверка правила маски 0x44 на unordered) */
 };
 
 static const Profile k_profiles[] = {
@@ -134,7 +136,32 @@ static const Profile k_profiles[] = {
      * out[0..2] = 0. Это fidelity-кейс: в захватах все 108 вызовов с ai_ctx == 0
      * записали w = [0,0,0]. Отдельный файл (no_all=1). */
     { "pos_null", 1, 0, 0.0f, 1.0f, 3u, 0, 0, 0, 1, 0u, 0, 0,
-      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, -1, 0, 1 }
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, -1, 0, 1 },
+    /* pos3_eq: тело band-loop B55/B56 (лист 403e80) с РАВНЫМИ тройками.
+     * Путь: state == 3 (B12 не уводит в B22) → фаза 0.0 >
+     * unit_fc = −1.0 (B13 `jp`) → B14 cmp строк == 0 → B22 `state == 3` → B31
+     * `state == 3` → B42. Дальше p1 ≠ 0 → B49, EBX = p2&8 == 0, ctx bit3 снят,
+     * лента непустая и count = 2 > 1, state == 3 → fall в B55. band_cursor
+     * (модель) и `[gs+0x14]` оба 0 → B55 не уходит; B56 сравнивает тройку
+     * ctx с result+4 — они равны ({1,2,3}) ⇒ pos3_equal возвращает 1 (истинная
+     * ветка листа, в захватах не наблюдаемая). no_all=1. */
+    { "pos3_eq", 1, 0, 0.0f, -1.0f, 3u, 0, 2, 0, 1, 0u, 0, 0,
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, -1 },
+    /* pos3_neq: тот же путь, но третья пара тройки различается (ctx = 3.0,
+     * gs+0xc = 4.0). B6 уводит в b12 (это НОРМАЛЬНЫЙ вход остального тика, а
+     * не выход), путь B12→B13→B14→B22→B31→B42→B49→B55 проходит, и на B56
+     * 403e80 обязан вернуть 0. Так синтетика покрывает обе ветки листа и
+     * ловит реализацию «сравнил только две пары» (она вернула бы 1 и уронила
+     * самопроверку генератора). no_all=1. */
+    { "pos3_neq", 1, 0, 0.0f, -1.0f, 3u, 0, 2, 0, 1, 0u, 0, 0,
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 4.0f }, 1, 0, 0u, -1 },
+    /* pos3_nan: тот же путь, что pos3_neq, но третья пара — NaN при равных
+     * первых двух (1.0/2.0 совпадают, gs+0xc = 0x7fc00000). Маска 0x44
+     * тестируется через PF, поэтому unordered идёт в «не равно» (JP) и лист
+     * обязан вернуть 0; прочтение маски как «равно или unordered» вернуло бы 1
+     * — этот профиль его и ловит. no_all=1. */
+    { "pos3_nan", 1, 0, 0.0f, -1.0f, 3u, 0, 2, 0, 1, 0u, 0, 0,
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, -1, 0, 0, 3 }
 };
 
 /* Снимок по профилю: unit 0x180, встроенный BattleAI 0x80 (unit+0x138),
@@ -228,6 +255,12 @@ static void fill_record(TickRecord &t, const Profile &pf, int seq, int tick)
     memcpy(t.gs + 0x04, &pf.gs_pos[0], 4);
     memcpy(t.gs + 0x08, &pf.gs_pos[1], 4);
     memcpy(t.gs + 0x0c, &pf.gs_pos[2], 4);
+    /* pos3_nan: один элемент pos-тройки состояния — quiet NaN (0x7fc00000). */
+    if (pf.gs_nan > 0 && pf.gs_nan <= 3) {
+        unsigned nan = 0x7fc00000u;
+
+        memcpy(t.gs + 0x04 + (pf.gs_nan - 1) * 4, &nan, 4);
+    }
     {
         unsigned player = GAME_SELF + 0x800;
         memcpy(t.gs + 0x10, &player, 4);
@@ -410,7 +443,7 @@ int main(int argc, char **argv)
     if (argc < 2) {
         fputs("usage: bdd0_synth.exe <out.jsonl> "
               "[grid|simple|band|band0|band_rec|band_trunc|band_trunc_neg|"
-              "pos_null|all] [-v]\n", stderr);
+              "pos_null|pos3_eq|pos3_neq|pos3_nan|all] [-v]\n", stderr);
         return 2;
     }
     const char *out = argv[1];

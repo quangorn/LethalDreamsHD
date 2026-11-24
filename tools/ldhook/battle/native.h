@@ -284,7 +284,13 @@ void grid_recompute(void *rec, void *pos, void *req, float out3[3]);
  * ECX = a, 1 stack-аргумент `b` (`mov 0x4(%esp),%edx` @0x403e82), `ret $0x4`
  * (@0x403eae/0x403eb3); возврат EAX = 0/1, вызывающий тестирует AL.
  * site: 0x44c423 (ECX = EAX = out-тройка 45c6f0, stack = result+4).
- * Тело известно целиком (53 Б, без каллов) — кандидат на чистый C++-порт. */
+ * Тело известно целиком (53 Б, без каллов).
+ * ВНИМАНИЕ: порт этот лист уже считает сам (tick.cpp b0_pos3_equal + claim),
+ * поэтому `native::pos3_equal` из тела НЕ вызывается: в replay такой запрос —
+ * нарушение потока (`va=0x%x is ported, the port must claim it`,
+ * native_replay.cpp). Обёртка нужна только ради полноты ABI: описание листа
+ * в `k_leaf_abi` (checks_builtin.cpp), сайт захвата `0x44c423`
+ * (leaf_sites.cpp) и подмена на модель/стуб в офлайн-сборках. */
 int pos3_equal(const void *a, const void *b);
 
 /* FUN_0045b150 (0x45b150..0x45b3d8) — листовой float-гейт ленты

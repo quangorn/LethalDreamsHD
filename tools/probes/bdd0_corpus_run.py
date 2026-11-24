@@ -20,6 +20,24 @@ Positive: tools/probes/bdd0/corpus/synth_pos_ctx_null.jsonl
   rc 0, leaf_value 0/1/0 — ai_ctx == 0: лист 45c6f0 идёт НУЛЕВОЙ веткой натива
   (`MOV EAX,[ECX]; XOR ECX,ECX; CMP EAX,ECX; JNZ`), out[0..2] = 0. w такой
   заявки восстановлен из потока ⇒ nno, не pass.
+Positive: tools/probes/bdd0/corpus/synth_pos3_eq.jsonl
+  rc 0, leaf_value 0/1/0 (skip даёт только w листа 45c6f0 — реконструкция из
+  потока; ни одно поле заявки 403e80 в списке несравнимых не значится), al=0,
+  out=0. Тройки ctx и result+4 равны ⇒ натив возвращает 1 (истинная ветка
+  листа, в захватах не наблюдаемая).
+Positive: tools/probes/bdd0/corpus/synth_pos3_neq.jsonl
+  rc 0, leaf_value 0/1/0, но 403e80 возвращает 0: третья пара тройки
+  различается (3.0 против 4.0), B6 уводит в b12 — это обычный вход остального
+  тика, а не выход, — и B55/B56 достигаются. Вместе с pos3_eq покрывает обе
+  ветки листа; реализацию «сравнил только две пары» ловит именно этот файл
+  (leaf_value fail `va=0x403e80 ret port=1 native=0`).
+Positive: tools/probes/bdd0/corpus/synth_pos3_nan.jsonl
+  rc 0, leaf_value 0/1/0, 403e80 возвращает 0: первые две пары равны, третья —
+  NaN (0x7fc00000). Маска 0x44 тестируется через PF, поэтому unordered обязан
+  идти в «не равно»; прочтение «равно или unordered» даёт 1 и ловится
+  (leaf_value fail, самопроверка генератора rc 2). Это единственный кейс,
+  который проверяет правило unordered: модель и порт иначе просто повторяют
+  друг друга.
 Negatives:
   dropped/trap/order      -> --check native_seq, rc 1
   corrupt_native_args     -> --check native_args, rc 1, arg mismatch reported
@@ -37,6 +55,10 @@ Negatives:
   corrupt_pos_w_value     -> --check leaf_value, rc 1: ai_ctx == 0 (порт пишет
                              нули), а в записи w[1] испорчен — значение
                              сверяется, когда заявка НЕ равна реконструкции
+  corrupt_pos3_ret        -> --check leaf_value, rc 1, `va=0x403e80 ret port=...
+                             native=0`: ret листа 403e80 — сверяемое поле даже
+                             на тике с равными тройками (pos3_eq), т.е. истинная
+                             ветка не вакуумна.
  
 Build first: python3 tools/probes/bdd0_harness_build.py
 Usage: python3 tools/probes/bdd0_corpus_run.py
@@ -75,6 +97,24 @@ POS_EXPECT = {
     "synth_pos_ctx_null.jsonl": {
         "leaf_value": (0, 1, 0),
     },
+    "synth_pos3_eq.jsonl": {
+        "leaf_value": (0, 1, 0),
+        "res_match": (1, 0, 0),
+        "state_match": (1, 0, 0),
+        "leaf_seq": (1, 0, 0),
+    },
+    "synth_pos3_neq.jsonl": {
+        "leaf_value": (0, 1, 0),
+        "res_match": (1, 0, 0),
+        "state_match": (1, 0, 0),
+        "leaf_seq": (1, 0, 0),
+    },
+    "synth_pos3_nan.jsonl": {
+        "leaf_value": (0, 1, 0),
+        "res_match": (1, 0, 0),
+        "state_match": (1, 0, 0),
+        "leaf_seq": (1, 0, 0),
+    },
     "corrupt_band_count.jsonl": {
         "leaf_value": (1, 0, 1),
     },
@@ -87,6 +127,9 @@ CASES = [
     ("synth_band_rec.jsonl", 0, None),
     ("synth_band_trunc.jsonl", 0, None),
     ("synth_pos_ctx_null.jsonl", 0, None),
+    ("synth_pos3_eq.jsonl", 0, None),
+    ("synth_pos3_neq.jsonl", 0, None),
+    ("synth_pos3_nan.jsonl", 0, None),
     ("corrupt_native_dropped.jsonl", 1, "native_seq"),
     ("corrupt_native_trap.jsonl", 1, "native_seq"),
     ("corrupt_native_order.jsonl", 1, "native_seq"),
@@ -98,12 +141,14 @@ CASES = [
     ("corrupt_leaf_claim_missing.jsonl", 1, None),
     ("corrupt_pos_w_count.jsonl", 1, "leaf_value"),
     ("corrupt_pos_w_value.jsonl", 1, "leaf_value"),
+    ("corrupt_pos3_ret.jsonl", 1, "leaf_value"),
 ]
 
 # negatives that must FAIL leaf_value itself, with the out-channel diagnostic
 LEAF_VALUE_NEG = {
     "corrupt_pos_w_count.jsonl": "w count",
     "corrupt_pos_w_value.jsonl": "w[1]",
+    "corrupt_pos3_ret.jsonl": "va=0x403e80 ret",
 }
 
 # negatives whose failure must be attributed to leaf_seq, not leaf_value
