@@ -401,6 +401,11 @@ capture v9 (`battle/capture.cpp`), replay — `tools/probes/battle_replay.cpp`.
      (нет `FINIT`, трогает только ST0) — исправлено к порту, разбор в `docs/CONTRADICTIONS.md` п. 19;
    - `45e1d0` пишет игровое состояние (rec, PathState, map1/map2, фронт) — до его порта нужен
      capture v15 с после-состоянием листа (v12 пишет только `w` = 3 dword).
+   - `45b3e0` игрового состояния не пишет — порт возможен без новой съёмки (`re/leaf_45b3e0_verified.md`).
+5.3. capture v16 (аддитивно, одна съёмка): `band_pos` на элемент ленты (`pos`+scale уровня) — порт `45b150`;
+   объект сетки (`scale`-триплет, `size_x/size_y`, `rows`, `cells`+цепочки) — порт `458050`;
+   пост-состояние `45e1d0` (`pf_*`, `rec_*`, `sub_*`, `tree_*` обеих RB-карт, `ps_*`) — `re/leaf_45e1d0_verified.md`.
+   Включение портов — (а) гейт модели → 1, (б) снять nested-сайты, (в) `0x458050`/`0x45b150` в `b0_ported_leaf_va` с claim'ом.
 5.last. GUI-часть: обёртки `native::…` с именами по смыслу; проверка, что порядок
    side effects сохранён (визуальный A/B).
 
