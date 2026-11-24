@@ -313,7 +313,6 @@ const CheckDef *check_at(int i);
 const char *need_name(unsigned bit);
 const char *whyf(const TickContext &tc, const char *fmt, ...);
 int field_count(void);
-const char *field_name(int i);
 
 /* Встроенные проверки (checks_builtin.cpp): no_trap, bounds, budget,
  * contract_min + механические leaf_seq и handles. */

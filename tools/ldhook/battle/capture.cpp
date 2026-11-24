@@ -1619,18 +1619,6 @@ static int cap_b64_encode(char *out, const unsigned char *in, int n)
     return o;
 }
 
-static void cap_write_b64_big(FILE *f, int ok, const unsigned char *p, int n)
-{
-    if (!ok) {
-        fputs("null", f);
-        return;
-    }
-    cap_b64_encode(g_b64_big, p, n);
-    fputc('"', f);
-    fputs(g_b64_big, f);
-    fputc('"', f);
-}
-
 static void cap_write_b64_field(FILE *f, int ok, const unsigned char *p, int n)
 {
     if (!ok) {

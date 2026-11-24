@@ -200,7 +200,7 @@ int s6_unit_ai_tick(BattleAI *self, void *rec_arg)
     /* B0 — ленивая аллокация ctx (0x1c байт) игровым operator new.
      * EBX = 0 (@0x45eeea) — носитель нуля для записей ниже. */
     if (self->game_ctx == NULL) {                        /* @0x45eee8/0x45eeec/0x45eeef */
-        ctx = (unsigned char *)native::operator_new(0x1c);   /* @0x45eef1/0x45eef3 */
+        ctx = (unsigned char *)native::operator_new(0x1c);   /* @0x45eef1/0x45eef3; освобождение — dtor, ещё не перенесён */
         if (ctx != NULL) {                               /* @0x45eefb/0x45eefd je 0x45ef0d */
             *(int *)(ctx + 0x04) = 0;                    /* @0x45eeff */
             *(int *)(ctx + 0x08) = 0;                    /* @0x45ef02 */
@@ -237,7 +237,7 @@ int s6_unit_ai_tick(BattleAI *self, void *rec_arg)
     /* B2 — sub-объект ctx[0xc] (new 0x10) + 4-dword копия из объекта rec[0xc]. */
     ctx = (unsigned char *)self->game_ctx;               /* @0x45ef43 */
     if (*(void **)(ctx + 0x0c) == NULL) {                /* @0x45ef45/0x45ef48 jne 0x45ef64 */
-        void *sub = native::operator_new(0x10);          /* @0x45ef4a/0x45ef4c */
+        void *sub = native::operator_new(0x10);          /* @0x45ef4a/0x45ef4c; освобождение — dtor, ещё не перенесён */
         if (sub != NULL) {                               /* @0x45ef54/0x45ef56 je 0x45ef5d */
             *(int *)((unsigned char *)sub + 0x0c) = 0;   /* @0x45ef58 */
         }

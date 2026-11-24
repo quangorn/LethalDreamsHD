@@ -1,14 +1,11 @@
 ﻿/* tools/probes/bdd0/native_model.cpp — модельный нативный слой (только для
  * bdd0_synth.exe, НЕ входит в харнесс).
  *
- * Десять логических листьев отвечают детерминированно и из снимка:
- *   45c6f0 ctx_pos_get      — пишет 3 dword `[ctx+0xc]` в out
- *   45c370 band_head        — begin==0 ? NULL : (count ? ai+0x3c : NULL)
- *   45af50 band_count       — begin==0 ? 0 : ([+0x24]−[+0x20])/0x18
+ * Шесть логических листьев отвечают детерминированно и из снимка
+ * (45c6f0, 45c370, 45af50, 403e80 — портированные, их запись снимает claim):
  *   45c730 band_cursor      — `[[[ctx]+0xc]+0xc]+0x234` (в синтетике NULL)
  *   45b150 band_interp_gate — ST(0) = arg1 + cfg.interp_add
  *   45b3e0 band_target_moved— cfg.moved
- *   403e80 pos3_equal       — почленное равенство float-троек
  *   458050 grid_anchor      — cfg.anchor_null ? NULL : tree (сырой адрес)
  *   45e1d0 grid_recompute   — out3 = {1,2,3}f
  *   44bbf0 grid_query       — cfg.grid_query
@@ -158,8 +155,6 @@ static int record_native(int site, int target, int slot, int kind, int ecx,
     return ret;
 }
 
-static unsigned rd(const void *p) { unsigned v; memcpy(&v, p, 4); return v; }
-
 /* Заявка портированного листа (battle/ported.h): в генераторе это ПРОИЗВОДИТЕЛЬ
  * потока — запись bdd0_leaf пишется в игровом пространстве, как у модельных
  * листьев. Порт (b0_band_head) считает значение в shadow-адресах, поэтому
@@ -287,54 +282,6 @@ void bdd0_leaf_claim_w(unsigned int va, void *ecx, int ret, const int *args,
 
 namespace native {
 
-void *ctx_pos_get(void *ctx, float *out_f)
-{
-    int w[3] = { 0, 0, 0 };
-    int a[1];
-    /* 45c6f0: *(ctx) == NULL → нули, иначе тройка из `[*(ctx)+0xc]`. В синтетике
-     * ctx — shadow-объект арены, ctx+0xc — связка на "ctx_pos" (arena.cpp). */
-    if (ctx != NULL) {
-        void *p = *(void **)((unsigned char *)ctx + 0xc);
-        if (p != NULL) memcpy(w, p, 12);
-    }
-    if (out_f != NULL) memcpy(out_f, w, 12);
-    a[0] = (int)(size_t)out_f;
-    record(0x45c6f0, ctx, 1, a, 0, w, 3);
-    return out_f;
-}
-
-void *band_head(void *ai)
-{
-    /* Голова ленты: длина 0 (begin == 0 или end == begin) → NULL, иначе
-     * &band (то же правило, что в теле листа и в порте b0_band_head). Запись —
-     * в ИГРОВОМ пространстве: адрес ленты = BattleAI+0x3c. Обёртка нужна
-     * только синтетике/ABI: порт 0x45c370 не запрашивает (b0_band_head). */
-    int n = 0;
-    if (ai != NULL) {
-        const unsigned char *band = (const unsigned char *)ai + B0_BATTLE_AI_BAND;
-        unsigned begin = rd(band + B0_BAND_BEGIN_OFF);
-        if (begin != 0) {
-            n = (int)(rd(band + B0_BAND_END_OFF) - begin) / BDD0_BAND_ELEM;
-        }
-    }
-    int ret = (n != 0) ? (int)g_env.self_game + BDD0_AI_OFF + B0_BATTLE_AI_BAND : 0;
-    record(0x45c370, ai, 0, NULL, ret, NULL, 0);
-    return (n != 0) ? (unsigned char *)ai + B0_BATTLE_AI_BAND : NULL;
-}
-
-int band_count(void *band)
-{
-    int n = 0;
-    if (band != NULL) {
-        unsigned begin = rd((const unsigned char *)band + B0_BAND_BEGIN_OFF);
-        if (begin != 0) {
-            n = (int)(rd((const unsigned char *)band + B0_BAND_END_OFF) - begin) /
-                BDD0_BAND_ELEM;
-        }
-    }
-    return record(0x45af50, band, 0, NULL, n, NULL, 0);
-}
-
 void *band_cursor(void *ai)
 {
     /* Синтетика: цепочка курсора в снимке нулевая → NULL (как в нативе при
@@ -363,20 +310,6 @@ int band_target_moved(void *band, float p1, int p2, float p3)
     a[1] = p2;
     a[2] = fbits(p3);
     return record(0x45b3e0, band, 3, a, g_cfg.moved, NULL, 0);
-}
-
-int pos3_equal(const void *a, const void *b)
-{
-    int av[1];
-    av[0] = (int)(size_t)b;
-    int eq = 1;
-    for (int i = 0; i < 3; i++) {
-        float x, y;
-        memcpy(&x, (const unsigned char *)a + i * 4, 4);
-        memcpy(&y, (const unsigned char *)b + i * 4, 4);
-        if (!(x == y)) { eq = 0; break; }
-    }
-    return record(0x403e80, a, 1, av, eq, NULL, 0);
 }
 
 void *grid_anchor(void *grid, int a1, int a2, int a3, int a4, int *flag_slot,

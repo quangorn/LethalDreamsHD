@@ -115,9 +115,5 @@ int b0_battle_ai_dispatch(void *unit, unsigned char *frame);
 
 /* ---- trace.cpp: trace-каркас боевого тика (LDHOOK_BATTLE_TRACE) ---- */
 void battle_trace_init(void);
-void battle_trace_tick(long tick_no, void *target, int search_code,
-                       int move_x, int move_y,
-                       long g, long h, long cost,
-                       long nodes, LONGLONG us);
 
 #endif /* BATTLE_H */

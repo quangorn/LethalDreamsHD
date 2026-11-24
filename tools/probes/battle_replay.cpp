@@ -2286,7 +2286,6 @@ TreeNode *lower_bound_slots(void *map, int *out, int *key) {
     *out = (int)(size_t)found;
     return found;
 }
-TreeNode *tree_next(TreeNode *node) { return s6_tree_next(node); }
 int tree_lookup(void *world, unsigned int key)
 {
     (void)world;   /* synthetic world; name-keyed table from capture */
@@ -2540,7 +2539,6 @@ int pt_in_rect(const int *rect, int x, int y) {
     return (rect[0] <= x && x < rect[2] && rect[1] <= y && y < rect[3]) ? 1 : 0;
 }
 void *operator_new(unsigned int size) { return calloc(1, size); }
-void deallocate(void *ptr) { free(ptr); }
 } /* namespace native */
 
 /* Логгер/утилиты, нужные battle/*.cpp. LD_REPLAY_TRACE=1/2 включает вывод

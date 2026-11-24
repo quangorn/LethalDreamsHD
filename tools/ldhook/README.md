@@ -36,7 +36,7 @@ site3 считает FP-последовательность `cave3` (x87: `fild
 | `sites_hd.cpp` | site1/site2/site3: impl'ы, naked-трамплины, x87-хелпер `site3_fp` (перенесено из `ldhook.cpp`, логика 1:1). |
 | `battle/structs.h` | именованные структуры `BattleAI`, `Candidate` (=`LDObject`), `TreeNode`, `GridLevel`, `GridCell`, `PathState`, `LDPos` с семантическими полями и layout-`static_assert`; размер `BattleAI` уточняется Фазой 1. |
 | `battle/battle.h` | объявления слоёв боевого AI (grid/path/target/tick). |
-| `battle/native.{h,cpp}` | `native::fn(VA)` = base + (VA−0x400000) + именованные обёртки листьев (`lower_bound` 0x434bc0, `tree_next` 0x47f800, `tree_lookup` 0x449160, `register_occupied_slot` 0x45dd00). |
+| `battle/native.{h,cpp}` | `native::fn(VA)` = base + (VA−0x400000) + именованные обёртки листьев (`lower_bound` 0x434bc0, `tree_lookup` 0x449160, `register_occupied_slot` 0x45dd00). |
 | `battle/path.cpp` | pathfinding: `s6_tree_next`, `s6_map_lower_bound`, `s6_pfs_ctor`, `s6_imax` (0x45c390), `s6_path_tree_search` (0x45c3a0), `s6_path_search`. |
 | `battle/grid.cpp` | доступ к сетке: спуск по `next_level` (+0x1c), ячейка `cells + idx*0x34`. |
 | `battle/target.cpp` | цикл поиска цели `FUN_0045e0a0` и callees (`ce80`/`c880`/`c5a0`/`c4b0`/`dd70`), хуки site5 (диагностика) и site6 (faithful-порт + счётчики цикла). |

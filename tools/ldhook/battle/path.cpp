@@ -122,7 +122,7 @@ TreeNode *s6_map_lower_bound(TreeNode *head, unsigned int key)
  *     листинга, сентинелы — побитовые 0xcb18967f/0x4b18967f. */
 PathState *s6_pfs_ctor(void)
 {
-    PathState *pfs = (PathState *)native::operator_new(0x58);
+    PathState *pfs = (PathState *)native::operator_new(0x58);   /* освобождение — dtor, ещё не перенесён */
     int i;
 
     if (pfs == NULL) {

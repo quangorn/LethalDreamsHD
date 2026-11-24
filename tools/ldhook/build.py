@@ -118,10 +118,13 @@ def main():
         # cave1; без contraction/reassociation, как требует побитовая identity 4:3).
         # /EHsc — модель обработки исключений для C++ (cl определяет C++ по .cpp,
         # /TP не нужен).
+        # /D_CRT_SECURE_NO_WARNINGS — тот же флаг, что в харнесс-сборках
+        # (battle_replay_build.py, bdd0_harness_build.py): убирает C4996
+        # на getenv/fopen/strncat.
         # /DB0_BODY_COMPLETE вставляется в командную строку cl (пустая строка
         # при default — bat побайтоно тот же, что до флага).
-        'cl /nologo /LD /MT /EHsc /O2 /W3 /fp:precise /I"%s"%s %s '
-        '/link /LIBPATH:"%s" python22.lib /OUT:%s'
+        'cl /nologo /LD /MT /EHsc /O2 /W3 /fp:precise /D_CRT_SECURE_NO_WARNINGS '
+        '/I"%s"%s %s /link /LIBPATH:"%s" python22.lib /OUT:%s'
         % (win(INCLUDE), define, srcs, win(LIBDIR), name),
         "exit /b %errorlevel%",
         "",

@@ -84,7 +84,6 @@ TreeNode *lower_bound_slots(void *map, int *out, int *key)
 {
     (void)map; (void)out; (void)key; noop("lower_bound_slots"); return NULL;
 }
-TreeNode *tree_next(TreeNode *node) { (void)node; noop("tree_next"); return NULL; }
 int tree_lookup(void *world, unsigned int key)
 {
     (void)world; (void)key; noop("tree_lookup"); return 0;
@@ -165,6 +164,5 @@ void output_debug_string_a(const char *s) { (void)s; noop("output_debug_string_a
 const char *literal(unsigned int va) { (void)va; noop("literal"); return ""; }
 
 void *operator_new(unsigned int size) { return calloc(1, size); }
-void deallocate(void *ptr) { free(ptr); }
 
 } /* namespace native */

@@ -4,8 +4,9 @@
 Флаги — те же, что tools/probes/battle_replay_build.py (MSVC x86, /O2,
 /fp:precise, макрос BATTLE_REPLAY). Линкуется тело порта battle/tick.cpp под
 BATTLE_REPLAY; нативный слой игры НЕ линкуется — вместо battle/native.cpp
-собирается replay-слой tools/probes/bdd0/native_stubs.cpp +
-native_replay.cpp (20 no-op обёрток + 10 листьев из записанного потока).
+собирается replay-слой tools/probes/bdd0/native_stubs.cpp (31 обёртка, из них
+24 no-op) + native_replay.cpp (6 листьев и 14 RECORD-нативов из записанного
+потока).
 
 Дополнительно собирается генератор синтетического захвата bdd0_synth.exe:
 то же тело, но логические листья обслуживает модель

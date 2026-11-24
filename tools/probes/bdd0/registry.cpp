@@ -35,18 +35,10 @@ static const FieldDef k_fields[] = {
     { "m1",      "unit", 0xa8,  1 },
     { "m2",      "unit", 0xac,  1 },
     { "target_x","unit", 0xa8,  1 },  /* = m1: цель по X */
-    { "target_y","unit", 0xac,  1 },  /* = m2: цель по Y */
-    { "a4n",     "frame",0x38,  2 },  /* arg4 458050 */
-    { "tag",     "frame",0x88,  2 }   /* grid-record tag (0xeb) */
+    { "target_y","unit", 0xac,  1 }   /* = m2: цель по Y */
 };
 
 int field_count(void) { return (int)(sizeof(k_fields) / sizeof(k_fields[0])); }
-
-const char *field_name(int i)
-{
-    if (i < 0 || i >= field_count()) return NULL;
-    return k_fields[i].name;
-}
 
 static const FieldDef *field_find(const char *name)
 {

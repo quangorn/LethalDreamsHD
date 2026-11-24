@@ -1,7 +1,7 @@
 ﻿/* tools/probes/bdd0/native_replay.cpp — replay-слой логических листьев тика.
  *
- * Десять листьев тела FUN_0044bdd0 (45c6f0, 45c370, 45af50, 45c730, 45b150,
- * 45b3e0, 403e80, 458050, 45e1d0, 44bbf0) не исполняются офлайн: каждый
+ * Шесть модельных листьев тела FUN_0044bdd0 (45c730, 45b150, 45b3e0, 458050,
+ * 45e1d0, 44bbf0) не исполняются офлайн: каждый
  * запрос «снимает» следующую запись потока bdd0_leaf ЭТОГО seq и отдаёт её
  * ret. Поток строгий: другой va или исчерпание — нарушение, которое ловит
  * проверка `leaf_seq` (тик при этом доигрывается на модельных значениях, чтобы
@@ -9,7 +9,7 @@
  *
  * Указатели: ret листа — адрес в пространстве игры. Он переводится в
  * shadow-адрес арены (arena_resolve_ptr: привязки снимка, иначе opaque-объект).
- * Так `band_head → band_count`, `grid_anchor → record` и т.п. не разыменовывают
+ * Так `grid_anchor → record` и т.п. не разыменовывают
  * игровую память.
  *
  * Портированные листья (battle/ported.h, b0_ported_leaf_va) в потоке НЕ
@@ -614,62 +614,6 @@ int bdd0_eee0_synth(void)
 
 /* ------------------------------- листья --------------------------------- */
 namespace native {
-/* 45c6f0 — 3 dword из `[*(ctx)+0xc]` в out; EAX = out (тело возврат не читает).
- * Реализация только для полноты ABI: порт 0x45c6f0 не запрашивает (см.
- * b0_read_pos_from_ctx/claim в battle/tick.cpp), обёртка нужна replay/синтетике. */
-void *ctx_pos_get(void *ctx, float *out_f)
-{
-    int a[1];
-    a[0] = (int)(size_t)out_f;
-    const LeafRec *r = request(0x45c6f0, ctx, 1, a);
-    if (out_f == NULL) return NULL;
-    if (r != NULL && r->nw == 3) {
-        memcpy(out_f, r->w, 12);
-        note_applied_w(out_f, 3);
-        return out_f;
-    }
-    if (ctx != NULL && arena_addr_ok(ctx, 0x18)) {
-        memcpy(out_f, (const unsigned char *)ctx + 0xc, 12);
-    } else {
-        out_f[0] = out_f[1] = out_f[2] = 0.0f;
-    }
-    note_applied_w(out_f, 3);
-    return out_f;
-}
-
-/* 45c370 — голова ленты: begin == 0 ? NULL : (count ? ai+0x3c : NULL).
- * Реализация только для полноты ABI: порт 0x45c370 не запрашивает (см.
- * b0_band_head/claim в battle/tick.cpp), обёртка нужна replay/синтетике. */
-void *band_head(void *ai)
-{
-    const LeafRec *r = request(0x45c370, ai, 0, NULL);
-    if (r != NULL) return ret_ptr(r);
-    if (ai != NULL && arena_addr_ok((const unsigned char *)ai + B0_BATTLE_AI_BAND + B0_BAND_BEGIN_OFF, 8)) {
-        const unsigned char *band = (const unsigned char *)ai + B0_BATTLE_AI_BAND;
-        unsigned begin = read_u32(band + B0_BAND_BEGIN_OFF);
-        if (begin != 0 &&
-            (int)(read_u32(band + B0_BAND_END_OFF) - begin) / BDD0_BAND_ELEM != 0) {
-            return (unsigned char *)ai + B0_BATTLE_AI_BAND;
-        }
-    }
-    return NULL;
-}
-
-/* 45af50 — длина ленты: begin == 0 → 0 (TEST/JZ), иначе
- * ([+END] − [+BEGIN]) / 0x18 (знаковое). */
-int band_count(void *band)
-{
-    const LeafRec *r = request(0x45af50, band, 0, NULL);
-    if (r != NULL) return r->ret;
-    if (band != NULL && arena_addr_ok((const unsigned char *)band + B0_BAND_BEGIN_OFF, 8)) {
-        unsigned begin = read_u32((const unsigned char *)band + B0_BAND_BEGIN_OFF);
-        if (begin == 0) return 0;
-        return (int)(read_u32((const unsigned char *)band + B0_BAND_END_OFF) - begin) /
-               BDD0_BAND_ELEM;
-    }
-    return 0;
-}
-
 /* 45c730 — курсор ленты: [[[ctx]+0xc]+0xc]+0x234 с NULL-guard'ами. */
 void *band_cursor(void *ai)
 {
@@ -719,25 +663,6 @@ int band_target_moved(void *band, float p1, int p2, float p3)
     const LeafRec *r = request(0x45b3e0, band, 3, a);
     if (r != NULL) return r->ret;
     return 0;
-}
-
-/* 403e80 — почленное равенство двух float-троек (unord = «не равно»). */
-int pos3_equal(const void *a, const void *b)
-{
-    int av[1];
-    av[0] = (int)(size_t)b;
-    const LeafRec *r = request(0x403e80, a, 1, av);
-    if (r != NULL) return r->ret;
-    if (a == NULL || b == NULL || !arena_addr_ok(a, 12) || !arena_addr_ok(b, 12)) {
-        return 0;
-    }
-    for (int i = 0; i < 3; i++) {
-        float x, y;
-        memcpy(&x, (const unsigned char *)a + i * 4, 4);
-        memcpy(&y, (const unsigned char *)b + i * 4, 4);
-        if (!(x == y)) return 0;
-    }
-    return 1;
 }
 
 /* 458050 — grid-якорь: arg5 — байт-флаг, и он НЕ пишется. Натив пишет его

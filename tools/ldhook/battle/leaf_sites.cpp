@@ -10,7 +10,7 @@
  *
  * Таблица: site VA, лист VA, nargs (стек-аргументы), ret n (эпилог листа),
  * вид результата. Источники:
- *   45c6f0 `ret 4`  1 арг, EAX=out + тройка по arg1 (native.cpp ctx_pos_get);
+ *   45c6f0 `ret 4`  1 арг, EAX=out + тройка по arg1 (порт tick.cpp b0_read_pos_from_ctx);
  *   45c370 `ret`    0 арг, EAX=голова ленты (band_head);
  *   45af50 `ret`    0 арг, EAX=длина ленты/0x18 (band_count);
  *   45c730 `ret`    0 арг, EAX=курсор ленты (band_cursor);

@@ -19,7 +19,6 @@ TreeNode *lower_bound(void *map, unsigned int key, void *hint);   /* FUN_00434bc
  * arg2 (`MOV ESI,[EDI]` @0x434bd7); результат пишется в *arg1 (0x434c10/0x434c27),
  * EAX = arg1. RET 8. */
 TreeNode *lower_bound_slots(void *map, int *out_slot, int *key_slot);
-TreeNode *tree_next(TreeNode *node);                              /* FUN_0047f800 */
 /* FUN_00449160 — статус узла дерева мира (тело и ABI — native.cpp): ECX =
  * world (дерево по world+0x104), аргумент key = (Y<<16)|X, `RET 4`, EAX =
  * [node+0x10] (0 — узла нет). Единственный callee листа 0x456b60 — порт
@@ -118,25 +117,6 @@ void *game_state_get(void *unit, int flags);
  * [esp] (0x44be15..0x44be49), callee снимает 0x20 байт (иначе ESP на 0x44be58
  * не восстанавливается). Возврат не читается. site: 0x44be55. */
 void world_notify_snapshot(void *unit, const void *snapshot32);
-
-/* FUN_0045c6f0 (0x45c6f0..0x45c71e) — позиция из ctx: 3 dword из
- * `[ctx]+0xc`, либо нули при `[ctx]==0`. __thiscall, ECX = ctx (= unit+0x138),
- * 1 стек-аргумент = out (`ret $0x4`), возврат EAX = out. site: 0x44bea1. */
-void *ctx_pos_get(void *ctx, float *out_f);
-
-/* FUN_0045c370 (0x45c370..0x45c382) — голова ленты `this+0x3c`: count != 0 ?
- * &this[0x3c] : 0 (sign-mask `neg/sbb/and`). __thiscall, ECX = BattleAI,
- * 0 стек-аргументов (`ret`). site: 0x44bee7/0x44bef2.
- * ВНИМАНИЕ: порт этот лист уже считает сам (tick.cpp b0_band_head + claim);
- * нативная обёртка остаётся только для replay/синтетических путей. */
-void *band_head(void *ai);
-
-/* FUN_0045af50 (0x45af50..0x45af70) — длина ленты = ([+0x24]−[+0x20])/0x18
- * (magic-делитель, знаковое; begin==0 → 0). __thiscall, ECX = band (= ai+0x3c),
- * 0 стек-аргументов (`ret`). site: 0x44bef9.
- * ВНИМАНИЕ: порт этот лист уже считает сам (tick.cpp b0_band_count_claim +
- * claim); нативная обёртка остаётся только для replay/синтетических путей. */
-int band_count(void *band);
 
 /* FUN_0045c730 (0x45c730..0x45c74c) — курсор ленты. Листинг: `MOV EAX,[ECX];
  * TEST; JZ` (@0x45c730..0x45c734), затем дважды `MOV EAX,[EAX+0xc]; TEST; JZ`
@@ -281,22 +261,6 @@ void grid_recompute(void *rec, void *pos, void *req, float out3[3]);
 
 /* --- Фаза 5.1b-7: листья R8 (FUN_0044bdd0, `0x44c3ed..0x44c4dc`) --- */
 
-/* FUN_00403e80 (0x403e80..0x403eb5) — равенство двух float-троек: три пары
- * `FLDS [ECX+i]; FCOMPS [EDX+i]; FNSTSW AX; TEST AH,0x44; JP → 0`. `JP(0x44)`
- * взят ⟺ NOT(a==b) (unordered считается «не равно», решение 1.6), поэтому 1 —
- * только при почленном равенстве всех трёх пар (упорядоченно). __thiscall:
- * ECX = a, 1 stack-аргумент `b` (`mov 0x4(%esp),%edx` @0x403e82), `ret $0x4`
- * (@0x403eae/0x403eb3); возврат EAX = 0/1, вызывающий тестирует AL.
- * site: 0x44c423 (ECX = EAX = out-тройка 45c6f0, stack = result+4).
- * Тело известно целиком (53 Б, без каллов).
- * ВНИМАНИЕ: порт этот лист уже считает сам (tick.cpp b0_pos3_equal + claim),
- * поэтому `native::pos3_equal` из тела НЕ вызывается: в replay такой запрос —
- * нарушение потока (`va=0x%x is ported, the port must claim it`,
- * native_replay.cpp). Обёртка нужна только ради полноты ABI: описание листа
- * в `k_leaf_abi` (checks_builtin.cpp), сайт захвата `0x44c423`
- * (leaf_sites.cpp) и подмена на модель/стуб в офлайн-сборках. */
-int pos3_equal(const void *a, const void *b);
-
 /* FUN_0045b150 (0x45b150..0x45b3d8) — листовой float-гейт ленты
  * (интерполяция позиции; тело 651 Б не портировано, единственный callee —
  * 456b20). ABI по телу: пролог 0x45b150..0x45b15b; `RET $0xc` @0x45b3d8;
@@ -331,12 +295,12 @@ int band_target_moved(void *band, float p1, int p2, float p3);
  * `ret $4`, EAX = код 0..4. Наке́д-хук/трамплин site6 не используется. */
 int unit_ai_tick(void *ai, void *rec);
 
-/* Игровая куча (п. 2.2): путь аллокации игровых структур — только через эти
- * обёртки; malloc/free из .pyd запрещены (план, «Риски»). Оба — cdecl с одним
+/* Игровая куча (п. 2.2): путь аллокации игровых структур — только через эту
+ * обёртку; malloc/free из .pyd запрещены (план, «Риски»). cdecl с одним
  * аргументом, очистка вызывающим (листинг 0x4cfa11: вызывающий ADD ESP,4
- * @0x45c2eb в FUN_0045c2e0). */
+ * @0x45c2eb в FUN_0045c2e0). Освобождение — FUN_004d0e16 (_free) в игровых
+ * dtor; dtor в порт ещё не перенесены, поэтому deallocate-обёртки нет. */
 void *operator_new(unsigned int size);   /* FUN_004cfa11 (operator new) */
-void deallocate(void *ptr);              /* FUN_004d0e16 (_free), пара к нему */
 
 } /* namespace native */
 

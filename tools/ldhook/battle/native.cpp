@@ -132,36 +132,6 @@ TreeNode *lower_bound_slots(void *map, int *out_slot, int *key_slot)
     return res;
 }
 
-/* FUN_0047f800 — in-order successor по std::_Tree (thiscall, ecx = узел).
- * Порт s6_tree_next остаётся (он не аллоцирует); обёртка — инфраструктура
- * Фаз 2–5.
- * ABI (число stack-аргументов и ret n) уточняется п. 1.1; стек восстанавливается
- * сохранением esp (см. lower_bound). */
-TreeNode *tree_next(TreeNode *node)
-{
-    void *addr = fn(0x47f800);
-    TreeNode *res = NULL;
-
-    if (addr == NULL) {
-        return NULL;
-    }
-    __try {
-        __asm {
-            pushad                         /* esp «до вызова», регистры в стеке */
-            mov esi, esp                   /* сохранённый esp */
-            mov ecx, node
-            mov eax, addr
-            call eax
-            mov res, eax                   /* eax читается до восстановления esp */
-            mov esp, esi                   /* стек = сохранённый esp при любом ret n */
-            popad                          /* + регистры вызывающего */
-        }
-    } __except (native::av_filter()) {
-        res = NULL;
-    }
-    return res;
-}
-
 /* FUN_00449160 (31 байт) — тип (статус) узла в дереве мира.
  * ABI: int __fastcall(int key), ECX = world, RET 4 (листинг 0x44916b ADD ECX,0x104
  * — дерево лежит по world+0x104; калл — 0x4359b0). Возврат: [node+0x10] (int),
@@ -721,25 +691,6 @@ void *operator_new(unsigned int size)
     return p;
 }
 
-/* FUN_004d0e16 — игровой _free (thunk: JMP 0x4d0da5). Именно его зовёт
- * deallocator FUN_0047ac00 (CALL 0x4d0e16 @0x47ae9c) при освобождении узлов map.
- * ABI: cdecl, один аргумент (указатель), очистка вызывающим. Парная функция к
- * operator_new выше: память, взятую 0x4cfa11, возвращать только через 0x4d0e16. */
-typedef void (*PFN_free)(void *ptr);
-
-void deallocate(void *ptr)
-{
-    void *addr = fn(0x4d0e16);
-
-    if (addr == NULL) {
-        return;
-    }
-    __try {
-        ((PFN_free)addr)(ptr);
-    } __except (native::av_filter()) {
-    }
-}
-
 /* --- Фаза 5.1b: листья R1/R2 (FUN_0044bdd0) --- */
 
 /* FUN_00442570 — аксессор состояния игры (thiscall, ecx = unit, 1 стек-арг,
@@ -794,96 +745,6 @@ void world_notify_snapshot(void *unit, const void *snapshot32)
         }
     } __except (native::av_filter()) {
     }
-}
-
-/* FUN_0045c6f0 — позиция из ctx (3 dword), `ret $0x4`, возврат EAX = out. */
-void *ctx_pos_get(void *ctx, float *out_f)
-{
-    void *addr = fn(0x45c6f0);
-    void *res = NULL;
-
-    if (addr == NULL) {
-        return NULL;
-    }
-    __try {
-        __asm {
-            pushad
-            mov esi, esp
-            mov ecx, ctx
-            push out_f
-            mov eax, addr
-            call eax
-            mov res, eax
-            mov esp, esi
-            popad
-        }
-    } __except (native::av_filter()) {
-        res = NULL;
-    }
-    {   /* v12: bdd0_leaf — args = [out] (единственный стек-аргумент листа) */
-        int a[1];
-        a[0] = (int)(size_t)out_f;
-        int w[3];
-        w[0] = (out_f != NULL) ? *(const int *)out_f : 0;
-        w[1] = (out_f != NULL) ? *(const int *)((const char *)out_f + 4) : 0;
-        w[2] = (out_f != NULL) ? *(const int *)((const char *)out_f + 8) : 0;
-        battle_capture_bdd0_leaf(0x45c6f0, ctx, a, 1, (int)(size_t)res, w, 3);
-    }
-    return res;
-}
-
-/* FUN_0045c370 — голова ленты `this+0x3c` (0 ? NULL : &this[0x3c]), `ret`. */
-void *band_head(void *ai)
-{
-    void *addr = fn(0x45c370);
-    void *res = NULL;
-
-    if (addr == NULL) {
-        return NULL;
-    }
-    __try {
-        __asm {
-            pushad
-            mov esi, esp
-            mov ecx, ai
-            mov eax, addr
-            call eax
-            mov res, eax
-            mov esp, esi
-            popad
-        }
-    } __except (native::av_filter()) {
-        res = NULL;
-    }
-    battle_capture_bdd0_leaf(0x45c370, ai, NULL, 0, (int)(size_t)res, NULL, 0);
-    return res;
-}
-
-/* FUN_0045af50 — длина ленты ([+0x24]−[+0x20])/0x18, `ret`. */
-int band_count(void *band)
-{
-    void *addr = fn(0x45af50);
-    int res = 0;
-
-    if (addr == NULL) {
-        return 0;
-    }
-    __try {
-        __asm {
-            pushad
-            mov esi, esp
-            mov ecx, band
-            mov eax, addr
-            call eax
-            mov res, eax
-            mov esp, esi
-            popad
-        }
-    } __except (native::av_filter()) {
-        res = 0;
-    }
-    battle_capture_bdd0_leaf(0x45af50, band, NULL, 0, res, NULL, 0);
-    return res;
 }
 
 /* FUN_0045c730 — курсор ленты: цепочка `[[[ctx]+0xc]+0xc]+0x234` с null-
@@ -1458,41 +1319,6 @@ void grid_recompute(void *rec, void *pos, void *req, float out3[3])
 }
 
 /* --- Фаза 5.1b-7: листья R8 (FUN_0044bdd0, `0x44c3ed..0x44c4dc`) --- */
-
-/* FUN_00403e80 — равенство двух float-троек (thiscall: ecx = a, стек-арг b,
- * `ret $0x4`; EAX = 0/1). Тело: 3 × `FLD [a+i]; FCOMPS [b+i]; TEST AH,0x44;
- * JP → 0` (JP взят ⟺ NOT(a==b), unordered = «не равно»). site 0x44c423. */
-int pos3_equal(const void *a, const void *b)
-{
-    void *addr = fn(0x403e80);
-    int res = 0;
-
-    if (addr == NULL) {
-        return 0;
-    }
-    __try {
-        __asm {
-            pushad
-            mov esi, esp
-            mov ecx, a
-            push b
-            mov eax, addr
-            call eax
-            mov res, eax                   /* AL = 0/1, читается до сброса esp */
-            mov esp, esi
-            popad
-        }
-    } __except (native::av_filter()) {
-        res = 0;
-    }
-    /* v12: bdd0_leaf — ECX = a, args = [b] (единственный стек-аргумент). */
-    {
-        int av[1];
-        av[0] = (int)(size_t)b;
-        battle_capture_bdd0_leaf(0x403e80, a, av, 1, res, NULL, 0);
-    }
-    return res;
-}
 
 /* FUN_0045b150 — float-гейт ленты (thiscall: ecx = лента, 3 стек-аргумента
  * по 4 Б, `ret $0xc`, результат ST(0)). На сайте B60 аргументы — triple
