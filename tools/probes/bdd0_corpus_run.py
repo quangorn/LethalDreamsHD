@@ -3,10 +3,11 @@
 
 Positive: tools/probes/bdd0/corpus/synth_v12_native.jsonl
   rc 0 AND exact per-check counts (so an all-SKIP capture cannot pass):
-  native_seq 3/0/0, native_args 1/2/0, res_match 3/0/0, state_match 3/0/0,
-  leaf_value 1/2/0 (порт листа 45c370 заявляет значение — claim сверен).
+  native_seq 4/0/0, native_args 1/3/0, res_match 4/0/0, state_match 4/0/0,
+  leaf_value 1/3/0 (листья 45c370/45c6f0 заявляют значения; out-тройка 45c6f0
+  восстановлена из потока и идёт в nno, а не в pass — см. B0_POS_RESYNC_WHY).
 Positive: tools/probes/bdd0/corpus/synth_band_begin_zero.jsonl
-  rc 0, leaf_seq 1/0/0, leaf_value 1/0/0 — begin == 0 при end != 0: голова
+  rc 0, leaf_seq 1/0/0, leaf_value 0/1/0 — begin == 0 при end != 0: голова
   обязана быть NULL (правило TEST/JZ в 45af50), порт не идёт по длине.
 Positive: tools/probes/bdd0/corpus/synth_band_rec.jsonl
   rc 0, leaf_value 1/0/0 — входная лента пуста, 45eee0 перестраивает её;
@@ -15,6 +16,10 @@ Positive: tools/probes/bdd0/corpus/synth_band_rec.jsonl
 Positive: tools/probes/bdd0/corpus/synth_band_trunc.jsonl
   rc 0, leaf_value 2/0/0 — две ленты не кратны 0x18: +25 → 1 и −25 → −1
   (усечение к нулю, не floor). Claim длины сверяется на обоих тиках.
+Positive: tools/probes/bdd0/corpus/synth_pos_ctx_null.jsonl
+  rc 0, leaf_value 0/1/0 — ai_ctx == 0: лист 45c6f0 идёт НУЛЕВОЙ веткой натива
+  (`MOV EAX,[ECX]; XOR ECX,ECX; CMP EAX,ECX; JNZ`), out[0..2] = 0. w такой
+  заявки восстановлен из потока ⇒ nno, не pass.
 Negatives:
   dropped/trap/order      -> --check native_seq, rc 1
   corrupt_native_args     -> --check native_args, rc 1, arg mismatch reported
@@ -27,6 +32,11 @@ Negatives:
   corrupt_band_count      -> rc 1, leaf_value 1/0/1 (записанный ret 45af50
                              тика +25 испорчен 1→2; тик −25 остаётся PASS):
                              проверка значения длины живая
+  corrupt_pos_w_count     -> --check leaf_value, rc 1: у записи 45c6f0 два
+                             dword вместо трёх — счётчик out-канала живой
+  corrupt_pos_w_value     -> --check leaf_value, rc 1: ai_ctx == 0 (порт пишет
+                             нули), а в записи w[1] испорчен — значение
+                             сверяется, когда заявка НЕ равна реконструкции
  
 Build first: python3 tools/probes/bdd0_harness_build.py
 Usage: python3 tools/probes/bdd0_corpus_run.py
@@ -50,17 +60,20 @@ POS_EXPECT = {
         "native_args": (1, 3, 0),
         "res_match": (4, 0, 0),
         "state_match": (4, 0, 0),
-        "leaf_value": (2, 2, 0),
+        "leaf_value": (1, 3, 0),
     },
     "synth_band_begin_zero.jsonl": {
         "leaf_seq": (1, 0, 0),
-        "leaf_value": (1, 0, 0),
+        "leaf_value": (0, 1, 0),
     },
     "synth_band_rec.jsonl": {
         "leaf_value": (1, 0, 0),
     },
     "synth_band_trunc.jsonl": {
         "leaf_value": (2, 0, 0),
+    },
+    "synth_pos_ctx_null.jsonl": {
+        "leaf_value": (0, 1, 0),
     },
     "corrupt_band_count.jsonl": {
         "leaf_value": (1, 0, 1),
@@ -73,6 +86,7 @@ CASES = [
     ("synth_band_begin_zero.jsonl", 0, None),
     ("synth_band_rec.jsonl", 0, None),
     ("synth_band_trunc.jsonl", 0, None),
+    ("synth_pos_ctx_null.jsonl", 0, None),
     ("corrupt_native_dropped.jsonl", 1, "native_seq"),
     ("corrupt_native_trap.jsonl", 1, "native_seq"),
     ("corrupt_native_order.jsonl", 1, "native_seq"),
@@ -82,7 +96,15 @@ CASES = [
     ("corrupt_leaf_ported_request.jsonl", 1, None),
     ("corrupt_leaf_claim_extra.jsonl", 1, None),
     ("corrupt_leaf_claim_missing.jsonl", 1, None),
+    ("corrupt_pos_w_count.jsonl", 1, "leaf_value"),
+    ("corrupt_pos_w_value.jsonl", 1, "leaf_value"),
 ]
+
+# negatives that must FAIL leaf_value itself, with the out-channel diagnostic
+LEAF_VALUE_NEG = {
+    "corrupt_pos_w_count.jsonl": "w count",
+    "corrupt_pos_w_value.jsonl": "w[1]",
+}
 
 # negatives whose failure must be attributed to leaf_seq, not leaf_value
 LEAF_SEQ_NEG = {
@@ -138,6 +160,12 @@ def main():
             lv = counts.get("leaf_value", (0, 0, 0))
             ok = ok and ls[2] >= 1 and lv[2] == 0
             detail += " leaf_seq=%s leaf_value=%s" % (ls, lv)
+        elif name in LEAF_VALUE_NEG:
+            lv = counts.get("leaf_value", (0, 0, 0))
+            tag = LEAF_VALUE_NEG[name]
+            ok = ok and lv[2] >= 1 and (tag in text)
+            detail += " leaf_value=%s diag=%s" % (
+                lv, "yes" if tag in text else "no")
         print("  %-36s %s  %s" % (name, "PASS" if ok else "FAIL", detail))
         if not ok:
             bad += 1

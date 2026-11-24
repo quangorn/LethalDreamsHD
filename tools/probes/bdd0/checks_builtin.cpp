@@ -881,6 +881,53 @@ static CheckResult chk_leaf_value(const TickContext &tc)
                 }
             }
         }
+
+        /* w[] — dword'ы, которые лист записал ЧЕРЕЗ указатель (B0_LEAF_CLAIM_W:
+         * out-тройка 45c6f0). Запись без `w` — сверять нечем (старый формат):
+         * SKIP с причиной, не PASS. Счётчик dword'ов — структурная сверка
+         * порта (сколько и в каком порядке он пишет), она живая всегда.
+         * Значение: у листьев b0_leaf_w_recon тройка — производная от записи
+         * (replay восстановил вход из того же `w`), поэтому равные значения
+         * НЕ pass: поля идут в nno с причиной (SKIP со счётом). Тройка,
+         * отличная от реконструкции, сверяется побитово как обычно. */
+        if (c.nw > 0 && r->nw == 0) {
+            SKIP("recorded record has no w[] (older bdd0_leaf format)");
+        }
+        if (c.nw != r->nw) {
+            mism++;
+            ncmp++;
+            if (first[0] == '\0') {
+                _snprintf_s(first, sizeof(first), _TRUNCATE,
+                            "leaf claim #%d va=0x%x w count port=%d native=%d "
+                            "(seq %d)", i, c.va, c.nw, r->nw, tc.seq);
+            }
+        } else if (c.resync) {
+            const char *wrec = b0_leaf_w_recon_why((unsigned)c.va);
+
+            nno += c.nw;
+            if (nocmp[0] == '\0') {
+                _snprintf_s(nocmp, sizeof(nocmp), _TRUNCATE,
+                            "leaf claim #%d va=0x%x w (%d dword(s)): %s", i,
+                            c.va, c.nw,
+                            (wrec != NULL) ? wrec : B0_POS_RESYNC_WHY);
+            }
+        } else {
+            for (int k = 0; k < c.nw; k++) {
+                if (c.w[k] == r->w[k]) {
+                    ncmp++;
+                } else {
+                    mism++;
+                    ncmp++;
+                    if (first[0] == '\0') {
+                        _snprintf_s(first, sizeof(first), _TRUNCATE,
+                                    "leaf claim #%d va=0x%x w[%d] port=0x%08x "
+                                    "native=0x%08x (seq %d)", i, c.va, k,
+                                    (unsigned)c.w[k], (unsigned)r->w[k],
+                                    tc.seq);
+                    }
+                }
+            }
+        }
     }
 
     if (mism > 0) {

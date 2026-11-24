@@ -83,7 +83,8 @@ struct Profile {
     unsigned gctx0;
     int unit34;            /* msg-гейт unit+0x34 */
     int unit118;           /* → bit3 param_2 */
-    float ai_pos[3];       /* BattleAI+0xc..0x14 (ctx_pos_get) */
+    float ai_pos[3];       /* B5-тройка unit+0x68..0x70 и кадр+0x2c (ai+0xc);
+                            * она же — тройка [ctx+0xc] листа 45c6f0 */
     float gs_pos[3];       /* game state +4..0xc */
     int grid_query;
     int anchor_null;
@@ -93,6 +94,7 @@ struct Profile {
                             * захват, resync-fallback) */
     int post_band_extra;   /* байты сверх post_band_n*0x18 (некратный шаг —
                             * проверка усечения 45af50); 0 — обычная лента */
+    int ctx_null;          /* ai_ctx = 0 → нулевая ветка листа 45c6f0 */
 };
 
 static const Profile k_profiles[] = {
@@ -126,7 +128,13 @@ static const Profile k_profiles[] = {
     /* band_trunc_neg: diff = -25 (end = begin - 25): знаковое деление обязано
      * усечь К НУЛЮ → -1 (а floor дал бы -2). extra = -25 - 0x18 = -49. no_all=1. */
     { "band_trunc_neg", 1, 8, 0.0f, -1.0f, 3u, 1, 0, 0, 1, 0u, 0, 0,
-      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, 1, -49 }
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, 1, -49 },
+    /* pos_null: ai_ctx = 0 → лист 45c6f0 идёт НУЛЕВОЙ веткой натива
+     * (`MOV EAX,[ECX]; XOR ECX,ECX; CMP EAX,ECX; JNZ` @0x45c6f0..0x45c6f6):
+     * out[0..2] = 0. Это fidelity-кейс: в захватах все 108 вызовов с ai_ctx == 0
+     * записали w = [0,0,0]. Отдельный файл (no_all=1). */
+    { "pos_null", 1, 0, 0.0f, 1.0f, 3u, 0, 0, 0, 1, 0u, 0, 0,
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, -1, 0, 1 }
 };
 
 /* Снимок по профилю: unit 0x180, встроенный BattleAI 0x80 (unit+0x138),
@@ -168,7 +176,7 @@ static void fill_record(TickRecord &t, const Profile &pf, int seq, int tick)
     memcpy(t.unit + 0xe0, &t.e0, 4);
     t.unit[0x138] = 0;                          /* ai_ctx пишется ниже (4 Б) */
     {
-        unsigned ctx = GAME_CTX;
+        unsigned ctx = pf.ctx_null ? 0u : GAME_CTX;
         memcpy(t.unit + 0x138, &ctx, 4);
     }
     memcpy(t.unit + 0x128, &pf.unit_fc, 4);
@@ -182,7 +190,7 @@ static void fill_record(TickRecord &t, const Profile &pf, int seq, int tick)
      * лента: vector+0x00 = 1 (непустая), begin/end/cap/dirty. */
     memset(t.ai, 0, sizeof(t.ai));
     {
-        unsigned ctx = GAME_CTX;
+        unsigned ctx = pf.ctx_null ? 0u : GAME_CTX;
         unsigned begin = (pf.band_n > 0 && !pf.band_begin_zero) ? GAME_BAND : 0u;
         unsigned end = begin + (unsigned)pf.band_n * BDD0_BAND_ELEM;
         unsigned cap = end;
@@ -234,8 +242,10 @@ static void write_jsonl(FILE *f, const TickRecord &in, const TickRecord &post,
                         const unsigned m[3], int seq)
 {
     unsigned self = in.self_raw;
+    unsigned ai_ctx;
     unsigned band_begin = in.band_raw;
     unsigned band_end = band_begin + (unsigned)in.band_n * BDD0_BAND_ELEM;
+    memcpy(&ai_ctx, in.ai, 4);       /* game_ctx = *(unit+0x138); 0 — нет ctx */
     /* v14: после-состояние ленты — из профиля (45eee0 перестроил). */
     unsigned post_begin = (pf.post_band_n > 0) ? GAME_BAND : 0u;
     unsigned post_end = post_begin + (unsigned)pf.post_band_n * BDD0_BAND_ELEM +
@@ -256,7 +266,7 @@ static void write_jsonl(FILE *f, const TickRecord &in, const TickRecord &post,
                "\"band_b64\":\"%s\",\"gs_b64\":\"%s\",\"e0\":%u,\"e0_44\":%u,"
                "\"tree\":%u,\"gctx0\":%u,\"trap\":0}\n",
             in.seq, in.tick, in.unit_index, self, in.p1, in.p2, in.p3,
-            GAME_CTX, in.u170_in, in.gate114, band_begin, band_end,
+            ai_ctx, in.u170_in, in.gate114, band_begin, band_end,
             fb.c_str(), ub.c_str(), ab.c_str(),
             band_begin, band_end, band_end, in.band_n, bb.c_str(), gb.c_str(),
             in.e0, in.e0_44, in.tree, in.gctx0);
@@ -346,6 +356,9 @@ static int run_tick(FILE *f, const Profile &pf, int seq, int verbose)
     env.tree_game = in.tree;
     env.band_game = in.band_raw;
     env.scratch_game = GAME_SCRATCH;
+    env.ctx_pos[0] = pf.ai_pos[0];
+    env.ctx_pos[1] = pf.ai_pos[1];
+    env.ctx_pos[2] = pf.ai_pos[2];
     /* v14: после-состояние ленты для модели 45eee0 (ww-пара [0x5c,0x60]).
      * post_band_n < 0 — старая семантика без ww (resync-fallback). */
     env.band_post_game = (pf.post_band_n > 0) ? GAME_BAND : 0u;
@@ -396,7 +409,8 @@ int main(int argc, char **argv)
 {
     if (argc < 2) {
         fputs("usage: bdd0_synth.exe <out.jsonl> "
-              "[grid|simple|band|band0|band_rec|all] [-v]\n", stderr);
+              "[grid|simple|band|band0|band_rec|band_trunc|band_trunc_neg|"
+              "pos_null|all] [-v]\n", stderr);
         return 2;
     }
     const char *out = argv[1];

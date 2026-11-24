@@ -175,7 +175,8 @@ struct CallLogEnt {
  * следующей записью потока bdd0_leaf (leaf_seq) и продвигает поток. Значение
  * сверяет проверка leaf_value: ret — то, что вернул порт (указатель — shadow-
  * адрес), rec — сопоставленная запись (NULL — расхождение потока). args/nargs —
- * необязательные аргументы листа (0 — сверять нечего). */
+ * необязательные аргументы листа (0 — сверять нечего); w/nw — dword'ы, которые
+ * лист записал через указатель (out-тройка 45c6f0), сверяются с `w` записи. */
 struct LeafClaimEnt {
     int order;                 /* 0-based внутри тика */
     int call_seq;              /* сквозной номер вызова в тике (как в CallLogEnt) */
@@ -184,17 +185,23 @@ struct LeafClaimEnt {
     int ret;
     int nargs;
     int args[6];
+    int nw;                    /* dword'ов записано через указатель (0..3) */
+    int w[3];
     const LeafRec *rec;
     int mut;                   /* b0_leaf_mutators: индекс+1 натива, менявшего
                                   вход листа до заявки (0 — не менялся) */
-    int resync;                /* 1 — вход листа восстановлен из bdd0_leaf
-                                  (band_resync_from_stream): сверка была бы
-                                  тавтологией, leaf_value → SKIP */
+    int resync;                /* 1 — вход/значение листа восстановлены из
+                                  bdd0_leaf: сравнение было бы тавтологией.
+                                  Голова ленты (band_resync_from_stream) —
+                                  SKIP заявки; out-записи 45c6f0
+                                  (b0_leaf_w_recon) — только поля w идут в nno
+                                  с B0_POS_RESYNC_WHY, ret/args/ecx сверяются */
     LeafClaimEnt()
-        : order(0), call_seq(0), va(0), ecx(0), ret(0), nargs(0), rec(NULL),
-          mut(0), resync(0)
+        : order(0), call_seq(0), va(0), ecx(0), ret(0), nargs(0), nw(0),
+          rec(NULL), mut(0), resync(0)
     {
         for (int i = 0; i < 6; i++) args[i] = 0;
+        for (int i = 0; i < 3; i++) w[i] = 0;
     }
 };
 

@@ -2,10 +2,12 @@
  *
  * Лист, чьё тело портировано, в replay-потоке больше НЕ запрашивается: его
  * запись bdd0_leaf снимает claim — порт считает значение сам и сообщает его
- * вызовом B0_LEAF_CLAIM. Replay-слой сопоставляет claim со следующей записью
- * потока (тот же seq/va/порядок) и продвигает поток; значение сверяет проверка
- * `leaf_value` (указатель — символьно, как в leaf_args), расхождение потока —
- * `leaf_seq`. Запрос такого листа (`native::…`) — нарушение механизма.
+ * вызовом B0_LEAF_CLAIM (или B0_LEAF_CLAIM_W, если значимый результат листа —
+ * dword'ы, записанные через указатель). Replay-слой сопоставляет claim со
+ * следующей записью потока (тот же seq/va/порядок) и продвигает поток;
+ * значение сверяет проверка `leaf_value` (указатель — символьно, как в
+ * leaf_args), расхождение потока — `leaf_seq`. Запрос такого листа
+ * (`native::…`) — нарушение механизма.
  *
  * Список — единственный источник истины: он нужен харнессу (там по нему replay
  * решает, где ждать claim, а где запрос). В живом билде (BATTLE_REPLAY не
@@ -29,6 +31,10 @@
 #define B0_LEAF_BAND_HEAD 0x45c370u    /* begin==0 ? NULL : count ? ai+0x3c : NULL */
 /* Длина ленты (FUN_0045af50): begin==0 ? 0 : (end-begin)/0x18 (знаковое). */
 #define B0_LEAF_BAND_COUNT 0x45af50u
+/* Позиция из ctx (FUN_0045c6f0): EAX = *(this) (game_ctx); EAX == 0 → out[0..2]
+ * = 0; иначе ECX = [EAX+0xc] (указатель на тройку), out[0..2] = [ECX+0..8];
+ * EAX = out. Значимый результат листа — записанная тройка (claim_W). */
+#define B0_LEAF_READ_POS 0x45c6f0u
 
 #ifdef BATTLE_REPLAY
 /* VA портированных листьев: список живёт только в replay-сборке. В живом
@@ -36,7 +42,8 @@
  * были бы мёртвыми. */
 static const unsigned int b0_ported_leaf_va[] = {
     B0_LEAF_BAND_HEAD,
-    B0_LEAF_BAND_COUNT
+    B0_LEAF_BAND_COUNT,
+    B0_LEAF_READ_POS
 };
 
 #define B0_PORTED_LEAF_COUNT \
@@ -93,20 +100,65 @@ static const B0LeafMutator b0_leaf_mutators[] = {
 #define B0_BAND_RESYNC_WHY \
     "band state reconstructed from 45af50 stream (45eee0 rebuild not captured)"
 
+/* Out-записи листа 45c6f0 восстановлены из потока: тройка `[ctx+0xc]` живёт в
+ * куче игры (в снимок не попадает), replay кладёт её в арену "ctx_pos" из `w`
+ * записи. Значение такой заявки производно от записи, поэтому leaf_value
+ * считает эти dword'ы НЕсравнимыми с причиной (SKIP со счётом, не PASS);
+ * ret/args/ecx и порядок заявок остаются реальными сверками. */
+#define B0_POS_RESYNC_WHY \
+    "ctx triple reconstructed from the 45c6f0 record w (ctx heap object not captured)"
+
+/* Листья, чьи out-записи восстановлены из потока (см. B0_POS_RESYNC_WHY). */
+struct B0LeafWRecon {
+    unsigned leaf;
+    const char *why;
+};
+
+static const B0LeafWRecon b0_leaf_w_recon[] = {
+    { B0_LEAF_READ_POS, B0_POS_RESYNC_WHY }
+};
+
+#define B0_LEAF_W_RECON_COUNT \
+    ((int)(sizeof(b0_leaf_w_recon) / sizeof(b0_leaf_w_recon[0])))
+
+static const char *b0_leaf_w_recon_why(unsigned int va)
+{
+    int i;
+
+    for (i = 0; i < B0_LEAF_W_RECON_COUNT; i++) {
+        if (b0_leaf_w_recon[i].leaf == va) return b0_leaf_w_recon[i].why;
+    }
+    return NULL;
+}
+
 /* Хук офлайн-харнесса (tools/probes/bdd0/native_replay.cpp): порт сообщает
  * вычисленное значение листа. ecx — получатель (this), ret — значение
  * (указатель — shadow-адрес), args/nargs — необязательные аргументы листа
- * (0 — сверять нечего). В живом билде BATTLE_REPLAY не определён: вызова нет
- * вовсе, поэтому ни поведение, ни набор импортов .pyd не меняются. */
-void bdd0_leaf_claim(unsigned int va, void *ecx, int ret, const int *args,
-                     int nargs);
+ * (0 — сверять нечего).
+ *
+ * w/nw — dword'ы, которые лист записал ЧЕРЕЗ указатель в буфер вызывающего
+ * (out-тройка 45c6f0); nw <= 3, NULL/0 — лист ничего не писал. Канал нужен
+ * там, где ЗНАЧИМЫЙ результат листа — не возврат, а записанные dword'ы:
+ * leaf_value сверяет их с массивом `w` записи потока (нет `w` в записи —
+ * SKIP с причиной, не PASS). Листья без out-записей пользуются прежним
+ * B0_LEAF_CLAIM (тот же хук, nw = 0); новый out-канал добавлять не нужно.
+ *
+ * В живом билде BATTLE_REPLAY не определён: вызова нет вовсе, поэтому ни
+ * поведение, ни набор импортов .pyd не меняются. */
+void bdd0_leaf_claim_w(unsigned int va, void *ecx, int ret, const int *args,
+                       int nargs, const int *w, int nw);
 /* ret — значение листа: указатель (shadow-адрес) или int; приведение через
  * size_t сохраняет биты (сравнение в leaf_value — битовое/символьное). */
 #define B0_LEAF_CLAIM(va, ecx, ret, args, nargs) \
-    bdd0_leaf_claim((unsigned int)(va), (void *)(ecx), (int)(size_t)(ret), \
-                    (args), (nargs))
+    bdd0_leaf_claim_w((unsigned int)(va), (void *)(ecx), (int)(size_t)(ret), \
+                      (args), (nargs), NULL, 0)
+/* Значение листа включает dword'ы, записанные через указатель (out). */
+#define B0_LEAF_CLAIM_W(va, ecx, ret, args, nargs, w, nw) \
+    bdd0_leaf_claim_w((unsigned int)(va), (void *)(ecx), (int)(size_t)(ret), \
+                      (args), (nargs), (w), (nw))
 #else
 #define B0_LEAF_CLAIM(va, ecx, ret, args, nargs) ((void)0)
+#define B0_LEAF_CLAIM_W(va, ecx, ret, args, nargs, w, nw) ((void)0)
 #endif
 
 #endif /* BATTLE_PORTED_H */

@@ -475,6 +475,49 @@ static void *b0_band_head(void *ai_)
     return res;
 }
 
+/* --- Порт листа 0x45c6f0 (read_pos_from_ctx) ---------------------------- *
+ * Листинг `0x45c6f0..0x45c71e` (сверено с двоичным кодом установки, REA):
+ *   MOV EAX,[ECX]        ; 0x45c6f0 — EAX = *(this) = game_ctx
+ *   XOR ECX,ECX          ; 0x45c6f2 — ECX обнуляется: `CMP EAX,ECX` без этой
+ *                        ;   инструкции читать нельзя, `this` уже потерян
+ *   CMP EAX,ECX; JNZ     ; 0x45c6f4/0x45c6f6 — нулевая ветка ⟺ ctx == 0
+ *   (нулевая ветка) out[0..2] = 0; RET 4 (0x45c704); EAX = out
+ *   0x45c707: ECX = [EAX+0xc] — указатель на тройку; [ECX], [ECX+4], [ECX+8]
+ *             → out; RET 4; EAX = out.
+ * Нулевая ветка — FIDELITY (не защита): в захватах все 108 вызовов с ai_ctx == 0
+ * записали w = [0,0,0]. Значимый результат — записанная тройка, поэтому claim
+ * идёт out-каналом (B0_LEAF_CLAIM_W).
+ * Второй указатель (ECX = [EAX+0xc]) натив НЕ проверяет — на NULL он упал бы;
+ * это единственный незахваченный вход (куча ctx), поэтому guard `p == NULL`
+ * ниже — ТОЛЬКО для replay и fidelity не изображает. */
+static void *b0_read_pos_from_ctx(void *this_, float *out)
+{
+    void *ctx = NULL;
+    int w[3];
+
+    w[0] = w[1] = w[2] = 0;
+    if (this_ != NULL) {
+        ctx = *(void **)this_;                      /* 0x45c6f0 MOV EAX,[ECX] */
+    }
+    if (ctx != NULL) {                              /* 0x45c6f4 CMP EAX,ECX */
+        void *p = *(void **)((unsigned char *)ctx + 0xc);  /* 0x45c707 */
+
+        if (p != NULL) {            /* guard replay-only: см. шапку */
+            memcpy(w, p, 12);                       /* 0x45c70a..0x45c71b */
+        }
+    }
+    if (out != NULL) {
+        memcpy(out, w, 12);
+    }
+    {
+        int a[1];
+
+        a[0] = (int)(size_t)out;                    /* единственный арг — out */
+        B0_LEAF_CLAIM_W(B0_LEAF_READ_POS, this_, out, a, 1, w, 3);
+    }
+    return out;                                     /* 0x45c6f8/0x45c70c: EAX=out */
+}
+
 /* --- R1..R4: B0..B29 --------------------------------------------------- *
  * Цепочка player-флагов (B16..B18 и её клоны B25..B27): player_get(unit,1) →
  * 42da60(player,1) → 435d50; три идентичных прогона, различаются только
@@ -513,6 +556,11 @@ static int b0_body_r1_r2(void *unit_, unsigned char *frame)
     unsigned char snap_buf[0x20];   /* B2: снимок 0x20 Б (натив: [esp] после sub 0x20) */
     unsigned char msg_dst[0x40];    /* B15/B24: копия msg-объекта (натив: esp после sub 0x3c) */
     float *out = (float *)(frame + 0x20);   /* B6: out-тройка 45c6f0 (= frame+0x20) */
+    /* Один буфер out на три сайта 45c6f0: в нативе слот один и тот же —
+     * B6/B76 `lea 0x20(%esp)` (0x44be94/0x44c6f5), B56 `lea 0x24(%esp)`
+     * (0x44c415), но там уже лежит push `result+4` (0x44c414), т.е. адрес
+     * снова frame+0x20. Каждый сайт потребляет тройку сразу (сравнения B6/B56,
+     * копия в frame+0x2c в B76), поэтому одна переменная эквивалентна. */
     float phase;
     void *res;
     void *head;
@@ -589,7 +637,7 @@ B0_LBL(0);
     /* B6 (0x44be94..0x44bec1) + B7/B8 (0x44bec2..0x44bedb) — позиция из ctx
      * должна совпасть с result+4/+8/+0xc: три x87-сравнения, `jp` → B12.
      * Порядок: 45c6f0 → 442570(0) → первое сравнение. */
-    native::ctx_pos_get(unit + 0x138, out);             /* 0x44be9e..0x44bea1 */
+    b0_read_pos_from_ctx(unit + 0x138, out);            /* 0x44be9e..0x44bea1 */
     res = native::game_state_get(unit, 0);              /* 0x44bea6..0x44beac */
     if (B0_TST(4, (b0_gate_44_jp(*(const float *)((const unsigned char *)res + 4), out[0]) || b0_gate_44_jp(*(const float *)((const unsigned char *)res + 8), out[1]) || b0_gate_44_jp(*(const float *)((const unsigned char *)res + 12), out[2]))))  {
         goto b12;                           /* 0x44bec0 / 0x44becd / 0x44beda */
@@ -1032,7 +1080,7 @@ B0_LBL(19);
     /* B76 (0x44c6f5..0x44c714) — `45c6f0(ECX = ESI = &unit+0x138,
      * out = frame+0x20)`; три dword результата → pos-тройка
      * `frame+0x2c/0x30/0x34`. fall → B77. */
-    native::ctx_pos_get(unit + 0x138, out);             /* 0x44c6f5..0x44c6fc */
+    b0_read_pos_from_ctx(unit + 0x138, out);            /* 0x44c6f5..0x44c6fc */
     memcpy(frame + 0x2c, out, 12);                      /* 0x44c701..0x44c711 */
     /* fall → b77_join */
 
@@ -2080,12 +2128,12 @@ B0_LBL(63);
         goto b77_join;                                  /* 0x44c402 jne 0x44c715 */
     }
 
-    /* B56 (0x44c408..0x44c42b) — позиция ctx → out-тройка `frame+0x20`,
-     * затем 403e80(out, result+4). Натив: первый push (&result+4) остаётся
-     * на стеке до `ret $0x4` самого 403e80 (ECX = EAX = out). AL=0
-     * (позиция не совпала) → B59. */
+    /* B56 (0x44c408..0x44c42b) — позиция ctx → out-тройка `frame+0x20`
+     * (`lea 0x24(%esp)` при уже pushed `result+4`), затем 403e80(out, result+4).
+     * Натив: первый push (&result+4) остаётся на стеке до `ret $0x4` самого
+     * 403e80 (ECX = EAX = out). AL=0 (позиция не совпала) → B59. */
     res = native::game_state_get(unit, 0);              /* 0x44c408..0x44c40c */
-    native::ctx_pos_get(unit + 0x138, out);             /* 0x44c41a..0x44c41c */
+    b0_read_pos_from_ctx(unit + 0x138, out);            /* 0x44c41a..0x44c41c */
     if (B0_TST(96, (!native::pos3_equal(out, (const unsigned char *)res + 4))))  {
         goto b59;                                       /* 0x44c42a je 0x44c489 */
     }

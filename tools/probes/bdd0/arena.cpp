@@ -22,6 +22,10 @@
  *                               дальше тело его НЕ разыменовывает).
  *   Плюс скрытая пятая: unit+0x138 — первый dword встроенного BattleAI
  *   (game_ctx); тело читает `*(u32)game_ctx` (бит3) в B43/B50.
+ *   Плюс шестая (лист 45c6f0): `[*(unit+0x138)+0xc]` — указатель на pos-тройку
+ *   внутри объекта ctx. Сам объект лежит в куче игры и в снимок не попадает,
+ *   поэтому область "ctx_pos" (12 Б) восстанавливается из потока (w записи
+ *   45c6f0, native_replay.cpp bdd0_leaf_begin), а ctx+0xc указывает на неё.
  *
  * Каждое звено получает shadow-объект (node_e0 0x240, node_e044 0x240, tree
  * 0x40, ctx 0x20) и поле указателя ПЕРЕПИСЫВАЕТСЯ на него; сырой адрес звена
@@ -461,6 +465,7 @@ Arena *arena_build(const TickRecord *rec)
     ok &= reg_add(a, "unit", BDD0_UNIT_LEN + 0x38);   /* 0x1b8: 0x180 + хвост BattleAI */
     ok &= reg_add(a, "gs", BDD0_GS_LEN);
     ok &= reg_add(a, "ctx", 0x20);
+    ok &= reg_add(a, "ctx_pos", 12);    /* pos-тройка [ctx+0xc] (лист 45c6f0) */
     ok &= reg_add(a, "player", 0x10);   /* shadow player_get: not modelled */
     ok &= reg_add(a, "flags", 0x10);    /* shadow player_flag_get/player_flags */
     ok &= reg_add(a, "out", 4);
@@ -542,6 +547,16 @@ Arena *arena_build(const TickRecord *rec)
             bind_add(a, raw, cr->base, cr->len);
             write_u32(cr->base, rec->gctx0);
             write_u32(slot, (unsigned)(size_t)cr->base);
+            /* лист 45c6f0: `[ctx+0xc]` — указатель на pos-тройку. Содержимое
+             * области "ctx_pos" кладёт восстанавливающий слой (native_replay.cpp
+             * bdd0_leaf_begin / модель синтетики), здесь только связка. */
+            {
+                unsigned char *cp = arena_region_w(a, "ctx_pos");
+
+                if (cp != NULL) {
+                    write_u32(cr->base + 0xc, (unsigned)(size_t)cp);
+                }
+            }
             continue;
         }
         if (fx.target == FX_IDCELL) {

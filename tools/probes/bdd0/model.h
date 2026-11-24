@@ -20,6 +20,10 @@ struct ModelEnv {
     unsigned tree_game;
     unsigned band_game;    /* band_begin */
     unsigned scratch_game; /* стек-скретч вызывающего (out-тройки) */
+    /* Тройка `[ctx+0xc]` листа 45c6f0 (позиция из ctx): в генераторе задаётся
+     * профилем, в replay восстанавливается из `w` записи потока. Кладётся в
+     * область арены "ctx_pos" на входе тика (bdd0_leaf_begin). */
+    float ctx_pos[3];
     /* v14: после-состояние ленты — 45eee0 перестраивает её внутри тика.
      * band_post_game != 0 → модель пишет bdd0_native ww-пару [0x5c,0x60]
      * (unit+0x194/+0x198 = BattleAI+0x3c+0x20/+0x24), как это делает натив;

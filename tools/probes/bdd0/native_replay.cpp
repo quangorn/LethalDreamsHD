@@ -13,13 +13,17 @@
  * игровую память.
  *
  * Портированные листья (battle/ported.h, b0_ported_leaf_va) в потоке НЕ
- * запрашиваются: их запись снимает claim (`bdd0_leaf_claim`) — порт считает
+ * запрашиваются: их запись снимает claim (`bdd0_leaf_claim_w`) — порт считает
  * значение сам и сообщает его, поток продвигается, значение сверяет проверка
  * `leaf_value`. Запрос портированного листа — нарушение потока (leaf_seq).
  *
  * Побочные записи листа (dword'ы, которые натив писал ЧЕРЕЗ указатель) берутся
  * из необязательного ключа `w` записи; если его нет — из документированной
- * семантики листа (45c6f0 = три dword `[ctx+0xc]`), см. native.h.
+ * семантики листа (45c6f0 = три dword `[ctx+0xc]`), см. native.h. Портированный
+ * 45c6f0 читает эту тройку из арены ("ctx_pos"), которую bdd0_leaf_begin
+ * восстанавливает из `w` первой записи 45c6f0 тика (куча ctx в снимок не
+ * попадает), поэтому его claim помечается resync и leaf_value считает поля w
+ * несравнимыми (B0_POS_RESYNC_WHY), а не PASS.
  */
 #include <stdio.h>
 #include <stdarg.h>
@@ -80,6 +84,27 @@ static const LeafRec *g_match[LEAF_LOG_MAX];
 static int g_aw_nw[LEAF_LOG_MAX];
 static int g_aw[LEAF_LOG_MAX][3];
 
+/* 45c6f0: троица-результат лежит в куче игры (`[*(unit+0x138)+0xc]`) и в
+ * снимок не попадает. Арена даёт под неё область "ctx_pos" (arena.cpp: ctx+0xc
+ * → эта область), а содержимое восстанавливается из ПОТОКА — `w` первой записи
+ * 45c6f0 этого тика (весь тик позиция одна и та же: в захватах при двух вызовах
+ * w совпадают). Так порт исполняет свой код чтения (this → ctx → +0xc → тройка),
+ * а claim сверяет вычисленное с записью; без реконструкции порт читал бы нули.
+ * Записи без `w` (старый формат) оставляют нули — leaf_value тогда SKIP. */
+static void ctx_pos_from_stream(void)
+{
+    unsigned char *pos = arena_region_w(arena_current(), "ctx_pos");
+    int i;
+
+    if (pos == NULL) return;
+    for (i = 0; i < g_n; i++) {
+        if (g_v[i].va != (int)B0_LEAF_READ_POS || g_v[i].trap) continue;
+        if (g_v[i].nw < 3) continue;
+        memcpy(pos, g_v[i].w, 12);
+        return;
+    }
+}
+
 void bdd0_leaf_begin(int seq, const LeafRec *v, int n)
 {
     g_v = v; g_n = n; g_i = 0; g_seq = seq;
@@ -93,6 +118,7 @@ void bdd0_leaf_begin(int seq, const LeafRec *v, int n)
         g_aw_nw[k] = 0;
         g_aw[k][0] = g_aw[k][1] = g_aw[k][2] = 0;
     }
+    ctx_pos_from_stream();
 }
 
 int bdd0_leaf_calls(void) { return g_log_n; }
@@ -249,16 +275,36 @@ static const LeafRec *request(int va, const void *ecx, int nargs, const int *arg
     return r;
 }
 
+/* Заявленная тройка — ровно та, что лежит в реконструкции "ctx_pos": сравнение
+ * с `w` записи было бы тавтологией (см. battle/ported.h b0_leaf_w_recon). */
+static int claim_w_is_recon(const LeafClaimEnt &e)
+{
+    unsigned char *pos = arena_region_w(arena_current(), "ctx_pos");
+
+    if (pos == NULL || e.nw != 3) return 0;
+    return memcmp(pos, e.w, 12) == 0;
+}
+
 /* Заявка портированного листа (battle/ported.h, b0_ported_leaf_va): журнал
  * заявок + сопоставление с потоком. Запись потока ПОТРЕБЛЯЕТСЯ (leaf_seq не
- * ждёт запроса, leaf_args не видит лист), значение сверяет leaf_value. */
-void bdd0_leaf_claim(unsigned int va, void *ecx, int ret, const int *args,
-                     int nargs)
+ * ждёт запроса, leaf_args не видит лист), значение сверяет leaf_value.
+ * w/nw — dword'ы, записанные листом ЧЕРЕЗ указатель (out-тройка 45c6f0);
+ * сверяются с `w` записи (нет `w` — leaf_value SKIP, не PASS). */
+void bdd0_leaf_claim_w(unsigned int va, void *ecx, int ret, const int *args,
+                       int nargs, const int *w, int nw)
 {
     int idx = g_claim_n;
     int appended = 0;
     const LeafRec *r;
 
+    /* Канал несёт не более трёх dword'ов (LeafRec.w[3]). Больше — нарушение
+     * потока, а не тихое усечение: иначе лишняя запись порта прошла бы через
+     * проверку счётчика. */
+    if (nw > 3) {
+        viol("leaf claim #%d: va=0x%x wrote %d dwords through the pointer "
+             "(the claim channel carries at most 3)", idx, va, nw);
+        return;
+    }
     if (g_claim_n < LEAF_CLAIM_MAX) {
         LeafClaimEnt &e = g_claim[g_claim_n];
         int k;
@@ -271,6 +317,10 @@ void bdd0_leaf_claim(unsigned int va, void *ecx, int ret, const int *args,
         e.nargs = (nargs > 0 && nargs <= 6) ? nargs : 0;
         for (k = 0; k < 6; k++) {
             e.args[k] = (args != NULL && k < e.nargs) ? args[k] : 0;
+        }
+        e.nw = (w != NULL && nw > 0) ? nw : 0;
+        for (k = 0; k < 3; k++) {
+            e.w[k] = (k < e.nw) ? w[k] : 0;
         }
         e.rec = NULL;
         e.mut = 0;
@@ -301,6 +351,14 @@ void bdd0_leaf_claim(unsigned int va, void *ecx, int ret, const int *args,
     /* запись — только реально добавленной заявке (иначе перезапишем чужую) */
     if (r != NULL && appended) {
         g_claim[idx].rec = r;
+        /* out-записи листьев из b0_leaf_w_recon: заявленная тройка — ровно
+         * реконструкция из потока ("ctx_pos"), сравнивать её с записью
+         * бессмысленно (тавтология). Заявка помечается resync, и leaf_value
+         * считает поля w несравнимыми (B0_POS_RESYNC_WHY), а не pass.
+         * Тройка, отличная от реконструкции, сверяется побитово как обычно. */
+        if (b0_leaf_w_recon_why(va) != NULL && claim_w_is_recon(g_claim[idx])) {
+            g_claim[idx].resync = 1;
+        }
     }
 }
 
@@ -489,7 +547,9 @@ static void *ret_ptr(const LeafRec *r)
 /* ------------------------------- листья --------------------------------- */
 namespace native {
 
-/* 45c6f0 — 3 dword из [ctx+0xc] в out; EAX = out (тело возврат не читает). */
+/* 45c6f0 — 3 dword из `[*(ctx)+0xc]` в out; EAX = out (тело возврат не читает).
+ * Реализация только для полноты ABI: порт 0x45c6f0 не запрашивает (см.
+ * b0_read_pos_from_ctx/claim в battle/tick.cpp), обёртка нужна replay/синтетике. */
 void *ctx_pos_get(void *ctx, float *out_f)
 {
     int a[1];

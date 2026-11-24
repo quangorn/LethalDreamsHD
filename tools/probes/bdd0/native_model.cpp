@@ -60,8 +60,15 @@ const NativeRec *bdd0_native_record_at(int i) { (void)i; return NULL; }
 static int fbits(float f) { int b; memcpy(&b, &f, 4); return b; }
 
 /* Модель НЕ читает записанный поток (она его пишет): интерфейс replay-слоя
- * вырожден, чтобы bdd0_synth линковался без native_replay.cpp. */
-void bdd0_leaf_begin(int seq, const LeafRec *v, int n) { (void)seq; (void)v; (void)n; }
+ * вырожден, чтобы bdd0_synth линковался без native_replay.cpp. Единственная
+ * работа — заполнить "ctx_pos" (тройка [ctx+0xc] листа 45c6f0): в генераторе
+ * она задана профилем, в replay — восстанавливается из потока. */
+void bdd0_leaf_begin(int seq, const LeafRec *v, int n)
+{
+    unsigned char *pos = arena_region_w(arena_current(), "ctx_pos");
+    (void)seq; (void)v; (void)n;
+    if (pos != NULL) memcpy(pos, g_env.ctx_pos, 12);
+}
 int bdd0_leaf_calls(void) { return 0; }
 int bdd0_leaf_violations(void) { return 0; }
 const char *bdd0_leaf_violation_why(void) { return ""; }
@@ -139,7 +146,8 @@ struct PortedLeafModel {
 
 static const PortedLeafModel k_ported_model[] = {
     { B0_LEAF_BAND_HEAD, 1 },
-    { B0_LEAF_BAND_COUNT, 0 }
+    { B0_LEAF_BAND_COUNT, 0 },
+    { B0_LEAF_READ_POS, 1 }
 };
 
 static const PortedLeafModel *ported_model_find(unsigned va)
@@ -151,8 +159,8 @@ static const PortedLeafModel *ported_model_find(unsigned va)
     return NULL;
 }
 
-void bdd0_leaf_claim(unsigned int va, void *ecx, int ret, const int *args,
-                     int nargs)
+void bdd0_leaf_claim_w(unsigned int va, void *ecx, int ret, const int *args,
+                       int nargs, const int *w, int nw)
 {
     const PortedLeafModel *pm = ported_model_find(va);
     int game_ecx = 0;
@@ -161,6 +169,34 @@ void bdd0_leaf_claim(unsigned int va, void *ecx, int ret, const int *args,
     if (pm == NULL) {
         fprintf(stderr, "synth: ported leaf 0x%x has no model rule\n", va);
         exit(2);
+    }
+    if (va == B0_LEAF_READ_POS) {
+        /* 45c6f0: правило = то же чтение, что у порта (this → ctx = *(this) →
+         * p = [ctx+0xc] → тройка). Значения в shadow-адресах арены: "ctx_pos"
+         * заполнен bdd0_leaf_begin из env.ctx_pos, ctx+0xc — связка arena.cpp.
+         * Запись потока — в игровом пространстве: ecx = &BattleAI
+         * (self+0x138), ret/arg[0] = буфер out (scratch_game), w = тройка.
+         * Самопроверка: модель обязана записать ровно то, что посчитала —
+         * иначе синтетический захват перестанет быть согласован с портом. */
+        int w3[3] = { 0, 0, 0 };
+        int a[1];
+        void *ctx = (ecx != NULL) ? *(void **)ecx : NULL;
+
+        if (ctx != NULL) {
+            void *p = *(void **)((unsigned char *)ctx + 0xc);
+
+            if (p != NULL) memcpy(w3, p, 12);
+        }
+        if (nw != 3 || w == NULL || w[0] != w3[0] || w[1] != w3[1] ||
+            w[2] != w3[2]) {
+            fprintf(stderr, "synth: 45c6f0 claim w disagrees with the model "
+                            "rule\n");
+            exit(2);
+        }
+        a[0] = (int)g_env.scratch_game;
+        record((int)va, (void *)(size_t)((int)g_env.self_game + BDD0_AI_OFF),
+               1, a, (int)g_env.scratch_game, w3, 3);
+        return;
     }
     if (ecx != NULL) {
         if (va == B0_LEAF_BAND_HEAD) {
@@ -196,7 +232,12 @@ void *ctx_pos_get(void *ctx, float *out_f)
 {
     int w[3] = { 0, 0, 0 };
     int a[1];
-    if (ctx != NULL) memcpy(w, (const unsigned char *)ctx + 0xc, 12);
+    /* 45c6f0: *(ctx) == NULL → нули, иначе тройка из `[*(ctx)+0xc]`. В синтетике
+     * ctx — shadow-объект арены, ctx+0xc — связка на "ctx_pos" (arena.cpp). */
+    if (ctx != NULL) {
+        void *p = *(void **)((unsigned char *)ctx + 0xc);
+        if (p != NULL) memcpy(w, p, 12);
+    }
     if (out_f != NULL) memcpy(out_f, w, 12);
     a[0] = (int)(size_t)out_f;
     record(0x45c6f0, ctx, 1, a, 0, w, 3);
