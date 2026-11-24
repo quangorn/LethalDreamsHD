@@ -184,10 +184,9 @@
   расходятся с первого такого вызова; открытый дефект, перенесён в остаток Фазы 4 (решение 4.8).
 - `[P]` Фаза 4 закрыта: `45eee0` = `s6_unit_ai_tick` (тик юнит-AI, не «движение»), детур `install_tick_hook`
   (сиг `83 C4 34 C2 10 00`, продолжение `0x45eee5`), trace — 29 полей 1.7 — `battle/move.cpp`, `battle/trace.cpp`.
-- `[P]` Фаза 5 закрыта (22.11.2026): тело `44bdd0` R1–R22 портировано (`battle/ai_tick.cpp`, R23 нативен),
+- `[P]` Фаза 5 закрыта (22.11.2026): тело `44bdd0` R1–R22 портировано (`battle/tick.cpp`, R23 нативен),
   детур на H1 (`0x44bdf5`) с возвратом в родной эпилог `0x44d074`; гейт — офлайн-replay на записанном
-  состоянии, пройден (`bdd0_harness --impl port` rc 0); установка не тронута (`--quick` rc 0).
-  Гейт перепроверен на другом сейве (23.11.2026, 418 вызовов) на capture v13.
+  состоянии (`bdd0_harness --impl port` rc 0), перепроверен на capture v13.
 - `[P]` capture v13 (аддитивно, 23.11.2026): писатели через out-указатель (`42d9c0` → `ww`, ключи −1..−3),
   replay заполняет ими pos-тройку порта — `battle/capture.cpp`, `bdd0/native_replay.cpp`; гейт веток по id —
   `tools/probes/bdd0_coverage.py`.
@@ -206,9 +205,9 @@
 - `[P]` Для capture без `band` длина реконструируется из записи `45af50`, claim'ы таких тиков → `resync`
   → SKIP (тавтологический PASS невозможен) — `battle/ported.h` (mutators), `bdd0/native_replay.cpp`
   (`band_resync_from_stream`). `w` листа `45c6f0` несравним (тройка `ctx` не в захвате) — capture v15.
-- `[P]` Scope Фазы 5 (решение 5.1c): порт — слой проводки; state/string/GUI site и 9 логических листьев
-  нативны намеренно; таблица сайтов `bdd0_native` — `tools/probes/gen_native_sites.py` →
-  `battle/native_sites_table.inc`, стубы эмитит `battle/native_sites.cpp`.
+- `[P]` Scope Фазы 5 (решение 5.1c): порт — слой проводки; state/string/GUI site нативны намеренно,
+  из 12 листьев нативны 4 — `44bbf0`, `45c730`, `45b3e0`, `45e1d0`; таблица сайтов `bdd0_native` —
+  `tools/probes/gen_native_sites.py` → `battle/native_sites_table.inc`, стубы — `battle/native_sites.cpp`.
 - `[P]` Проверки v12 (`tools/probes/bdd0/checks_builtin.cpp`): `res_match` (al/out/u170), `state_match` (m0..m2),
   `native_args` (ecx/args против записанного порядка нативов), post-state `45eee0` (`ww` = BattleAI+0x00..0x38);
   корпус `tools/probes/bdd0/corpus/` + `bdd0_corpus_run.py`.
@@ -216,9 +215,8 @@
   аргументы `446a80` (`0x44bfa7/0x44c109/0x44c9d5/0x44cee1`), unbound-trap, оборванный хвост захвата
   (`incomplete_tail` — `bdd0/scenario.cpp`).
 - `[P]` Равенство неразвязанных указателей измерено достоверно: сырые адреса игры привязываются к
-  identity-cell (`arena.cpp`: `FX_IDCELL` для `gs+0x14`, пара `{0x44c3fa,0x45c730}` в `k_identity_rets`);
-  база объекта состояния `gs_raw` — из потока `bdd0_native` (`harness.h`, `scenario.cpp`), база `NK_GS`
-  в проверках идёт раньше unit (`checks_builtin.cpp`). Грабля — `docs/PITFALLS.md`.
+  identity-cell (`arena.cpp`: `FX_IDCELL` для `gs+0x14`, пара `{0x44c3fa,0x45c730}` в `k_identity_rets`),
+  база `gs_raw` — из потока `bdd0_native`, `NK_GS` в проверках раньше unit. Грабля — `docs/PITFALLS.md`.
 - `[P]` Диагностика пути (не проверка): `--path-diff` — recorded/consumed order, первый DIVERGE, gate-контекст.
 - `[P]` Гейт веток измеряется по id каталога (`tools/probes/bdd0_coverage.py`): метки, условия+направление,
   выходы, лист-сайты, RECORD-сайты; имена условий дублируются в каталоге, сверка по имени не годится.

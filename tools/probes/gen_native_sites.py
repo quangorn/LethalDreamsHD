@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Generate tools/ldhook/battle/native_sites_table.inc from LETHALDREAMS.EXE.
 
-The body FUN_0044bdd0..0x44d08e has 234 `call` sites.  The 10 logic leaves
-(32 sites) stay in leaf_sites.*; every other site is classified here by its
-target VA:
+The body FUN_0044bdd0..0x44d08e has 234 `call` sites.  The 12 logic leaves stay
+in leaf_sites.*: 32 of the body's sites are leaf calls, and the 2 remaining leaf
+sites (0x458142, 0x45811a) live inside leaf 0x458050, outside the body.  Every
+other site is classified here by its target VA:
 
   RECORD  -- return value or side effect feeds a branch or a state store;
   NOOP_OK -- GUI/string/log/dtor plumbing: cannot affect the body's flow.

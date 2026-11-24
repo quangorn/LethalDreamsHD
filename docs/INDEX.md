@@ -80,7 +80,7 @@
 | масштаб текста, природа глифов, коэффициент A | `docs/OBSERVATIONS_FONT.md` |
 | формат `.btf`, packer, апскейлы, курсоры/иконки | `docs/OBSERVATIONS_TEXTURE.md` |
 | факты о движке: API, форматы `.fdf`/`.tt`, chokepoint'ы, путь в бой | `docs/KNOWLEDGE.md` |
-| почва карт: откуда берётся, `.tex` в `.map`, раскод и команды `.tex` → PNG | `docs/OBSERVATIONS_TEXTURE.md` (раздел «Почвенные текстуры карт»), `docs/KNOWLEDGE.md` (раздел «Почва карт»), `docs/TOOLS.md` («tex-пайплайн»), `docs/PIPELINE.md` («tex-пайплайн»), план `docs/archive/TASK_tex_unpacker.md`; чтение `.tex` движком, TLV-цепочка ADV и решение для изменённых размеров — `docs/archive/ISSUE_tex_upscale.md` («РЕШЕНИЕ»), `docs/OBSERVATIONS_TEXTURE.md` (разбор чтения движком), `docs/PITFALLS.md`, `docs/CONTRADICTIONS.md` (п. 12–13) |
+| почва карт и `.tex`-пайплайн (извлечение, раскод, изменённые размеры) | `docs/OBSERVATIONS_TEXTURE.md` («Почвенные текстуры карт»), `docs/TOOLS.md` («tex-пайплайн»); решение — `docs/archive/ISSUE_tex_upscale.md`, грабли — `docs/PITFALLS.md` |
 | история сессий (что делала каждая итерация, по датам) | `docs/archive/SESSION_LOG.md`, `docs/archive/NARRATIVE_2026-11.md` |
 | отменённые/снятые планы (Q-режим) | `docs/archive/CANCELLED_Q_MODE.md` |
 | задачи и исследования прошлых сессий (выполненные) | `docs/archive/README.md` |
@@ -95,9 +95,7 @@
 
 # Lethal Dreams HD — актуальные проверенные знания
 
-Единый источник актуальных знаний был одним файлом `docs/NOTES.md` (1886 строк, 55 разделов;
-файл удалён, содержание распределено по таблице выше). Маркеры `[P]`, `[U]`, `[?r]` сохранены
-дословно. Ссылки на файлы снабжены адресом и статусом: путь репозитория (источник в git),
+Маркеры `[P]`, `[U]`, `[?r]` сохранены дословно (источник — распределённый `docs/NOTES.md`). Ссылки на файлы снабжены адресом и статусом: путь репозитория (источник в git),
 `config[game.root]/…` (файл установки), артефакт прогона
 (`scratch_dir('ld')/…`, `paths.cache_dir('cave')/…`, `paths.btf_backup_dir()/…`,
 `paths.assets_dir(…)` — пересоздаётся скриптами, в git не входит),

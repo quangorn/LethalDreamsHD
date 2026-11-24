@@ -50,7 +50,7 @@ struct leaf_site_def {
     unsigned site_va;      /* VA самого `call rel32` */
     unsigned target_va;    /* VA листа, куда он звал */
     int nargs;             /* стек-аргументов у листа */
-    int ret_n;             /* `ret n` оригинала (= 4*nargs у всех 10 листьев) */
+    int ret_n;             /* `ret n` оригинала (= 4*nargs у всех 12 листьев) */
     int kind;              /* LS_K_* */
     void *handler;         /* naked-обработчик сайта */
     void **orig_slot;      /* ячейка адреса оригинала (заполняет установщик) */

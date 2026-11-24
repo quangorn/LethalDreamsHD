@@ -162,7 +162,7 @@
 
 **Обход:** `Process.findModuleByName('opengl32.dll').findExportByName('wglSwapBuffers')`
 с fallback на `Module.getGlobalExportByName`. API проверять до прогона: attach к
-любому живому процессу и `typeof` (`D:/tmp/.../api_probe.js`, образец — `tools/perf/perf_frida9_frames.js`).
+любому живому процессу и `typeof` (образец — `tools/perf/perf_frida9_frames.js`).
 
 ## Ротация лога затирает контрольные строки при LDHOOK_LOG=2 (19.11.2026)
 

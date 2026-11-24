@@ -1,7 +1,7 @@
 /* tools/ldhook/battle/native_sites.h -- table-driven CALL-SITE hooks for the
  * non-leaf natives of FUN_0044bdd0 (v12 `bdd0_native` on the native run).
  *
- * Why: bdd0_leaf covers only the 10 logic leaves.  Every other native the body
+ * Why: bdd0_leaf covers all 12 logic leaves.  Every other native the body
  * calls was a no-op stub in the offline harness, so the port took early exits
  * (player_get -> zeroed shadow, phase_time -> 0.0f, ...).  This module records
  * the RESULT of every call site that the body's flow or state depends on.

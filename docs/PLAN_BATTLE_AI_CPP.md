@@ -129,7 +129,7 @@ strata; коммит и финальная правка docs — оркестр�
 - Фаза 4 закрыта (21.11.2026) решением 4.8: `45eee0` = тик юнит-AI `s6_unit_ai_tick`
   (`battle/move.cpp`), детур `install_tick_hook`, capture v9 + replay `eee0`.
 - Фаза 5 закрыта (22.11.2026) решениями 5.1c/5.1d: тело `44bdd0` R1–R22 портировано
-  (`battle/ai_tick.cpp`, R23 нативен), scope — слой проводки; гейт — офлайн-replay capture v12.
+  (`battle/tick.cpp`, R23 нативен), scope — слой проводки; гейт — офлайн-replay capture v12.
 - Трассировка: `BATTLE` (29 полей) + `STATEFP` на входе `e0a0` (`battle/trace.cpp`); живой A/B — санитарный
   (`tools/probes/trace_diff.py --align=ordinal`).
 - Исправлено в порте: смысл границ сетки, знак финального гейта, соглашение вьютаблицы (`call *off(reg)`),
@@ -376,7 +376,7 @@ capture v9 (`battle/capture.cpp`), replay — `tools/probes/battle_replay.cpp`.
     к аудиту. 9 листьев-портов не реализованы. Порядок: листья → R17 → R14 → R12 → R16 → …
 5.1a. capture v10: `bdd0_cap`/`bdd0_res` через H1 (`0x44bdf5`) / H2 (`0x44d074`), LIFO-парность
    `{seq,self}`; сделано — `f52305d`, `CAP_VERSION 10`.
-5.1b. Тело целиком в C++ (`battle/ai_tick.cpp`), **все листья нативные** (по 1.4), порциями
+5.1b. Тело целиком в C++ (`battle/tick.cpp`), листья тогда нативные, порциями
    по диапазонам 1.3b. Детур на H1 (`0x44bdf5`) с возвратом в нативный эпилог `0x44d074`
    (SEH-пролог/эпилог остаются родными), включается только после полного тела.
    Тело R1–R22 портировано, R23 нативен (`B0_BODY_COMPLETE` — compile-only).

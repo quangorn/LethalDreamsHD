@@ -345,6 +345,7 @@ python3 tools/tex/hook_ground.py --tree <дерево> --restore   # ориги�
   известный ответ даёт только подмена `.tex` в `.map` (`patch_map_pattern.py`).
 - Реестр для scratch-дерева: значение `~ HIGHDPIAWARE` на `<tree>/LETHALDREAMS.EXE`
   (снимок оверленда — `tools/archive/probes/probe_loadshot.ps1 … -Mode new`).
+- Загрузка сейва со съёмкой: `tools/probes/probe_load.ps1` — дерево из `LD_GAME`, снимки в `LD_SCRATCH/<Sub>`.
 - Съёмка боя: `tools/probes/probe_battleshot.ps1` — новая игра, скип уроков Enter'ом,
   клики по канвасным тайлам, обнаружение боя по строке `SCENE battle` в `hdlog.txt`.
 - Раннер шагов над игрой: `tools/probes/perform_action_in_game.ps1` — последовательность действий,
@@ -380,9 +381,10 @@ LD_GAME="<tree>" LD_SHOTS="<shots>" \
 - `tools/probes/probe_camera.ps1 <W> <H> <F> <Tag>` — прогон боевой камеры: новая игра
   (глиф «Вообразить» → скип ролика → глиф персонажа → Enter), скип обучения Enter'ом,
   удержание W (эталон знака поворота), четыре MMB-протяжки (вправо/влево/вверх/вниз),
-  колесо вверх/вниз, снимки ТОЛЬКО окна игры (DPI-aware) в `scratch_dir('ld')/cam_probe`.
-  Флаги: `-NoMMB`, `-NoWheel`, `-LessonEnters N`, `-GameRoot <дерево>` (по умолчанию
-  scratch `tex_hook_tree`, НЕ установка), `-NoKill`. Мышь: `mouse_event` MMB down `0x20`,
+  колесо вверх/вниз, снимки ТОЛЬКО окна игры (DPI-aware) в `<ShotsDir>/cam_probe`.
+  Флаги: `-NoMMB`, `-NoWheel`, `-LessonEnters N`, `-GameRoot <дерево>`,
+  `-ShotsDir <каталог>`; значения берутся из `LD_GAME`/`LD_SHOTS`, без значения —
+  ошибка (игра — scratch-дерево, НЕ установка), `-NoKill`. Мышь: `mouse_event` MMB down `0x20`,
   up `0x40`, wheel `0x800` (delta 120 = щелчок); canvas→экран как в `probe_battleshot.ps1`.
 - `tools/release/update_entry.py <module>` — пересобирает `release/patches/<module>.patch`
   (diff `decompiled_fixed/<m>.py` → `patches/<m>.py`) и запись code_tier в

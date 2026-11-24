@@ -125,7 +125,7 @@
 - `[P]` `tools/tex/upscale_tex.py --factor N` (Lanczos-3); `patch_map_pattern.py --up2x [--maxsrc N]` пересобирает
   записи с удвоенными w/h (round-trip побитовый) — регистрация в `docs/TOOLS.md`, `docs/PIPELINE.md`.
 - `[P]` Отказ: игра закрывается, если хоть одна запись имеет изменённый размер (полный 2x, `--maxsrc 512`, и одна
-  запись 32²→64²); same-size патчи грузятся — протокол `docs/ISSUE_tex_upscale.md`.
+  запись 32²→64²); same-size патчи грузятся — протокол `docs/archive/ISSUE_tex_upscale.md`.
 - `[P]` Новый штатный проб съёмки боя: `tools/probes/probe_battleshot.ps1` (новая игра, скип уроков Enter'ом).
 
 ## Сессия 2026-11-17 (вечер): тултипы у курсора в 16:9

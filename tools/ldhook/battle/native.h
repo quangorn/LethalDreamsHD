@@ -22,7 +22,7 @@ TreeNode *lower_bound_slots(void *map, int *out_slot, int *key_slot);
 /* FUN_00449160 — статус узла дерева мира (тело и ABI — native.cpp): ECX =
  * world (дерево по world+0x104), аргумент key = (Y<<16)|X, `RET 4`, EAX =
  * [node+0x10] (0 — узла нет). Единственный callee листа 0x456b60 — порт
- * `b0_chain_head` (battle/tick.cpp) зовёт эту обёртку; записей в игру нет. */
+ * `s6_grid_chain_head` (battle/grid.cpp) зовёт эту обёртку; записей в игру нет. */
 int tree_lookup(void *world, unsigned int key);
 void register_occupied_slot(void *ai, LDObject *obj);            /* FUN_0045dd00 */
 

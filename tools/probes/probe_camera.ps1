@@ -2,12 +2,15 @@
 # колесо; после каждого действия снимается ТОЛЬКО окно игры (DPI-aware).
 # Нужен зондовый battlecamera.pyc (пишет PROBE-* строки в hdlog.txt).
 #
-#   probe_camera.ps1 <W> <H> <F> <Tag> [-GameRoot <dir>] [-LessonEnters 15]
-#       [-NoMMB] [-NoWheel] [-NoKill] [-MenuSec 6]
+#   probe_camera.ps1 <W> <H> <F> <Tag> [-GameRoot <dir>] [-ShotsDir <каталог>]
+#       [-LessonEnters 15] [-NoMMB] [-NoWheel] [-NoKill] [-MenuSec 6]
+#   LD_GAME (дерево игры) и LD_SHOTS (каталог снимков) задаются; снимки —
+#   <ShotsDir>\cam_probe. Без -GameRoot/-ShotsDir и без переменной скрипт валится.
 #
 # Мышиные события: MMB down = 0x20, up = 0x40, wheel = 0x800 (delta 120 = один щелчок).
 param([int]$W = 3840, [int]$H = 2160, [int]$F = 1, [string]$Tag = "camprobe",
-      [string]$GameRoot = $env:LD_GAME, [int]$MenuSec = 6,
+      [string]$GameRoot = $env:LD_GAME, [string]$ShotsDir = $env:LD_SHOTS,
+      [int]$MenuSec = 6,
       [double]$NewX = 200, [double]$NewY = 400, [int]$SkipClicks = 2,
       [double]$SkipX = 512, [double]$SkipY = 384,
       [double]$CharX = 349, [double]$CharY = 658, [int]$EnterCount = 2,
@@ -15,9 +18,11 @@ param([int]$W = 3840, [int]$H = 2160, [int]$F = 1, [string]$Tag = "camprobe",
       [int]$StepPx = 40, [int]$Steps = 12, [int]$SettleMs = 700,
       [switch]$NoMMB, [switch]$NoWheel, [switch]$NoKill)
 $ErrorActionPreference = "Continue"
-if (-not $GameRoot) { $GameRoot = "D:/tmp/cygwin/opencode/ld/tex_hook_tree" }
+if (-not $GameRoot) { throw "GameRoot не задан: -GameRoot <дерево игры> или LD_GAME" }
+if (-not (Test-Path (Join-Path $GameRoot "LETHALDREAMS.EXE"))) { throw "Нет LETHALDREAMS.EXE в $GameRoot" }
+if (-not $ShotsDir) { throw "ShotsDir не задан: -ShotsDir <каталог снимков> или LD_SHOTS" }
 $RepoRoot = (Resolve-Path "$PSScriptRoot\..\..").Path
-$ShotDir = "D:/tmp/cygwin/opencode/ld/cam_probe"
+$ShotDir = Join-Path $ShotsDir "cam_probe"
 if (-not (Test-Path $ShotDir)) { New-Item -ItemType Directory -Path $ShotDir | Out-Null }
 
 Add-Type -AssemblyName System.Windows.Forms,System.Drawing
