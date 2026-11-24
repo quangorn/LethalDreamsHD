@@ -101,6 +101,9 @@ static int g_aw[LEAF_LOG_MAX][3];
  *     зеркально claim помечается resync, и w идёт в «несравнимо», а не в PASS.
  * Записи без `w` (совсем старый формат) оставляют нули — leaf_value SKIP. */
 static int g_ctx_pos_captured = 0;
+/* 458050: последний тик потребил запись потока (native::grid_anchor) — порт
+ * не исполнялся. Сбрасывается в bdd0_leaf_begin, читает сводка. */
+static int g_grid_anchor_replayed = 0;
 
 static void ctx_pos_from_stream(void)
 {
@@ -124,6 +127,7 @@ void bdd0_leaf_begin(int seq, const LeafRec *v, int n)
     g_viol = 0; g_why[0] = '\0';
     g_last_leaf_order = -1;
     g_call_seq = 0;
+    g_grid_anchor_replayed = 0;
     g_log_n = 0;
     g_claim_n = 0;
     for (int k = 0; k < LEAF_LOG_MAX; k++) {
@@ -139,6 +143,8 @@ void bdd0_leaf_begin(int seq, const LeafRec *v, int n)
 
 int bdd0_leaf_calls(void) { return g_log_n; }
 int bdd0_leaf_violations(void) { return g_viol; }
+/* 1, если тик потребил запись потока 0x458050 (реплей вместо порта). */
+int bdd0_grid_anchor_replayed(void) { return g_grid_anchor_replayed; }
 const char *bdd0_leaf_violation_why(void) { return g_why; }
 
 const CallLogEnt *bdd0_calllog(int *n)
@@ -726,7 +732,9 @@ int pos3_equal(const void *a, const void *b)
     return 1;
 }
 
-/* 458050 — grid-якорь: arg5 — байт-флаг (1 найдено / 0 нет). */
+/* 458050 — grid-якорь: arg5 — байт-флаг, но пишет его только ветка node != 0
+ * (1 в tree+key @0x4580fd, 0 в двух fallback'ах @0x458161); при node == 0
+ * (0x4580d1 je 0x45817f) байт не трогается — не подменяем его нулями. */
 void *grid_anchor(void *grid, int a1, int a2, int a3, int a4, int *flag_slot,
                   void *world)
 {
@@ -735,8 +743,9 @@ void *grid_anchor(void *grid, int a1, int a2, int a3, int a4, int *flag_slot,
     a[4] = (int)(size_t)flag_slot;
     a[5] = (int)(size_t)world;
     const LeafRec *r = request(0x458050, grid, 6, a);
+    if (r != NULL) g_grid_anchor_replayed = 1;   /* порт не исполнялся */
     void *res = ret_ptr(r);
-    if (flag_slot != NULL) {
+    if (a4 != 0 && flag_slot != NULL) {
         int keep = *flag_slot & ~0xff;
         *flag_slot = keep | ((res != NULL) ? 1 : 0);
     }

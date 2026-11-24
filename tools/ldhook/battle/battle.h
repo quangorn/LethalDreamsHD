@@ -42,10 +42,26 @@ float *s6_grid_scale_compute(LDPos *pos, float *out);
 
 /* FUN_00457e20 — поиск ячейки сетки по ключу: RET 0x10, ECX = GridLevel*,
  * arg2 не читается (re/leaf_457e20.md). Возврат — GridCell* или NULL.
- * Единственный вызывающий — 0x458050 (grid_anchor), пока нативный: из
- * портированного тела лист недостижим, вызов появится вместе с портом 0x458050
- * (сайт 0x45811a). */
+ * Вызывается только из s6_grid_anchor_lookup (сайт 0x45811a). */
 GridCell *s6_grid_key_lookup(GridLevel *grid, float arg1, int arg2, float arg3, int key);
+
+/* FUN_00456b60 — голова цепочки со статусом 2: ECX = GridCell*, стек-аргумент
+ * world, RET 4; возврат — узел или NULL (re/leaf_456b60.md). Вызывается только
+ * из s6_grid_anchor_lookup (сайт 0x458142). */
+GridCell *s6_grid_chain_head(GridCell *node, void *world);
+
+/* FUN_00458050 — grid-якорь (re/leaf_458050.md): RET 0x18, ECX = GridLevel*.
+ * x (S+4) и y_coord (S+0xc) — координаты: индекс = trunc((coord − scale)/
+ * scale_mul) истинным FDIV. y_metric (S+8) в индексы НЕ входит: только
+ * |min_metric − y_metric| в скане ветки node == 0 (0x4581b9) и мёртвый
+ * block[4] вызова 0x457e20. y_coord — живой block[8] этого вызова (по нему
+ * 0x457e20 считает свой y-индекс). node — узел дерева (0 = «дерева нет»:
+ * скан цепочки +0x24 по минимуму |min_metric − y_metric|), flag — out-байт
+ * («якорь найден через tree+key»; в ветке node == 0 не пишется), world —
+ * ctx для 0x449160. EAX = GridCell* / 0. */
+GridCell *s6_grid_anchor_lookup(GridLevel *grid, float x, float y_metric,
+                                float y_coord, void *node, unsigned char *flag,
+                                void *world);
 
 /* ---- target.cpp: поиск цели FUN_0045e0a0 и его callees ---- */
 int s6_distance2(void *a, void *b);                     /* FUN_0045c480 */

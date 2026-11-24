@@ -93,6 +93,9 @@ const LeafRec *bdd0_leaf_record_at(int i) { (void)i; return NULL; }
 int bdd0_leaf_applied_w(int i, int *w3) { (void)i; (void)w3; return 0; }
 int bdd0_leaf_consumed(void) { return 0; }
 const LeafRec *bdd0_leaf_pending(void) { return NULL; }
+/* Генератор сам пишет поток и порт 458050 исполняет — запись потока не
+ * потребляется, реплея нет. */
+int bdd0_grid_anchor_replayed(void) { return 0; }
 /* v15: восстановленной записи 0x45eee0 в генераторе нет — поток пишет он сам. */
 int bdd0_eee0_synth(void) { return 0; }
 /* Заявки портированных листьев: генератор их не судит (поток он создаёт сам,

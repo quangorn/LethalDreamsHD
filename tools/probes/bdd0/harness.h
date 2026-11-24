@@ -28,13 +28,22 @@
 #define BDD0_BAND_MAX   64        /* потолок материализуемых элементов ленты */
 #define BDD0_GS_LEN     0x20      /* объект FUN_00442570, читаемый телом */
 
-/* Сайты вызовов ВНУТРИ листа, который порт НЕ исполняет: 0x458050
- * (grid_anchor) replay-ится записью целиком, поэтому вложенный вызов
- * 0x456b60 (сайт 0x458142) порт не может ни запросить, ни заявить — его
- * запись выносится из окна тика в счётчик nested (leaf_seq от неё не зависит).
- * Сайт из этого списка убирается, когда 0x458050 будет портирован: тогда
- * b0_chain_head станет вызываемым и заявка 0x456b60 начнёт сверяться. */
+/* Сайты вызовов ВНУТРИ листа 0x458050 (grid_anchor): записи bdd0_leaf от них
+ * принадлежат телу, которое НЕ реплеится записью целиком — они выносятся из окна
+ * тика в счётчик nested (leaf_seq от них не зависит). У 0x458050 в порте есть
+ * свой claim только у вложенных листьев (0x456b60/0x457e20), а сам он записи не
+ * заявляет: границу записи держит сайт 0x44c7da, а не тело.
+ *   BDD0_NESTED_SITE_GRID_ANCHOR — 0x458142 → 0x456b60 (голова цепочки +0x28);
+ *   BDD0_NESTED_SITE_GRID_KEY    — 0x45811a → 0x457e20 (поиск ячейки по ключу).
+ * Второй сайт появился в leaf_sites после порта 0x458050 (захваты v12..v15 его
+ * ещё не писали: хук не стоял).
+ * Когда появится захват с моделью сетки, порт 0x458050 исполняет своё тело —
+ * снять ВСЁ СРАЗУ: (а) bdd0_grid_level_modelled() → 1 (arena.cpp), (б) оба
+ * сайта из этого списка, (в) 0x458050 — в b0_ported_leaf_va (battle/ported.h)
+ * с claim из тела: без (в) запись потока va=0x458050 не потребляет никто, и
+ * leaf_seq падает на каждом тике. */
 #define BDD0_NESTED_SITE_GRID_ANCHOR 0x458142
+#define BDD0_NESTED_SITE_GRID_KEY    0x45811a
 
 /* Один вызов логического листа из потока bdd0_leaf.
  * w/nw — dword'ы, которые лист записал ЧЕРЕЗ указатель (45c6f0 out-тройка,
@@ -154,10 +163,11 @@ struct Scenario {
     std::string leaf_missing_why;
     int native_missing_n;      /* native_site_skipped: RECORD-сайт не захукался */
     std::string native_missing_why;
-    int nested_leaf_n;         /* записи bdd0_leaf из сайта ВНУТРИ листа, который
-                                  порт не исполняет (0x458142 в 0x458050): в
-                                  окно тика не входят, см. макрос
-                                  BDD0_NESTED_SITE_GRID_ANCHOR */
+    int nested_leaf_n;         /* записи bdd0_leaf из сайтов ВНУТРИ 0x458050
+                                  (0x458142 → 0x456b60 и 0x45811a → 0x457e20,
+                                  k_nested_sites в scenario.cpp): в окно тика
+                                  не входят, см. BDD0_NESTED_SITE_GRID_ANCHOR /
+                                  _GRID_KEY */
     int input_trap;            /* bdd0_in с trap=1 (снимок недостоверен) */
     int outcome_trap;          /* bdd0_res с trap=1 (исход недостоверен) */
     int incomplete_tail;       /* тиков, у которых seq без res и он последний */
@@ -342,6 +352,9 @@ Arena *arena_current(void);
 
 const RegionView *arena_regions(const Arena *a);
 int arena_region_n(const Arena *a);
+/* 1 — арена несёт модель объекта сетки, и тело может исполнять порт 0x458050
+ * (см. arena.cpp). Сегодня 0: сетку не пишет ни один формат захвата. */
+int bdd0_grid_level_modelled(void);
 /* Запись, из которой собрана арена (ctx_pos и т.п. — источники захвата). */
 const TickRecord *arena_record(const Arena *a);
 const RegionView *arena_views(const Arena *a);
@@ -388,6 +401,10 @@ int bdd0_leaf_violations(void);
 const char *bdd0_leaf_violation_why(void);
 const CallLogEnt *bdd0_calllog(int *n);
 void bdd0_calllog_reset(void);
+/* 458050: 1, если последний тик реально потребил запись потока bdd0_leaf
+ * va=0x458050 (запрос native::grid_anchor, т.е. порт не исполнялся — модель
+ * сетки в захвате отсутствует). Считает тики с подстановкой реплея. */
+int bdd0_grid_anchor_replayed(void);
 const LeafRec *bdd0_leaf_record_at(int i);
 
 /* v12: заявки портированных листьев (battle/ported.h) текущего тика. */

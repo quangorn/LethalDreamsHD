@@ -1,6 +1,7 @@
 /* battle/grid.cpp — доступ к сетке pathfinding'а: faithful-порты FUN_00456ed0,
- * FUN_004570d0, FUN_00456a70 (PLAN_BATTLE_AI_CPP.md, п. 2.1) и FUN_00457e20
- * (поиск ячейки по ключу, re/leaf_457e20.md).
+ * FUN_004570d0, FUN_00456a70 (PLAN_BATTLE_AI_CPP.md, п. 2.1), FUN_00457e20
+ * (поиск ячейки по ключу, re/leaf_457e20.md), FUN_00456b60 (голова цепочки,
+ * re/leaf_456b60.md) и FUN_00458050 (grid-якорь, re/leaf_458050.md).
  * Дизасм — артефакт разведки re/battle_ai_disasm3.md п. 1.1.13 (Ghidra на
  * baseline LETHALDREAMS.EXE.pre4, imagebase 0x400000).
  *
@@ -15,11 +16,13 @@
  *   разыменования оригинала не guarded. Порты без __try/__except — guard
  *   добавил бы поведение, которого в оригинале нет.
  */
+#include <math.h>
 #include <string.h>
 #include <windows.h>
 
 #include "../ldhook_internal.h"
 #include "battle.h"
+#include "native.h"
 #include "ported.h"
 
 #ifdef BATTLE_REPLAY
@@ -174,11 +177,10 @@ float *s6_grid_scale_compute(LDPos *pos, float *out)
  * @0x457ee0). Скан оставлен как есть: он читает память (соседние rows/цепочки)
  * и потому наблюдаем ловушкой, но значение возврата не меняет.
  *
- * НЕ ВЫЗЫВАН: единственный вызывающий — 0x458050 (grid_anchor, call-site
- * 0x45811a), он ещё нативен. Порт 0x458050 вызовет s6_grid_key_lookup из своего тела
- * (сайт 0x45811a: this = тот же grid root, arg1 = float из кадра, arg2 = EDX,
- * arg3 = float, arg4 = EBP, результат читается только как EAX). В живом билде
- * до этого момента функция не вызывается. */
+ * НЕ ВЫЗЫВАН на пяти старых захватах: единственный вызывающий — 0x458050
+ * (grid_anchor, call-site 0x45811a), и он вызывает этот лист только в ветке
+ * tree+key (node != 0 и key найден). Порт 0x458050 стоит в tick.cpp; сам лист
+ * уходит в харнесс только из ветки `s6_grid_anchor_lookup` (см. ниже). */
 static int b0_fbits(float f)
 {
     int bits;
@@ -340,4 +342,181 @@ done:
     args[3] = key;
     B0_LEAF_CLAIM(B0_LEAF_GRID_KEY_LOOKUP, grid, res, args, 4);
     return res;
+}
+
+/* FUN_00456b60 (0x456b60..0x456bc9, 106 Б, 44 инстр., SEH нет; REA, артефакт
+ * re/leaf_456b60.md) — голова цепочки со статусом 2. `__thiscall`: ECX =
+ * GridCell* (node), 1 стек-аргумент = world, оба выхода `RET 4`; EAX =
+ * GridCell* или 0.
+ *   0x456b63..0x456b70  key = [[node+0x20]]; status = tree_lookup(world, key);
+ *                       `TEST; JZ` — status == 0 → выход A (EAX = node);
+ *   0x456b80  (голова)  key = [[node+0x20]]; status = tree_lookup(world, key);
+ *                       `CMP 1; JZ` — status == 1 → выход A;
+ *   0x456b92            тот же key; `CMP 2; JNZ` — status != 2 → выход A;
+ *   0x456ba4            node = [node+0x28] (chain_next); `TEST; JZ` → выход B
+ *                       (EAX = 0);
+ *   0x456bab            key нового узла; status = tree_lookup(world, key);
+ *                       `TEST; JNZ` — status != 0 → голова цикла; status == 0
+ *                       → выход A (EAX = новый node).
+ * Эквивалент: выход A (вернуть текущий узел) достижим при любом статусе != 2,
+ * поэтому спуск сокращается до `status != 2 ? node : node->chain_next`, пока
+ * цепочка не оборвётся. Натив пересчитывает статус одного узла до 3 раз
+ * (0x456b88/0x456b9a/0x456bb3), но 0x449160 только читает дерево (world+0x104)
+ * — при неизменном дереве ответы идентичны, один lookup эквивалентен (число
+ * вызовов 0x449160 ни один слой не записывает).
+ * Память: только чтения `[node+0x20]`, `[[node+0x20]]`, `[node+0x28]`; записей
+ * и аллокаций нет. `key_rec == NULL` натив НЕ проверяет — guard не добавлен.
+ * Claim: ECX — ВХОДНОЙ node (получатель сайта 0x458142), arg — world, ret —
+ * указатель (cur); форма совпадает с `k_leaf_abi` (nargs = 1, ptr, ret_ptr).
+ * Вызывается из `s6_grid_anchor_lookup` (сайт 0x458142) и только из него. */
+GridCell *s6_grid_chain_head(GridCell *node, void *world)
+{
+    GridCell *cur = node;
+
+    for (;;) {
+        /* 0x456b63..0x456b70 / 0x456b80..0x456b88 / 0x456bab..0x456bb3 */
+        int st = native::tree_lookup(world, (unsigned int)cur->key_rec->key);
+
+        if (st != 2) {
+            break;                      /* 0x456b77/0x456b90/0x456ba2: EAX = node */
+        }
+        cur = cur->chain_next;          /* 0x456ba4 */
+        if (cur == NULL) {
+            break;                      /* 0x456ba9: выход B, EAX = 0 */
+        }
+    }
+    {
+        int arg[1];
+
+        arg[0] = (int)(size_t)world;    /* единственный стек-аргумент листа */
+        B0_LEAF_CLAIM(B0_LEAF_CHAIN_HEAD, node, cur, arg, 1);
+    }
+    return cur;                         /* 0x456bbd/0x456bc4: EAX = ESI/0 */
+}
+
+/* --- FUN_00458050 (0x458050..0x4581f6, 423 Б, 158 инстр., 21 блок, 13 условных
+ * переходов, 5 выходов, SEH нет, аллокаций нет) — grid-якорь.
+ * Артефакт re/leaf_458050.md; ABI ниже сверен по байтам И по записям захвата
+ * (в артефакте §2/§4 нумерация слотов S+0x10..S+0x18 сдвинута на один: у него
+ * `arg3` = node, `arg4` = out-flag, `arg5` = мёртвый. По арифметике ESP =
+ * E−0x18: [esp+0x28]=E+0x10, [esp+0x2c]=E+0x14, [esp+0x30]=E+0x18; запись
+ * `"va":"458050"` в захватах подтверждает: args[2] — float (0x42A80000 = 84.0),
+ * args[3] — указатель узла (0 или куча), args[4] — адрес в стеке вызывающего
+ * (&байт-флаг), args[5] — unit. `RET 0x18`, EAX = GridCell* или 0:
+ *
+ *   GridCell *__thiscall f(GridLevel *grid [ECX],
+ *                          float x        [S+4  ] — координата x-индекса
+ *                                          (0x45805f `fld [esp+0x1c]`),
+ *                          float y_metric [S+8  ] — ТОЛЬКО |min_metric − arg|
+ *                                          в скане node == 0 (0x4581b9
+ *                                          `fsub [esp+0x20]`) и мёртвый
+ *                                          block[4] 0x457e20 (тот его не читает),
+ *                          float y_coord  [S+0xc] — координата y-индекса
+ *                                          (0x45807c `fld [esp+0x24]` при
+ *                                          ESP = E−0x18) и ЖИВОЙ block[8]
+ *                                          0x457e20 (по нему тот считает свой y0),
+ *                          void *node     [S+0x10] — узел дерева (может быть 0),
+ *                          uchar *flag    [S+0x14] — out-байт,
+ *                          void *world    [S+0x18] — ECX для 0x449160)
+ *
+ * x87: `FDIV` (не умножение на 1/scale, как в 0x457e20) — обе координаты
+ * считаются истинным делением по трём живым push'ам, поэтому индексы реальны.
+ * Узлы сравнений (PC=53, double):
+ *   x-гейт 0x4580a3..0x4580b1: FILD xi / FILD size_x / FCOMPP / `TEST AH,0x41;
+ *     JNP` — выход ⟺ size_x ≤ xi (JP ⟺ size_x > xi или unordered). Операнды —
+ *     точные целые (FILD), поэтому unordered недостижим; граница сравнивается
+ *     с ЦЕЛЫМ size (не с (float)size, как в 0x457e20, где лимит кладётся FSTP
+ *     m32). Так же y-гейт 0x4580b7..0x4580c5.
+ *   min-гейт 0x4581b6..0x4581cc: dist = fabs(min_metric − y_metric) в double, `FCOMPP
+ *     dist,best` + `TEST AH,0x5; JP` — JP ⟺ NOT(dist < best) → пропуск
+ *     (unordered тоже пропуск); обновление пишет best как float (`FSTP m32`),
+ *     поэтому аккумулятор округляется на каждом шаге.
+ * Переиспользование слота (моделируется только видимым эффектом): в ветке
+ * node == 0 флаг НЕ пишется (0x4580d1 je 0x45817f), а слот S+0x14 занят
+ * float-аккумулятором best (10000.0f @0x458196, затем FSTP @0x4581ce). Слоты
+ * вызывающего после CALL не читаются ни у одного из трёх callers, поэтому
+ * аккумулятор в порте — локальная переменная; наблюдаемы только записи
+ * byte [flag] = 1 (0x4580fd) и = 0 (0x458161). */
+GridCell *s6_grid_anchor_lookup(GridLevel *grid, float x, float y_metric,
+                                float y_coord, void *node, unsigned char *flag,
+                                void *world)
+{
+    const int *map;                                 /* [node+0x238]: первый dword = key */
+    int xi, yi, idx;
+    GridCell *cell, *anchor;
+    unsigned char *p = (unsigned char *)node;
+
+    /* 0x458058..0x458070 / 0x458072..0x458091: trunc((coord − scale)/mul).
+     * x-индекс считается от arg1, y-индекс — от arg3 (y_coord): `0x45807c fld
+     * [esp+0x24]` при ESP = E−0x18. arg2 (y_metric) в индексы не входит. */
+    xi = b0_ftoll(((double)x - (double)grid->scale_add) /
+                  (double)grid->scale_mul);
+    yi = b0_ftoll(((double)y_coord - (double)grid->scale_load) /
+                  (double)grid->scale_mul);
+
+    if (xi < 0) {                                   /* 0x458095 jl */
+        return NULL;
+    }
+    if (yi < 0) {                                   /* 0x45809d jl */
+        return NULL;
+    }
+    /* Узел 1 (0x4580a3..0x4580b1) / узел 2 (0x4580b7..0x4580c5). */
+    if (!((double)xi < (double)grid->size_x)) {
+        return NULL;
+    }
+    if (!((double)yi < (double)grid->size_y)) {
+        return NULL;
+    }
+
+    if (node == NULL) {                             /* 0x4580cf/0x4580d1 je */
+        /* 0x45817f..0x4581e8: flag не пишется; лучшая ячейка цепочки +0x24 по
+         * минимуму |min_metric − y_metric| среди тех, чей ключ даёт статус 1. */
+        float best = 10000.0f;                      /* 0x458196 */
+        GridCell *bestc;
+
+        idx = grid->rows[xi][yi];                   /* 0x45817f..0x458185 */
+        cell = s6_grid_cell(grid, idx);             /* 0x45818b */
+        bestc = cell;                               /* 0x458194 */
+        if (cell == NULL) {                         /* 0x45819e je 0x4581df */
+            return bestc;
+        }
+        for (cell = cell; cell != NULL; cell = cell->next) {   /* +0x24 @0x4581d8 */
+            if (native::tree_lookup(world,
+                    (unsigned int)cell->key_rec->key) == 1) {  /* 0x4581ac */
+                double dist = fabs((double)cell->min_metric - (double)y_metric);
+
+                if (dist < (double)best) {          /* 0x4581c5..0x4581cc */
+                    best = (float)dist;             /* 0x4581ce FSTP m32 */
+                    bestc = cell;                   /* 0x4581d2 */
+                }
+            }
+        }
+        return bestc;
+    }
+
+    map = *(const int **)(p + 0x238);               /* 0x4580d7 */
+    if (map == NULL) {                              /* 0x4580df je */
+        *flag = 0;                                  /* 0x458161 */
+        idx = grid->rows[xi][yi];                   /* 0x458164..0x45816a */
+        return s6_grid_cell(grid, idx);             /* 0x458170 */
+    }
+    if (native::tree_lookup(world, (unsigned int)*map) == 0) {   /* 0x4580e1..0x4580ef */
+        *flag = 0;                                  /* 0x458161 */
+        idx = grid->rows[xi][yi];
+        return s6_grid_cell(grid, idx);             /* 0x458170 */
+    }
+    *flag = 1;                                      /* 0x4580fd */
+
+    /* 0x4580f1..0x458117: block = {x, y_metric (как dword — 0x457e20 block[4]
+     * не читает), y_coord (block[8] — ЖИВОЙ вход 0x457e20: его y0), node-as-key}. */
+    anchor = s6_grid_key_lookup(grid, x, b0_fbits(y_metric), y_coord,
+                                (int)(size_t)node);
+    if (anchor == NULL) {                           /* 0x458123 je */
+        return NULL;
+    }
+    if (native::tree_lookup(world,
+            (unsigned int)anchor->key_rec->key) == 2) {   /* 0x458135..0x45813d */
+        return s6_grid_chain_head(anchor, world);   /* 0x458142 */
+    }
+    return anchor;                                  /* 0x458151 */
 }

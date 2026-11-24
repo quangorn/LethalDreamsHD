@@ -44,18 +44,23 @@
  * tree_lookup(world, node->key_rec->key) == 2; возврат — первый узел с другим
  * статусом, NULL при обрыве цепочки. __thiscall: ECX = GridCell*, 1 стек-
  * аргумент = world, `RET 4`; EAX = GridCell* или 0. Единственный вызов —
- * 0x458142 в 0x458050, который НЕ портирован: тело готово, лист недостижим,
- * поэтому claim не выпускается (в ABI-таблице — заранее, см. checks_builtin). */
+ * 0x458142 в 0x458050 (сайт 34, leaf_sites.cpp): тело листа — s6_grid_chain_head
+ * в grid.cpp, claim выпускает оно; оба вложенных листа 0x458050 на пяти
+ * старых захватах не исполняются (см. B0_LEAF_GRID_KEY_LOOKUP). */
 #define B0_LEAF_CHAIN_HEAD 0x456b60u
 /* Поиск ячейки сетки по ключу (FUN_00457e20): x0/y0 = trunc((arg − смещение) *
  * (1.0f/scale_mul)) при PC=53, idx = rows[x0][y0], ячейка листа/cells+idx*0x34,
  * цепочка +0x28 → s6_chain_last, path A по +0x24 (value = [rec+0x18], цепочка
  * +0x1c) против arg4; 3×3-скан возвращает слот [ESP+0x10] (к тому моменту 0).
  * Ret NaN/out-of-range → int64-indefinite (0x4d17e0), поэтому младшие 32 бита 0;
- * arg2 (S+8) не читается. __thiscall: ECX = GridLevel*, 4 стек-аргумента,
- * RET 0x10; EAX = GridCell* или 0. Единственный вызывающий — 0x458050 (grid_anchor,
- * site 0x45811a), он не портирован: ни сайта, ни записи в захвате нет, поэтому
- * claim сейчас никем не сверяется (ABI объявлена в checks_builtin заранее). */
+ * arg2 (S+8) не читается (в block[4] его кладёт 0x458050); block[8] = arg3 —
+ * живой y0. __thiscall: ECX = GridLevel*, 4 стек-аргумента, RET 0x10;
+ * EAX = GridCell* или 0. Единственный вызывающий — s6_grid_anchor_lookup
+ * (сайт 34, 0x45811a): тело — s6_grid_key_lookup в grid.cpp. Порт 0x458050
+ * claim НЕ выпускает (его нет в b0_ported_leaf_va) — он вызывает этот лист из
+ * ветки tree+key, и лист заявляется сам; в офлайн-харнессе 0x458050 сегодня
+ * реплеится записанным нативом (модели сетки в захвате нет), поэтому оба
+ * вложенных листа в захватах v12..v15 не исполняются вовсе. */
 #define B0_LEAF_GRID_KEY_LOOKUP 0x457e20u
 
 #ifdef BATTLE_REPLAY

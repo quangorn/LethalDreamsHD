@@ -257,6 +257,22 @@ struct ResRec {
                band_begin(0), band_end(0) { m[0] = m[1] = m[2] = 0; }
 };
 
+/* Сайты вызовов внутри нативного 0x458050: их записи bdd0_leaf принадлежат
+ * телу, которое исполняет порт, и вне окна тика (harness.h). */
+static const unsigned int k_nested_sites[] = {
+    BDD0_NESTED_SITE_GRID_ANCHOR,   /* 0x458142 → 0x456b60 */
+    BDD0_NESTED_SITE_GRID_KEY       /* 0x45811a → 0x457e20 */
+};
+
+static int is_nested_site(int site)
+{
+    for (int i = 0; i < (int)(sizeof(k_nested_sites) / sizeof(k_nested_sites[0]));
+         i++) {
+        if ((unsigned)site == k_nested_sites[i]) return 1;
+    }
+    return 0;
+}
+
 static void apply_in(TickRecord &t, const JVal &v, int *bad)
 {
     t.seq = (int)jint_opt(v, "seq", 0);
@@ -522,10 +538,12 @@ Scenario *load_capture(const char *path)
                 if (ver < 12) continue;
                 LeafRec l;
                 apply_leaf(l, v);
-                /* Сайт внутри листа, который порт replay-ит целиком (0x458050):
-                 * запись снята, но claim/request её не получит — выносим из окна
-                 * тика и считаем отдельно, иначе leaf_seq видел бы «лишнюю». */
-                if (l.site == BDD0_NESTED_SITE_GRID_ANCHOR) {
+                /* Сайты ВНУТРИ листа 0x458050 (grid_anchor), который тело
+                 * исполняет через порт: записи сняты, но claim/request их не
+                 * получит — выносим из окна тика и считаем отдельно, иначе
+                 * leaf_seq видел бы «лишнюю». Список — harness.h
+                 * (BDD0_NESTED_SITE_GRID_ANCHOR / _GRID_KEY). */
+                if (is_nested_site(l.site)) {
                     sc->nested_leaf_n++;
                     continue;
                 }

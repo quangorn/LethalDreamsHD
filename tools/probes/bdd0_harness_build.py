@@ -29,7 +29,13 @@ _COMMON = [
     os.path.join(_HERE, "bdd0", "checks_builtin.cpp"),
     os.path.join(_HERE, "bdd0", "arena.cpp"),
     os.path.join(_HERE, "bdd0", "native_stubs.cpp"),
+    os.path.join(_HERE, "bdd0", "grid_replay.cpp"),
     os.path.join(_ROOT, "tools", "ldhook", "battle", "tick.cpp"),
+    # grid.cpp: тело тика зовёт s6_grid_anchor_lookup (0x458050), тот —
+    # s6_grid_key_lookup/s6_grid_chain_head/s6_grid_cell. g_replay_override и
+    # replay_grid_cell (хуки grid.cpp под BATTLE_REPLAY) определены в
+    # bdd0/grid_replay.cpp — реестровый battle_replay.cpp сюда не линкуется.
+    os.path.join(_ROOT, "tools", "ldhook", "battle", "grid.cpp"),
 ]
 HARNESS = [os.path.join(_HERE, "bdd0_harness.cpp"),
            os.path.join(_HERE, "bdd0", "scenario.cpp"),

@@ -57,6 +57,18 @@
 #include "battle.h"
 #include "native.h"
 #include "ported.h"
+
+#ifdef BATTLE_REPLAY
+/* Офлайн-харнесс (tools/probes/bdd0/arena.cpp): 1 — арена несёт модель объекта
+ * сетки, и порт 458050 может прочитать свои входы. Ни один формат захвата
+ * (v12..v15) сетку не пишет, поэтому в replay сегодня 0. Полная процедура
+ * включения (захват v16) — (а) эта функция → 1, (б) оба nested-сайта 0x458142
+ * и 0x45811a снять из k_nested_sites (bdd0/scenario.cpp), (в) 0x458050 добавить
+ * в b0_ported_leaf_va с claim из тела порта — без (в) запись потока va=0x458050
+ * не потребляет никто, и leaf_seq падает на каждом тике. Всё разом: arena.cpp
+ * bdd0_grid_level_modelled, battle/ported.h, bdd0/scenario.cpp. */
+int bdd0_grid_level_modelled(void);
+#endif
 /* === BEGIN LABEL TRACE === */
 /* Label trace, gated by -DB0_TRACE_LABELS=1.
  * B0_LBL(id): label id -> ring; B0_TST(gate, cond): condition + direction as one
@@ -569,68 +581,10 @@ static int b0_pos3_equal(const void *a, const void *b)
 }
 
 /* --- Порт листа 0x456b60 (chain_head) ----------------------------------- *
- * Листинг `0x456b60..0x456bc9` (106 Б, 44 инстр., SEH нет; REA, артефакт
- * re/leaf_456b60.md). `__thiscall`: ECX = GridCell* (node), 1 стек-аргумент =
- * world, оба выхода `RET 4`; EAX = GridCell* или 0.
- *   0x456b63..0x456b70  key = [[node+0x20]]; status = tree_lookup (0x449160)(world, key);
- *                       `TEST; JZ` — status == 0 → выход A (EAX = node);
- *   0x456b80  (голова)  key = [[node+0x20]]; status = tree_lookup (0x449160)(world, key);
- *                       `CMP 1; JZ` — status == 1 → выход A;
- *   0x456b92            тот же key; `CMP 2; JNZ` — status != 2 → выход A;
- *   0x456ba4            node = [node+0x28] (chain_next); `TEST; JZ` → выход B
- *                       (EAX = 0);
- *   0x456bab            key нового узла; status = tree_lookup (0x449160)(world, key);
- *                       `TEST; JNZ` — status != 0 → голова цикла; status == 0
- *                       → выход A (EAX = новый node).
- * Эквивалент: выход A (вернуть текущий узел) достижим при любом статусе != 2,
- * поэтому спуск сокращается до `status != 2 ? node : node->chain_next`, пока
- * цепочка не оборвётся. Натив пересчитывает статус одного узла до 3 раз
- * (0x456b88/0x456b9a/0x456bb3), но 0x449160 только читает дерево (world+0x104)
- * — при неизменном дереве ответы идентичны, один lookup эквивалентен. Число
- * вызовов 0x449160 ни один слой не записывает (в офлайн-харнессе это noop-стуб,
- * в live-replay — таблица дерева), поэтому сокращение наблюдаемо лишь по
- * семантике — это и есть решение (re/leaf_456b60.md, открытый вопрос 3).
- * Память: только чтения `[node+0x20]`, `[[node+0x20]]`, `[node+0x28]`; записей
- * и аллокаций нет. `key_rec == NULL` натив НЕ проверяет (падение ловится
- * SEH-границей вызывающего 0x44bdd0) — guard не добавлен (fidelity).
- * Claim: ECX — ВХОДНОЙ node (получатель сайта 0x458142), arg — world, ret —
- * указатель (cur). Форма обязана совпадать с `k_leaf_abi` (checks_builtin.cpp):
- * nargs = 1, arg — указатель (ptr[0] = 1), ret_ptr = 1; иначе leaf_value
- * считает argc расхождением. world и GridCell — указатели кучи игры вне
- * привязок арены, поэтому символьно они дают «не сравнить» (SKIP со счётом),
- * а не ложный fail; для точной сверки нужна привязка области ячеек.
- * Результат отдаётся как есть (identity): ниже по потоку (0x458050 →
- * `*(this+0x2c)`, 0x45c480 читает `[anchor+0xc]`/`[anchor+0x10]`) указатель
- * разыменовывается, копия не годится.
- * НЕ ВЫЗЫВАН: единственный вызывающий — 0x458050 (grid_anchor), он ещё
- * нативен, поэтому лист недостижим из портированного тела и в живом билде
- * остаётся неиспользуемой static-функцией. Живым становится вместе с портом
- * 0x458050 (сайт 0x458142, после проверки статуса == 2): тогда функцию надо
- * открыть вызывающему (снять static либо портировать 0x458050 в этом файле). */
-static GridCell *b0_chain_head(GridCell *node, void *world)
-{
-    GridCell *cur = node;
-
-    for (;;) {
-        /* 0x456b63..0x456b70 / 0x456b80..0x456b88 / 0x456bab..0x456bb3 */
-        int st = native::tree_lookup(world, (unsigned int)cur->key_rec->key);
-
-        if (st != 2) {
-            break;                      /* 0x456b77/0x456b90/0x456ba2: EAX = node */
-        }
-        cur = cur->chain_next;          /* 0x456ba4 */
-        if (cur == NULL) {
-            break;                      /* 0x456ba9: выход B, EAX = 0 */
-        }
-    }
-    {
-        int arg[1];
-
-        arg[0] = (int)(size_t)world;    /* единственный стек-аргумент листа */
-        B0_LEAF_CLAIM(B0_LEAF_CHAIN_HEAD, node, cur, arg, 1);
-    }
-    return cur;                         /* 0x456bbd/0x456bc4: EAX = ESI/0 */
-}
+ * Перенесён в battle/grid.cpp как `s6_grid_chain_head`: единственный
+ * вызывающий — порт 0x458050 (сайт 0x458142), а тот живёт в grid.cpp. Claim
+ * листа (B0_LEAF_CHAIN_HEAD) выпускает сама функция, форма — k_leaf_abi
+ * (nargs = 1, arg — world, ret — указатель). */
 
 /* --- R1..R4: B0..B29 --------------------------------------------------- *
  * Цепочка player-флагов (B16..B18 и её клоны B25..B27): player_get(unit,1) →
@@ -641,6 +595,50 @@ static void *b0_player_flag_chain(void *unit)
     void *player = native::player_get(unit, 1);          /* 0x44bfbf */
     void *flag = native::player_flag_get(player, 1);     /* 0x44bfc4 */
     return native::player_flags(flag);                   /* 0x44bfcb */
+}
+
+/* --- R12 B82: `458050` (grid-якорь) ------------------------------------- *
+ * Тело портировано (`s6_grid_anchor_lookup`, battle/grid.cpp). Аргументы сайта
+ * 0x44c7da: ECX = уровень сетки = `[[unit+0xe0]+0x44]+0x238`; на стеке ровно
+ * четыре dword'а 16-Б temp'а `frame+0x2c..0x38` (pos-тройка B5/B76 + слот
+ * +0x38), затем `&frame+0x3f` (байт-флаг) и unit — порядок = ABI порта
+ * {float x, float y_metric, float y_coord, void *node, uchar *flag, void *world}
+ * (re/leaf_458050.md; в §2 артефакта слоты S+0x10..S+0x18 сдвинуты на один —
+ * см. разбор ABI в grid.cpp).
+ * Запись этой пары — `bdd0_leaf` сайта 0x44c7da (лист 0x458050), не
+ * `bdd0_native`: поток листьев двигает либо запрос `native::grid_anchor`,
+ * либо порт. Claim тело 0x458050 НЕ выпускает (его нет в b0_ported_leaf_va:
+ * границу записи держит сам сайт 0x44c7da), но ABI-строка у листа есть
+ * (k_leaf_abi в checks_builtin.cpp: nargs 6, ptr[4]/ptr[5], ret_ptr).
+ * Гейт: входы порта — объект сетки в куче игры (scale-триплет, size_x/size_y,
+ * rows, cells, ячейки с цепочками). В захвате v12..v15 его НЕТ (есть только
+ * указатель `bdd0_in.tree`; арена материализует под него нулевую область
+ * 0x40 Б — «дальше тело его не разыменовывает», arena.cpp). Порт на такой
+ * области упирается в гейт `size_x <= xi` и возвращает NULL там, где натив
+ * вернул якорь: тик ушёл бы в B83/R13 вместо R14 (проверено принудительным
+ * включением — fail≠0 на cap_v15). Грабля: порт 458050 на нулевой tree-области
+ * → NULL-якорь → ветка R13/R16 вместо R14 (docs/PITFALLS). Поэтому офлайн порт
+ * исполняется только если арена несёт модель сетки; иначе реплеится
+ * записанный натив, и сводка печатает `grid_anchor_replayed` — подстановка
+ * видима, а не тиха (как `eee0_synth`). В живом билде ветки нет: там всегда
+ * порт. */
+static void *b0_grid_anchor(void *grid, int x_bits, int y_metric_bits,
+                            int y_coord_bits, int node, int *flag, void *world)
+{
+    float x, y_metric, y_coord;
+
+#ifdef BATTLE_REPLAY
+    if (!bdd0_grid_level_modelled()) {
+        return native::grid_anchor(grid, x_bits, y_metric_bits, y_coord_bits,
+                                   node, flag, world);
+    }
+#endif
+    memcpy(&x, &x_bits, sizeof(x));
+    memcpy(&y_metric, &y_metric_bits, sizeof(y_metric));
+    memcpy(&y_coord, &y_coord_bits, sizeof(y_coord));
+    return s6_grid_anchor_lookup((GridLevel *)grid, x, y_metric, y_coord,
+                                 (void *)(size_t)(unsigned)node,
+                                 (unsigned char *)flag, world);
 }
 
 /* --- R17: диспетчер `45eee0` -------------------------------------------- *
@@ -1277,13 +1275,13 @@ B0_LBL(22);
      * (callee → `449160`, `0x4580e3`). Слот `frame+0x1c = &блока` (0x44c7d6) —
      * мёртвая запись, порт передаёт аргументы явно (как B34/B78). */
     *(unsigned int *)(frame + 0x154) = 0x12;            /* 0x44c7cb (trylevel) */
-    anchor = native::grid_anchor(grid_recv,
-                                *(const int *)(frame + 0x2c),
-                                *(const int *)(frame + 0x30),
-                                *(const int *)(frame + 0x34),
-                                *(const int *)(frame + 0x38),
-                                (int *)(frame + 0x3f),
-                                unit_x);                /* 0x44c7da */
+    anchor = b0_grid_anchor(grid_recv,
+                            *(const int *)(frame + 0x2c),
+                            *(const int *)(frame + 0x30),
+                            *(const int *)(frame + 0x34),
+                            *(const int *)(frame + 0x38),
+                            (int *)(frame + 0x3f),
+                            unit_x);                /* 0x44c7da */
     *(void **)(frame + 0x98) = anchor;                  /* 0x44c7e1 (и при NULL) */
     if (B0_TST(42, (anchor != NULL)))  {
         goto b88_r14;                                   /* 0x44c7ea jne 0x44c878 */

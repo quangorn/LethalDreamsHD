@@ -196,9 +196,11 @@
   (400 вызовов: pass 396). Слой e0a0 отключается `LDHOOK_BATTLE_CAPTURE_E0=0`; запись буферизована 1 МиБ.
 - `[P]` Фаза 5.2 (24.11.2026): портированы `45c370` (band head), `45af50` (длина ленты), `45c6f0` (тройка
   позиции, `b0_read_pos_from_ctx`), `403e80` (`b0_pos3_equal`; в захватах всегда `ret=0`, истинная ветвь —
-  только синтетика), `456b60` (`b0_chain_head`, подготовительный: недостижим до порта `458050`,
-  записи `bdd0_leaf` нет — `k_leaf_abi` зарегистрирован заранее), `457e20` (`s6_grid_key_lookup` в
-  `grid.cpp`, подготовительный: сайта записи нет, `grid.cpp` в харнесс не линкуется). Out-writes сверяет `B0_LEAF_CLAIM_W` (`ported.h`);
+  только синтетика), `456b60` (`s6_grid_chain_head`), `457e20` (`s6_grid_key_lookup`) и `458050`
+  (`s6_grid_anchor_lookup`) — `battle/grid.cpp`; сайты 33/34 (`0x458142`, `0x45811a`), `grid.cpp` в харнессе.
+  Индексы `458050` — от arg1 и arg3 (arg2 — только `min_metric − arg2`; `docs/CONTRADICTIONS.md` п. 20).
+  Офлайн порт гейтит `bdd0_grid_level_modelled()` (сетки в v12..v15 нет) — сводка `grid_anchor_replayed`,
+  включение — `docs/PITFALLS.md`. Out-writes сверяет `B0_LEAF_CLAIM_W` (`ported.h`);
   `w` листа `45c6f0` пока несравним (тройка `ctx` не в захвате) — capture v15.
   Для capture без `band` длина реконструируется из записи `45af50`, а claim'ы таких
   тиков помечаются `resync` → SKIP (тавтологический PASS невозможен) — `battle/ported.h` (mutators),
