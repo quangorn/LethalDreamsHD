@@ -40,6 +40,13 @@
  * __thiscall: ECX = a (первый указатель), единственный стек-аргумент b
  * (`MOV EDX,[ESP+4]` @0x403e82), `RET 4`; EAX = 0/1, вызывающий тестирует AL. */
 #define B0_LEAF_POS3_EQUAL 0x403e80u
+/* Голова цепочки со статусом 2 (FUN_00456b60): спуск по `+0x28`, пока
+ * tree_lookup(world, node->key_rec->key) == 2; возврат — первый узел с другим
+ * статусом, NULL при обрыве цепочки. __thiscall: ECX = GridCell*, 1 стек-
+ * аргумент = world, `RET 4`; EAX = GridCell* или 0. Единственный вызов —
+ * 0x458142 в 0x458050, который НЕ портирован: тело готово, лист недостижим,
+ * поэтому claim не выпускается (в ABI-таблице — заранее, см. checks_builtin). */
+#define B0_LEAF_CHAIN_HEAD 0x456b60u
 
 #ifdef BATTLE_REPLAY
 /* VA портированных листьев: список живёт только в replay-сборке. В живом
@@ -49,7 +56,8 @@ static const unsigned int b0_ported_leaf_va[] = {
     B0_LEAF_BAND_HEAD,
     B0_LEAF_BAND_COUNT,
     B0_LEAF_READ_POS,
-    B0_LEAF_POS3_EQUAL
+    B0_LEAF_POS3_EQUAL,
+    B0_LEAF_CHAIN_HEAD
 };
 
 #define B0_PORTED_LEAF_COUNT \

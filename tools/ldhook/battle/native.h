@@ -20,7 +20,11 @@ TreeNode *lower_bound(void *map, unsigned int key, void *hint);   /* FUN_00434bc
  * EAX = arg1. RET 8. */
 TreeNode *lower_bound_slots(void *map, int *out_slot, int *key_slot);
 TreeNode *tree_next(TreeNode *node);                              /* FUN_0047f800 */
-int tree_lookup(void *world, unsigned int key);                   /* FUN_00449160 (тип узла) */
+/* FUN_00449160 — статус узла дерева мира (тело и ABI — native.cpp): ECX =
+ * world (дерево по world+0x104), аргумент key = (Y<<16)|X, `RET 4`, EAX =
+ * [node+0x10] (0 — узла нет). Единственный callee листа 0x456b60 — порт
+ * `b0_chain_head` (battle/tick.cpp) зовёт эту обёртку; записей в игру нет. */
+int tree_lookup(void *world, unsigned int key);
 void register_occupied_slot(void *ai, LDObject *obj);            /* FUN_0045dd00 */
 
 /* Лента `this+0x3c` (сайты FUN_0045eee0 B4 @0x45efb6/@0x45efbd) и очистка карт

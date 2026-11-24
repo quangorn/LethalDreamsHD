@@ -423,7 +423,12 @@ static const LeafAbi k_leaf_abi[] = {
     { 0x403e80, 1, { 1, 0, 0, 0, 0, 0 }, 0 },   /* pos3_equal: 0/1 */
     { 0x458050, 6, { 0, 0, 0, 0, 1, 1 }, 1 },   /* grid_anchor: anchor */
     { 0x45e1d0, 2, { 1, 1, 0, 0, 0, 0 }, 1 },   /* grid_recompute: triple */
-    { 0x44bbf0, 4, { 0, 0, 0, 0, 0, 0 }, 0 }    /* grid_query: 4 dword */
+    { 0x44bbf0, 4, { 0, 0, 0, 0, 0, 0 }, 0 },   /* grid_query: 4 dword */
+    /* chain_head: ECX = node, arg = world, ret = GridCell* или NULL. Объявлен
+     * заранее: у листа нет capture-сайта (0x458142 живёт в непортированном
+     * 0x458050), поэтому записей потока 0x456b60 пока нет и claim не
+     * выпускается. */
+    { 0x456b60, 1, { 1, 0, 0, 0, 0, 0 }, 1 }
 };
 
 static const LeafAbi *leaf_abi_find(int va)
