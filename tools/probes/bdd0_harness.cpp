@@ -557,6 +557,7 @@ int main(int argc, char **argv)
     std::map<std::string, int> skip_why;
     int ran = 0, fails = 0, traps = 0, hangs = 0, gs_missing = 0, leaf_nodes = 0;
     int grid_anchor_replayed = 0;
+    int band_gate_replayed = 0;
     int eee0_synth = 0;
     int leaf_identity = 0;
     long long sum_wall = 0;
@@ -881,6 +882,7 @@ int main(int argc, char **argv)
          * сетки). Считает сам replay-слой (native_replay.cpp, request) — тики,
          * где подстановка не состоялась (тик упал раньше), не попадают. */
         grid_anchor_replayed += bdd0_grid_anchor_replayed();
+        band_gate_replayed += bdd0_band_gate_replayed();
         arena_set_current(NULL);
         arena_release(arena);
     }
@@ -984,6 +986,12 @@ int main(int argc, char **argv)
                "grid-level object is not in the capture, so the 458050 port "
                "did not run on those ticks - see bdd0_grid_level_modelled)\n",
                grid_anchor_replayed);
+    }
+    if (band_gate_replayed > 0) {
+        printf("  band_interp_gate_replayed=%d (bdd0_leaf 0x45b150 replayed: the "
+               "band leaf geometry (per-element LDPos/GridLevel) is not in the "
+               "capture, so the 45b150 port did not run on those ticks - see "
+               "bdd0_band_geometry_modelled)\n", band_gate_replayed);
     }
     printf("  leaf_nodes=%d (unbound raw game pointers bound to identity cells; "
            "0 = every leaf pointer was materialised)\n", leaf_nodes);

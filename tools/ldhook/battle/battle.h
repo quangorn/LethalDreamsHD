@@ -91,6 +91,16 @@ void s6_copy_fields(int dst, int src_, unsigned int mask);
 void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
                                void *arg2, void *arg3);
 
+/* FUN_0045b150 — float-гейт ленты (re/leaf_45b150.md, байты сверены с
+ * baseline; pos у концов РАЗНЫЕ — CONTRADICTIONS #21): минимум d² от точки
+ * (px, py) до полилинии ленты. Элемент 24 Б: +0x00/+0x08 — координаты узла,
+ * +0x14 — LDPos*; узел переводится в координаты через 0x456b20
+ * (s6_grid_scale_compute). BEST init 100.0f — sentinel «ни один отрезок не
+ * подошёл». __thiscall: ECX = лента (BattleAI+0x3c), 3 стек-аргумента
+ * (arg2 не читается), `ret 0xc`, результат — ST(0) = float32-биты BEST.
+ * Сайты тела тика — 0x44c4cb (B60) и 0x44c5e0 (B67). */
+float s6_band_interp_gate(const void *band, float px, int dead_arg, float py);
+
 /* ---- move.cpp: тик юнит-AI FUN_0045eee0 (s6_unit_ai_tick, Фаза 4) ---- */
 int s6_unit_ai_tick(BattleAI *self, void *rec_arg);       /* FUN_0045eee0 — порт 4.1 */
 

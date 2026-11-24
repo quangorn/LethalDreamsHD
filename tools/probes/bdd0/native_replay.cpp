@@ -104,6 +104,9 @@ static int g_ctx_pos_captured = 0;
 /* 458050: последний тик потребил запись потока (native::grid_anchor) — порт
  * не исполнялся. Сбрасывается в bdd0_leaf_begin, читает сводка. */
 static int g_grid_anchor_replayed = 0;
+/* 45b150: то же для float-гейта ленты (порт не исполнялся — геометрии ленты в
+ * захвате нет: tick.cpp b0_band_interp_gate + bdd0_band_geometry_modelled). */
+static int g_band_gate_replayed = 0;
 
 static void ctx_pos_from_stream(void)
 {
@@ -128,6 +131,7 @@ void bdd0_leaf_begin(int seq, const LeafRec *v, int n)
     g_last_leaf_order = -1;
     g_call_seq = 0;
     g_grid_anchor_replayed = 0;
+    g_band_gate_replayed = 0;
     g_log_n = 0;
     g_claim_n = 0;
     for (int k = 0; k < LEAF_LOG_MAX; k++) {
@@ -145,6 +149,9 @@ int bdd0_leaf_calls(void) { return g_log_n; }
 int bdd0_leaf_violations(void) { return g_viol; }
 /* 1, если тик потребил запись потока 0x458050 (реплей вместо порта). */
 int bdd0_grid_anchor_replayed(void) { return g_grid_anchor_replayed; }
+/* 45b150: тик потребил запись потока (порт не исполнялся — геометрии ленты в
+ * захвате нет; tick.cpp b0_band_interp_gate). Сбрасывается в bdd0_leaf_begin. */
+int bdd0_band_gate_replayed(void) { return g_band_gate_replayed; }
 const char *bdd0_leaf_violation_why(void) { return g_why; }
 
 const CallLogEnt *bdd0_calllog(int *n)
@@ -693,6 +700,7 @@ void band_interp_gate(void *band, float p2, int p3, float p4, float *out_f)
     a[1] = p3;
     a[2] = fbits(p4);
     const LeafRec *r = request(0x45b150, band, 3, a);
+    if (r != NULL) g_band_gate_replayed = 1;  /* порт не исполнялся */
     if (out_f == NULL) return;
     if (r != NULL) {
         memcpy(out_f, &r->ret, 4);           /* ret = биты ST(0) */
