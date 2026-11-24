@@ -397,8 +397,8 @@ capture v9 (`battle/capture.cpp`), replay — `tools/probes/battle_replay.cpp`.
    - порт: `45af50` (resync остаётся для capture v12/v13 — claims таких тиков SKIP), `45c6f0`,
      `403e80`, `45b150`, `45b3e0`, `457e20`, `458050`, `45e1d0`, `456b60` (тонкий порт + `native::tree_lookup`);
    - **нативно**: `45c730` — B48 разыменовывает результат и зовёт vtable+0x40, identity-cell не годится;
-   - `457e20`: `y_idx ≡ 0` — callee `4d17e0` делает `FINIT`, следующий `FMUL ST0,ST1` даёт NaN
-     (порт обязан воспроизвести, иначе расходится с игрой);
+   - `457e20`: `y_idx` — настоящий индекс `trunc((arg3 − scale_load)/scale_mul)`; `4d17e0` — штатный
+     (нет `FINIT`, трогает только ST0) — исправлено к порту, разбор в `docs/CONTRADICTIONS.md` п. 19;
    - `45e1d0` пишет игровое состояние (rec, PathState, map1/map2, фронт) — до его порта нужен
      capture v15 с после-состоянием листа (v12 пишет только `w` = 3 dword).
 5.last. GUI-часть: обёртки `native::…` с именами по смыслу; проверка, что порядок

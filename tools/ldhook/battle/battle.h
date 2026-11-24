@@ -40,6 +40,13 @@ GridCell *s6_chain_last(GridCell *node);                   /* FUN_00456a70 */
  * читается вызывающим (@0x45c62d/0x45c668). */
 float *s6_grid_scale_compute(LDPos *pos, float *out);
 
+/* FUN_00457e20 — поиск ячейки сетки по ключу: RET 0x10, ECX = GridLevel*,
+ * arg2 не читается (re/leaf_457e20.md). Возврат — GridCell* или NULL.
+ * Единственный вызывающий — 0x458050 (grid_anchor), пока нативный: из
+ * портированного тела лист недостижим, вызов появится вместе с портом 0x458050
+ * (сайт 0x45811a). */
+GridCell *s6_grid_key_lookup(GridLevel *grid, float arg1, int arg2, float arg3, int key);
+
 /* ---- target.cpp: поиск цели FUN_0045e0a0 и его callees ---- */
 int s6_distance2(void *a, void *b);                     /* FUN_0045c480 */
 LDObject *s6_scan_map(void *this_, int filter);         /* FUN_0045ce80 */

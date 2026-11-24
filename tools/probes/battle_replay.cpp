@@ -1918,6 +1918,15 @@ static const Call *rep_cur(void) { return g_cur; }
 
 /* ---------------------- точки подмены (BATTLE_REPLAY) ------------------- */
 
+/* Портированные листья боевого тика сообщают значение claim'ом (ported.h).
+ * В этом офлайн-реплее тик 44bdd0 не исполняется, поэтому заявок нет —
+ * заглушка нужна только чтобы линковать grid.cpp, который её вызывает. */
+void bdd0_leaf_claim_w(unsigned int va, void *ecx, int ret, const int *args,
+                       int nargs, const int *w, int nw)
+{
+    (void)va; (void)ecx; (void)ret; (void)args; (void)nargs; (void)w; (void)nw;
+}
+
 extern "C" int replay_leaf_next(int kind) {
     const Call *c = rep_cur();
     if (c == NULL) { g_replay_leaf_underflow = 1; return 0; }

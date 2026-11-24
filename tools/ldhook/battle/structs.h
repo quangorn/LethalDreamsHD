@@ -87,12 +87,21 @@ static_assert(offsetof(TreeNode, is_nil) == 0x15, "TreeNode.is_nil");
 static_assert(sizeof(TreeNode) == 0x18, "TreeNode size");
 
 /* Запись ключа дерева мира (ключ читается FUN_00449160 по leaf-указателю узла):
- * [rec+0x00] = ключ (0x45c3e3: MOV EAX,[ECX] перед CALL 0x449160). */
+ * [rec+0x00] = ключ (0x45c3e3: MOV EAX,[ECX] перед CALL 0x449160).
+ * +0x18/+0x1c доказаны потребителем FUN_00457e20 (re/leaf_457e20.md §7):
+ * геттер 0x456e70 `mov eax,[ecx+0x18]; ret`, обход цепочки `[rec+0x1c]`
+ * (@0x457f8d/0x457ff9). Смысл value вне этого сравнения — unknown. */
 struct KeyRecord {
     int key;                      /* +0x00 = (Y<<16)|X */
+    unsigned char reserved_04[0x14];  /* +0x04..+0x17 — потребителей нет */
+    int value;                    /* +0x18 — 0x456e70; сравнивается с arg4 457e20 */
+    KeyRecord *next;              /* +0x1c — 0x457f8d/0x457ff9 */
 };
 
 static_assert(offsetof(KeyRecord, key) == 0x00, "KeyRecord.key");
+static_assert(offsetof(KeyRecord, value) == 0x18, "KeyRecord.value");
+static_assert(offsetof(KeyRecord, next) == 0x1c, "KeyRecord.next");
+static_assert(sizeof(KeyRecord) == 0x20, "KeyRecord size");
 
 /* GridCell — ячейка сетки (FUN_00456ed0 возвращает cells + idx*0x34, шаг 0x34).
  * Поля доказаны потребителем FUN_0045c3a0 (п. 1.1.8/1.1.14-4 артефакта разведки):
