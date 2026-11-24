@@ -91,6 +91,8 @@ struct Profile {
     int post_band_n;       /* v14: длина ленты ПОСЛЕ тика (45eee0 перестроил);
                             * < 0 — ключ "band" в bdd0_res не писать (старый
                             * захват, resync-fallback) */
+    int post_band_extra;   /* байты сверх post_band_n*0x18 (некратный шаг —
+                            * проверка усечения 45af50); 0 — обычная лента */
 };
 
 static const Profile k_profiles[] = {
@@ -115,7 +117,16 @@ static const Profile k_profiles[] = {
      * bdd0_in — "band":[0,0]. Так харнесс применяет recorded-band
      * (leaf_value PASS, не SKIP), а не resync. */
     { "band_rec", 1, 8, 0.0f, -1.0f, 3u, 1, 0, 0, 0, 0u, 0, 0,
-      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, 1 }
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, 1, 0 },
+    /* band_trunc: как band_rec, но после-лента некратна шагу: 1*0x18 + 1 = 25.
+     * 45af50 обязан усечь 25/0x18 до 1 (не 2): claim сверяет именно усечённый
+     * результат. no_all=1. */
+    { "band_trunc", 1, 8, 0.0f, -1.0f, 3u, 1, 0, 0, 1, 0u, 0, 0,
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, 1, 1 },
+    /* band_trunc_neg: diff = -25 (end = begin - 25): знаковое деление обязано
+     * усечь К НУЛЮ → -1 (а floor дал бы -2). extra = -25 - 0x18 = -49. no_all=1. */
+    { "band_trunc_neg", 1, 8, 0.0f, -1.0f, 3u, 1, 0, 0, 1, 0u, 0, 0,
+      { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, 1, -49 }
 };
 
 /* Снимок по профилю: unit 0x180, встроенный BattleAI 0x80 (unit+0x138),
@@ -227,7 +238,8 @@ static void write_jsonl(FILE *f, const TickRecord &in, const TickRecord &post,
     unsigned band_end = band_begin + (unsigned)in.band_n * BDD0_BAND_ELEM;
     /* v14: после-состояние ленты — из профиля (45eee0 перестроил). */
     unsigned post_begin = (pf.post_band_n > 0) ? GAME_BAND : 0u;
-    unsigned post_end = post_begin + (unsigned)pf.post_band_n * BDD0_BAND_ELEM;
+    unsigned post_end = post_begin + (unsigned)pf.post_band_n * BDD0_BAND_ELEM +
+                        (unsigned)pf.post_band_extra;
     int has_post = (pf.post_band_n >= 0);
     std::string fb = b64(in.frame, BDD0_FRAME_LEN);
     std::string ub = b64(in.unit, BDD0_UNIT_LEN);
@@ -338,6 +350,7 @@ static int run_tick(FILE *f, const Profile &pf, int seq, int verbose)
      * post_band_n < 0 — старая семантика без ww (resync-fallback). */
     env.band_post_game = (pf.post_band_n > 0) ? GAME_BAND : 0u;
     env.band_post_n = (pf.post_band_n > 0) ? pf.post_band_n : 0;
+    env.band_post_extra = (pf.post_band_n > 0) ? pf.post_band_extra : 0;
     ModelCfg cfg;
     cfg.grid_query = pf.grid_query;
     cfg.anchor_null = pf.anchor_null;

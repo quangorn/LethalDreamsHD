@@ -128,8 +128,10 @@ void *ctx_pos_get(void *ctx, float *out_f);
 void *band_head(void *ai);
 
 /* FUN_0045af50 (0x45af50..0x45af70) — длина ленты = ([+0x24]−[+0x20])/0x18
- * (magic-делитель, знаковое). __thiscall, ECX = band (= ai+0x3c), 0 стек-
- * аргументов (`ret`). site: 0x44bef9. */
+ * (magic-делитель, знаковое; begin==0 → 0). __thiscall, ECX = band (= ai+0x3c),
+ * 0 стек-аргументов (`ret`). site: 0x44bef9.
+ * ВНИМАНИЕ: порт этот лист уже считает сам (tick.cpp b0_band_count_claim +
+ * claim); нативная обёртка остаётся только для replay/синтетических путей. */
 int band_count(void *band);
 
 /* FUN_0045c730 (0x45c730..0x45c74c) — курсор ленты. Листинг: `MOV EAX,[ECX];

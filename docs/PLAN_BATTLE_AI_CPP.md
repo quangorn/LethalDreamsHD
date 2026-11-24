@@ -394,8 +394,8 @@ capture v9 (`battle/capture.cpp`), replay — `tools/probes/battle_replay.cpp`.
    на четырёх захватах, `bdd0_corpus_run.py`, рецензия). Разведка закрыта 24.11.2026
    (`re/leaf_45b150.md`, `leaf_45b3e0.md`, `leaf_457e20.md`, `leaf_458050.md`, `leaf_45e1d0.md`,
    `leaf_456b60.md`, `leaf_45c730.md`):
-   - порт: `45af50` (разблокирован capture v14 — resync отключается), `45c6f0`, `403e80`,
-     `45b150`, `45b3e0`, `457e20`, `458050`, `45e1d0`, `456b60` (тонкий порт + `native::tree_lookup`);
+   - порт: `45af50` (resync остаётся для capture v12/v13 — claims таких тиков SKIP), `45c6f0`,
+     `403e80`, `45b150`, `45b3e0`, `457e20`, `458050`, `45e1d0`, `456b60` (тонкий порт + `native::tree_lookup`);
    - **нативно**: `45c730` — B48 разыменовывает результат и зовёт vtable+0x40, identity-cell не годится;
    - `457e20`: `y_idx ≡ 0` — callee `4d17e0` делает `FINIT`, следующий `FMUL ST0,ST1` даёт NaN
      (порт обязан воспроизвести, иначе расходится с игрой);

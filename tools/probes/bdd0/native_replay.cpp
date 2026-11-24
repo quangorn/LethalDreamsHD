@@ -517,27 +517,27 @@ void *band_head(void *ai)
 {
     const LeafRec *r = request(0x45c370, ai, 0, NULL);
     if (r != NULL) return ret_ptr(r);
-    if (ai != NULL && arena_addr_ok((const unsigned char *)ai + 0x3c + 0x20, 8)) {
-        const unsigned char *band = (const unsigned char *)ai + 0x3c;
-        unsigned begin = read_u32(band + 0x20);
+    if (ai != NULL && arena_addr_ok((const unsigned char *)ai + B0_BATTLE_AI_BAND + B0_BAND_BEGIN_OFF, 8)) {
+        const unsigned char *band = (const unsigned char *)ai + B0_BATTLE_AI_BAND;
+        unsigned begin = read_u32(band + B0_BAND_BEGIN_OFF);
         if (begin != 0 &&
-            (int)(read_u32(band + 0x24) - begin) / BDD0_BAND_ELEM != 0) {
-            return (unsigned char *)ai + 0x3c;
+            (int)(read_u32(band + B0_BAND_END_OFF) - begin) / BDD0_BAND_ELEM != 0) {
+            return (unsigned char *)ai + B0_BATTLE_AI_BAND;
         }
     }
     return NULL;
 }
 
 /* 45af50 — длина ленты: begin == 0 → 0 (TEST/JZ), иначе
- * ([+0x24] − [+0x20]) / 0x18 (знаковое). */
+ * ([+END] − [+BEGIN]) / 0x18 (знаковое). */
 int band_count(void *band)
 {
     const LeafRec *r = request(0x45af50, band, 0, NULL);
     if (r != NULL) return r->ret;
-    if (band != NULL && arena_addr_ok((const unsigned char *)band + 0x20, 8)) {
-        unsigned begin = read_u32((const unsigned char *)band + 0x20);
+    if (band != NULL && arena_addr_ok((const unsigned char *)band + B0_BAND_BEGIN_OFF, 8)) {
+        unsigned begin = read_u32((const unsigned char *)band + B0_BAND_BEGIN_OFF);
         if (begin == 0) return 0;
-        return (int)(read_u32((const unsigned char *)band + 0x24) - begin) /
+        return (int)(read_u32((const unsigned char *)band + B0_BAND_END_OFF) - begin) /
                BDD0_BAND_ELEM;
     }
     return 0;
@@ -774,16 +774,14 @@ void pathfinder_init(void *pf)
     (void)pf;
 }
 
-/* Лента BattleAI+0x3c: её после-состояние (begin/end) в захвате НЕ записано —
- * ww-записи 45eee0 покрывают BattleAI+0x00..0x38 (unit+0x138..0x170). Поэтому
- * после перестройки ленты длину восстанавливаем из СЛЕДУЮЩЕЙ записи 45af50 того
- * же seq: её ret — длина ленты после 45eee0. Это реконструкция состояния (как
- * ww-записи нативов), но не подмена значения порта: после неё claim головы
- * совпал бы лишь потому, что порт читал ту же запись — поэтому leaf_value
- * помечает такие claims resync и даёт SKIP (B0_BAND_RESYNC_WHY).
- * Разрешено только пока лист длины не портирован (иначе сверка была бы
- * тавтологией: порт читал бы то, что сам же и заявил). Возврат 1 — состояние
- * восстановлено. */
+/* Лента BattleAI+0x3c: для захватов без записанного после-состояния ленты
+ * (bdd0_res "band") длина восстанавливается из следующей записи 45af50 того же
+ * seq — её `ret` есть (end-begin)/0x18 после перестройки 45eee0, откуда
+ * end = begin + ret*0x18. Реконструкция нужна, чтобы порт прошёл тот же путь
+ * листовых вызовов: иначе на B144 (0x44cfec) head==NULL обрывает тик и leaf_seq
+ * видит «port made fewer calls». Claims таких тиков помечаются resync и
+ * leaf_value даёт SKIP (B0_BAND_RESYNC_WHY), поэтому тавтологического PASS не
+ * фиксируется. Возврат 1 — состояние восстановлено. */
 static int band_resync_from_stream(void)
 {
     unsigned char *unit = arena_region_w(arena_current(), "unit");
@@ -791,7 +789,7 @@ static int band_resync_from_stream(void)
     unsigned begin;
     int i;
 
-    if (unit == NULL || b0_leaf_ported(B0_LEAF_BAND_COUNT)) return 0;
+    if (unit == NULL) return 0;
     begin = (unsigned)(size_t)arena_region_w(arena_current(), "band");
     if (begin == 0) return 0;
     band = unit + BDD0_AI_OFF + B0_BATTLE_AI_BAND;
@@ -800,8 +798,8 @@ static int band_resync_from_stream(void)
 
         if (g_v[i].va != (int)B0_LEAF_BAND_COUNT || g_v[i].trap) continue;
         end = begin + (unsigned)(g_v[i].ret * (int)BDD0_BAND_ELEM);
-        memcpy(band + 0x20, &begin, sizeof(begin));     /* [band+0x20] = begin */
-        memcpy(band + 0x24, &end, sizeof(end));         /* [band+0x24] = end   */
+        memcpy(band + B0_BAND_BEGIN_OFF, &begin, sizeof(begin)); /* [band+BEGIN] */
+        memcpy(band + B0_BAND_END_OFF, &end, sizeof(end));       /* [band+END]   */
         return 1;
     }
     return 0;
@@ -818,11 +816,11 @@ static int band_apply_recorded(void)
     unsigned begin, end;
 
     if (unit == NULL || g_rec == NULL || !g_rec->has_res_band) return 0;
-    if (!arena_addr_ok(unit + BDD0_AI_OFF + B0_BATTLE_AI_BAND + 0x20, 8)) return 0;
+    if (!arena_addr_ok(unit + BDD0_AI_OFF + B0_BATTLE_AI_BAND + B0_BAND_BEGIN_OFF, 8)) return 0;
     begin = g_rec->band_post_begin;
     end = g_rec->band_post_end;
-    memcpy(unit + BDD0_AI_OFF + B0_BATTLE_AI_BAND + 0x20, &begin, sizeof(begin));
-    memcpy(unit + BDD0_AI_OFF + B0_BATTLE_AI_BAND + 0x24, &end, sizeof(end));
+    memcpy(unit + BDD0_AI_OFF + B0_BATTLE_AI_BAND + B0_BAND_BEGIN_OFF, &begin, sizeof(begin));
+    memcpy(unit + BDD0_AI_OFF + B0_BATTLE_AI_BAND + B0_BAND_END_OFF, &end, sizeof(end));
     return 1;
 }
 

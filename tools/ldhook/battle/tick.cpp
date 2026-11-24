@@ -429,25 +429,36 @@ static int b0_float_bits(float f)
 /* --- Порт листа 0x45c370 (band_head) ------------------------------------ *
  * Листинг: `MOV ESI,ECX; ADD ESI,0x3c` → `EAX = band_count(ESI)` →
  * `NEG EAX; SBB EAX,EAX; AND EAX,ESI` = длина != 0 ? ESI : 0, `RET`.
- * Длина ленты — тело листа 0x45af50: `MOV EAX,[ECX+0x20]; TEST EAX,EAX;
- * JZ RET; MOV ECX,[ECX+0x24]; SUB ECX,EAX; <magic>/0x18` — при begin == 0
- * длина 0 независимо от end (TEST/JZ @0x45af50). Считаем её здесь, потому что
- * лист ещё не портирован (запрос 45af50 в потоке остаётся за callers тика).
- * Возврат — указатель ВНУТРИ блока BattleAI (ai+0x3c), поэтому в харнессе он
- * остаётся shadow-адресом: claim сверяет его проверка leaf_value. */
-static int b0_band_count(const void *band)
+ * Лист 0x45af50 (длина ленты) теперь портирован: begin==0 → 0, иначе
+ * (end-begin)/0x18 со знаковым усечением (`TEST EAX,EAX; JZ` @0x45af50).
+ * Внутренний пересчёт головы идёт через b0_band_count_raw (claim НЕ снимает);
+ * claim 45af50 выпускает отдельная обёртка b0_band_count_claim ниже.
+ * Возврат головы — указатель ВНУТРИ блока BattleAI (ai+0x3c), поэтому в
+ * харнессе он остаётся shadow-адресом: claim сверяет его проверка leaf_value. */
+static int b0_band_count_raw(const void *band)
 {
     unsigned begin, end;
 
     if (band == NULL) {
         return 0;
     }
-    memcpy(&begin, (const unsigned char *)band + 0x20, sizeof(begin));
+    memcpy(&begin, (const unsigned char *)band + B0_BAND_BEGIN_OFF, sizeof(begin));
     if (begin == 0) {
         return 0;                       /* TEST EAX,EAX / JZ @0x45af50 */
     }
-    memcpy(&end, (const unsigned char *)band + 0x24, sizeof(end));
+    memcpy(&end, (const unsigned char *)band + B0_BAND_END_OFF, sizeof(end));
     return (int)(end - begin) / B0_BAND_ELEM;
+}
+
+/* Лист 0x45af50 на сайте тела: считается значение и снимается claim с ECX =
+ * band (длина 0 аргументов, `ret`). Запись 45af50 в потоке потребляет именно
+ * этот claim — b0_band_head внутренний пересчёт не заявляет. */
+static int b0_band_count_claim(const void *band)
+{
+    int count = b0_band_count_raw(band);
+
+    B0_LEAF_CLAIM(B0_LEAF_BAND_COUNT, band, count, NULL, 0);
+    return count;
 }
 
 static void *b0_band_head(void *ai_)
@@ -459,7 +470,7 @@ static void *b0_band_head(void *ai_)
     /* ESI = ai + 0x3c; AND из NEG/SBB/AND: длина 0 → NULL.
      * ECX = unit+0x138 всегда (все 12 сайтов), поэтому NULL-получатель
      * недостижим; гейт оставлен, чтобы порт не разыменовывал мусор. */
-    res = (ai != NULL && b0_band_count(band) != 0) ? band : NULL;
+    res = (ai != NULL && b0_band_count_raw(band) != 0) ? band : NULL;
     B0_LEAF_CLAIM(B0_LEAF_BAND_HEAD, ai, res, NULL, 0);
     return res;
 }
@@ -596,7 +607,7 @@ B0_LBL(0);
         goto b12;                                       /* 0x44beec/0x44beee je */
     }
     head = b0_band_head(unit + 0x138);                  /* 0x44bef0..0x44bef2 */
-    count = native::band_count(head);                   /* 0x44bef7..0x44bef9 */
+    count = b0_band_count_claim(head);                  /* 0x44bef7..0x44bef9 */
     if (B0_TST(7, (count > 1)))  {
         goto b148_r22;                                  /* 0x44befe/0x44bf01 jg 0x44d02e */
     }
@@ -976,7 +987,7 @@ B0_LBL(16);
      * (знаковое `JLE`) → B77; затем 442570(ECX=EBP=unit,0) и фаза == 3,
      * иначе B77; fall → B55 (R8). */
     head = b0_band_head(unit_x + 0x138);                /* 0x44c3c6 */
-    count = native::band_count(head);                   /* 0x44c3cd */
+    count = b0_band_count_claim(head);                  /* 0x44c3cd */
     if (B0_TST(37, (count <= 1)))  {
         goto b77_join;                                  /* 0x44c3d5 jle 0x44c715 */
     }
@@ -1611,7 +1622,7 @@ B0_LBL(42);
     head = b0_band_head(unit_x + 0x138);                /* 0x44cd83 */
     if (B0_TST(68, (head != NULL)))  {
         head = b0_band_head(unit_x + 0x138);            /* 0x44cd8e */
-        count = native::band_count(head);               /* 0x44cd95 */
+        count = b0_band_count_claim(head);              /* 0x44cd95 */
         if (B0_TST(69, (count > 1)))  {
             goto b144_r22;                              /* 0x44cd9d jg 0x44cfea */
         }
@@ -1805,7 +1816,7 @@ B0_LBL(51);
         goto b154_r22;                                  /* 0x44cff3 je 0x44d058 */
     }
     head = b0_band_head(unit_x + 0x138);                /* 0x44cff7 */
-    count = native::band_count(head);                   /* 0x44cffe */
+    count = b0_band_count_claim(head);                  /* 0x44cffe */
     if (B0_TST(81, (count <= 1)))  {
         goto b154_r22;                                  /* 0x44d006 jle 0x44d058 */
     }

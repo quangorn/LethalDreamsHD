@@ -138,7 +138,8 @@ struct PortedLeafModel {
 };
 
 static const PortedLeafModel k_ported_model[] = {
-    { B0_LEAF_BAND_HEAD, 1 }
+    { B0_LEAF_BAND_HEAD, 1 },
+    { B0_LEAF_BAND_COUNT, 0 }
 };
 
 static const PortedLeafModel *ported_model_find(unsigned va)
@@ -165,6 +166,9 @@ void bdd0_leaf_claim(unsigned int va, void *ecx, int ret, const int *args,
         if (va == B0_LEAF_BAND_HEAD) {
             /* получатель 45c370 — BattleAI = self+0x138 */
             game_ecx = (int)g_env.self_game + BDD0_AI_OFF;
+        } else if (va == B0_LEAF_BAND_COUNT) {
+            /* получатель 45af50 — лента = BattleAI+0x3c = self+0x138+0x3c */
+            game_ecx = (int)g_env.self_game + BDD0_AI_OFF + B0_BATTLE_AI_BAND;
         } else {
             fprintf(stderr, "synth: ported leaf 0x%x has a receiver but no "
                             "game-space rule\n", va);
@@ -175,7 +179,7 @@ void bdd0_leaf_claim(unsigned int va, void *ecx, int ret, const int *args,
         if (va == B0_LEAF_BAND_HEAD) {
             /* 45c370: значение != 0 → лента BattleAI+0x3c, иначе NULL */
             game_ret = (ret != 0)
-                ? (int)g_env.self_game + BDD0_AI_OFF + 0x3c : 0;
+                ? (int)g_env.self_game + BDD0_AI_OFF + B0_BATTLE_AI_BAND : 0;
         } else {
             fprintf(stderr, "synth: ported leaf 0x%x returns a pointer but "
                             "has no game-space rule (shadow address would leak)\n",
@@ -207,24 +211,24 @@ void *band_head(void *ai)
      * только синтетике/ABI: порт 0x45c370 не запрашивает (b0_band_head). */
     int n = 0;
     if (ai != NULL) {
-        const unsigned char *band = (const unsigned char *)ai + 0x3c;
-        unsigned begin = rd(band + 0x20);
+        const unsigned char *band = (const unsigned char *)ai + B0_BATTLE_AI_BAND;
+        unsigned begin = rd(band + B0_BAND_BEGIN_OFF);
         if (begin != 0) {
-            n = (int)(rd(band + 0x24) - begin) / BDD0_BAND_ELEM;
+            n = (int)(rd(band + B0_BAND_END_OFF) - begin) / BDD0_BAND_ELEM;
         }
     }
-    int ret = (n != 0) ? (int)g_env.self_game + BDD0_AI_OFF + 0x3c : 0;
+    int ret = (n != 0) ? (int)g_env.self_game + BDD0_AI_OFF + B0_BATTLE_AI_BAND : 0;
     record(0x45c370, ai, 0, NULL, ret, NULL, 0);
-    return (n != 0) ? (unsigned char *)ai + 0x3c : NULL;
+    return (n != 0) ? (unsigned char *)ai + B0_BATTLE_AI_BAND : NULL;
 }
 
 int band_count(void *band)
 {
     int n = 0;
     if (band != NULL) {
-        unsigned begin = rd((const unsigned char *)band + 0x20);
+        unsigned begin = rd((const unsigned char *)band + B0_BAND_BEGIN_OFF);
         if (begin != 0) {
-            n = (int)(rd((const unsigned char *)band + 0x24) - begin) /
+            n = (int)(rd((const unsigned char *)band + B0_BAND_END_OFF) - begin) /
                 BDD0_BAND_ELEM;
         }
     }
@@ -392,12 +396,13 @@ int unit_ai_tick(void *ai, void *rec)
      * семантике (ww нет → resync-fallback). */
     if (g_env.band_post_game != 0 && ai != NULL) {
         unsigned begin = g_env.band_post_game;
-        unsigned end = begin + (unsigned)g_env.band_post_n * BDD0_BAND_ELEM;
-        memcpy((unsigned char *)ai + 0x3c + 0x20, &begin, 4);
-        memcpy((unsigned char *)ai + 0x3c + 0x24, &end, 4);
-        ww[0] = 0x138 + 0x3c + 0x20;
+        unsigned end = begin + (unsigned)g_env.band_post_n * BDD0_BAND_ELEM +
+                       (unsigned)g_env.band_post_extra;
+        memcpy((unsigned char *)ai + B0_BATTLE_AI_BAND + B0_BAND_BEGIN_OFF, &begin, 4);
+        memcpy((unsigned char *)ai + B0_BATTLE_AI_BAND + B0_BAND_END_OFF, &end, 4);
+        ww[0] = 0x138 + B0_BATTLE_AI_BAND + B0_BAND_BEGIN_OFF;
         ww[1] = (int)begin;
-        ww[2] = 0x138 + 0x3c + 0x24;
+        ww[2] = 0x138 + B0_BATTLE_AI_BAND + B0_BAND_END_OFF;
         ww[3] = (int)end;
         nww = 4;
     }

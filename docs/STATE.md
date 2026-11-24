@@ -194,6 +194,10 @@
 - `[P]` capture v14 (24.11.2026): `band` (begin/end ленты, `unit+0x194/0x198`) в `bdd0_in`/`bdd0_res`,
   replay применяет его вместо реконструкции из `45af50` — `leaf_value` сравнивает заявки порта
   (400 вызовов: pass 396). Слой e0a0 отключается `LDHOOK_BATTLE_CAPTURE_E0=0`; запись буферизована 1 МиБ.
+- `[P]` Фаза 5.2 (24.11.2026): портированы `45c370` (band head) и `45af50` (длина ленты), claim +
+  `leaf_value`. Для capture без `band` длина реконструируется из записи `45af50`, а claim'ы таких
+  тиков помечаются `resync` → SKIP (тавтологический PASS невозможен) — `battle/ported.h` (mutators),
+  `bdd0/native_replay.cpp` (`band_resync_from_stream`).
 - `[P]` Scope Фазы 5 (решение 5.1c): порт — слой проводки; state/string/GUI site и 9 логических листьев
   нативны намеренно; таблица сайтов `bdd0_native` — `tools/probes/gen_native_sites.py` →
   `battle/native_sites_table.inc`, стубы эмитит `battle/native_sites.cpp`.

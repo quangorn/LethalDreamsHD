@@ -20,11 +20,14 @@
 /* Смещение ленты в BattleAI (FUN_0045c370: ESI = ECX + 0x3c). */
 #define B0_BATTLE_AI_BAND 0x3c
 
+/* Поля вектора ленты относительно её начала (FUN_0045af50:
+ * `MOV EAX,[ECX+0x20]; … MOV ECX,[ECX+0x24]`). */
+#define B0_BAND_BEGIN_OFF 0x20
+#define B0_BAND_END_OFF 0x24
+
 /* VA портированных листьев. */
 #define B0_LEAF_BAND_HEAD 0x45c370u    /* begin==0 ? NULL : count ? ai+0x3c : NULL */
-/* Длина ленты (FUN_0045af50): ещё НЕ портирована, поэтому replay берёт её
- * значение из записи потока (и только пока это так, после-состояние ленты
- * разрешено восстанавливать из bdd0_leaf — иначе сверка была бы тавтологией). */
+/* Длина ленты (FUN_0045af50): begin==0 ? 0 : (end-begin)/0x18 (знаковое). */
 #define B0_LEAF_BAND_COUNT 0x45af50u
 
 #ifdef BATTLE_REPLAY
@@ -32,7 +35,8 @@
  * билде (BATTLE_REPLAY не определён) порт не судит запросы, поэтому статики
  * были бы мёртвыми. */
 static const unsigned int b0_ported_leaf_va[] = {
-    B0_LEAF_BAND_HEAD
+    B0_LEAF_BAND_HEAD,
+    B0_LEAF_BAND_COUNT
 };
 
 #define B0_PORTED_LEAF_COUNT \
@@ -52,15 +56,18 @@ static int b0_leaf_ported(unsigned int va)
 /* Тик юнит-AI (FUN_0045eee0, R17 @0x44cbd0): единственный натив, который
  * перестраивает ленту внутри тика. С capture v13 после-состояние ленты
  * (begin/end) записано в bdd0_res ("band") и восстанавливается реплеем —
- * claim головы сверяется; resync из потока — только fallback старых файлов. */
+ * claim головы/длины сверяется. Старые файлы без "band" восстанавливаются
+ * resync'ом из записи 45af50 (нужно для последовательности вызовов листьев;
+ * claims этих тиков → SKIP, тавтологии нет). */
 #define B0_VA_UNIT_AI_TICK 0x45eee0u
 
 /* Вход листа, меняемый ВНУТРИ тика: натив отработал — replay моделирует только
  * свои ww-записи, поэтому порт законно видит другое состояние. Такой claim не
- * сверяется: если после-состояние не восстановлено — leaf_value → SKIP с
- * причиной mutator'а; если восстановлено из потока (band_resync_from_stream) —
- * SKIP с B0_BAND_RESYNC_WHY (решение головы было бы тавтологией). Поток при
- * этом продвинут. mutator = 0 — вход листа внутри тика не меняется. */
+ * сверяется: если после-состояние восстановлено из bdd0_res ("band") — leaf_value
+ * сравнивает (g_band_applied); если только resync'ом из потока (старый захват) —
+ * SKIP с B0_BAND_RESYNC_WHY; если не восстановлено вовсе — SKIP с причиной
+ * mutator'а. Поток при этом продвинут. mutator = 0 — вход листа внутри тика не
+ * меняется. Голова и длина ленты читают одну и ту же ленту — оба в списке. */
 struct B0LeafMutator {
     unsigned leaf;          /* VA портированного листа */
     unsigned mutator;       /* VA натива, меняющего вход листа */
@@ -69,8 +76,11 @@ struct B0LeafMutator {
 
 static const B0LeafMutator b0_leaf_mutators[] = {
     /* 45eee0 (unit-AI tick, R17 @0x44cbd0) перестраивает ленту: на входе тика
-     * band_count = 0, к R22 (0x44cfec) — 1. */
+     * band_count = 0, к R22 (0x44cfec) — 1. Голова и длина читают одну и ту же
+     * ленту, поэтому вход меняется у обоих листьев. */
     { B0_LEAF_BAND_HEAD, B0_VA_UNIT_AI_TICK,
+      "band rebuilt by 45eee0 (unit-AI tick) inside the tick" },
+    { B0_LEAF_BAND_COUNT, B0_VA_UNIT_AI_TICK,
       "band rebuilt by 45eee0 (unit-AI tick) inside the tick" }
 };
 

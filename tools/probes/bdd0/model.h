@@ -26,6 +26,9 @@ struct ModelEnv {
      * иначе (0) — старая запись без ww (resync-fallback). */
     unsigned band_post_game;
     int band_post_n;
+    /* Сверх длины: байты после post_band_n*0x18 — для проверки усечения
+     * (end-begin не кратно 0x18). 0 — обычная лента. */
+    int band_post_extra;
 };
 
 struct ModelCfg {

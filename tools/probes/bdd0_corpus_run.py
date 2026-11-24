@@ -12,6 +12,9 @@ Positive: tools/probes/bdd0/corpus/synth_band_rec.jsonl
   rc 0, leaf_value 1/0/0 — входная лента пуста, 45eee0 перестраивает её;
   bdd0_res несёт "band":[begin,end], записанное в bdd0_native ww [0x5c,0x60];
   реплей применяет recorded-band и claim головы СВЕРЯЕТСЯ (не SKIP).
+Positive: tools/probes/bdd0/corpus/synth_band_trunc.jsonl
+  rc 0, leaf_value 2/0/0 — две ленты не кратны 0x18: +25 → 1 и −25 → −1
+  (усечение к нулю, не floor). Claim длины сверяется на обоих тиках.
 Negatives:
   dropped/trap/order      -> --check native_seq, rc 1
   corrupt_native_args     -> --check native_args, rc 1, arg mismatch reported
@@ -21,7 +24,10 @@ Negatives:
                              портированного листа там, где порт просит лист)
   corrupt_leaf_claim_extra / _missing -> rc 1, leaf_seq fail, leaf_value не
                              fail (лишняя/пропавшая запись claim — это поток)
-
+  corrupt_band_count      -> rc 1, leaf_value 1/0/1 (записанный ret 45af50
+                             тика +25 испорчен 1→2; тик −25 остаётся PASS):
+                             проверка значения длины живая
+ 
 Build first: python3 tools/probes/bdd0_harness_build.py
 Usage: python3 tools/probes/bdd0_corpus_run.py
 """
@@ -53,6 +59,12 @@ POS_EXPECT = {
     "synth_band_rec.jsonl": {
         "leaf_value": (1, 0, 0),
     },
+    "synth_band_trunc.jsonl": {
+        "leaf_value": (2, 0, 0),
+    },
+    "corrupt_band_count.jsonl": {
+        "leaf_value": (1, 0, 1),
+    },
 }
 
 # name, expected rc, single check to run (None = all)
@@ -60,11 +72,13 @@ CASES = [
     ("synth_v12_native.jsonl", 0, None),
     ("synth_band_begin_zero.jsonl", 0, None),
     ("synth_band_rec.jsonl", 0, None),
+    ("synth_band_trunc.jsonl", 0, None),
     ("corrupt_native_dropped.jsonl", 1, "native_seq"),
     ("corrupt_native_trap.jsonl", 1, "native_seq"),
     ("corrupt_native_order.jsonl", 1, "native_seq"),
     ("corrupt_native_args.jsonl", 1, "native_args"),
     ("corrupt_native_ptr_unbound.jsonl", 0, "native_args"),
+    ("corrupt_band_count.jsonl", 1, None),
     ("corrupt_leaf_ported_request.jsonl", 1, None),
     ("corrupt_leaf_claim_extra.jsonl", 1, None),
     ("corrupt_leaf_claim_missing.jsonl", 1, None),
