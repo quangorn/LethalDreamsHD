@@ -53,7 +53,7 @@
  * tree_lookup(world, node->key_rec->key) == 2; возврат — первый узел с другим
  * статусом, NULL при обрыве цепочки. __thiscall: ECX = GridCell*, 1 стек-
  * аргумент = world, `RET 4`; EAX = GridCell* или 0. Единственный вызов —
- * 0x458142 в 0x458050 (сайт 34, leaf_sites.cpp): тело листа — s6_grid_chain_head
+ * 0x458142 в 0x458050 (сайт 33, leaf_sites.cpp): тело листа — s6_grid_chain_head
  * в grid.cpp, claim выпускает оно; оба вложенных листа 0x458050 на пяти
  * старых захватах не исполняются (см. B0_LEAF_GRID_KEY_LOOKUP). */
 #define B0_LEAF_CHAIN_HEAD 0x456b60u

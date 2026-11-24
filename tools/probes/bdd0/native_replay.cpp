@@ -740,9 +740,15 @@ int pos3_equal(const void *a, const void *b)
     return 1;
 }
 
-/* 458050 — grid-якорь: arg5 — байт-флаг, но пишет его только ветка node != 0
- * (1 в tree+key @0x4580fd, 0 в двух fallback'ах @0x458161); при node == 0
- * (0x4580d1 je 0x45817f) байт не трогается — не подменяем его нулями. */
+/* 458050 — grid-якорь: arg5 — байт-флаг, и он НЕ пишется. Натив пишет его
+ * только в ветке node != 0: 1 @0x4580fd (tree+key), 0 в двух fallback'ах
+ * @0x458161; при node == 0 (0x4580d1 je 0x45817f) байт не трогается. Ветку из
+ * записи не восстановить: сайт 0x44c7da — LS_K_INT, листовая запись листа
+ * 0x458050 не содержит out-записи `w` этого байта; в frame_b64 по смещению 0x3f
+ * лежит начальное значение кадра (захват снимает кадр при входе), не поствызовное,
+ * и по нему ветку не восстановить. Тик флаг не читает (tick.cpp только передаёт
+ * &frame+0x3f листу). Писать `(res != NULL)` = фабрикация 1 там, где натив писал
+ * 0 (fallback возвращает не-NULL ячейку), поэтому байт оставляем как есть. */
 void *grid_anchor(void *grid, int a1, int a2, int a3, int a4, int *flag_slot,
                   void *world)
 {
@@ -752,12 +758,7 @@ void *grid_anchor(void *grid, int a1, int a2, int a3, int a4, int *flag_slot,
     a[5] = (int)(size_t)world;
     const LeafRec *r = request(0x458050, grid, 6, a);
     if (r != NULL) g_grid_anchor_replayed = 1;   /* порт не исполнялся */
-    void *res = ret_ptr(r);
-    if (a4 != 0 && flag_slot != NULL) {
-        int keep = *flag_slot & ~0xff;
-        *flag_slot = keep | ((res != NULL) ? 1 : 0);
-    }
-    return res;
+    return ret_ptr(r);
 }
 
 /* 45e1d0 — grid-recompute: 3 dword возвращённой тройки копируются в out3. */

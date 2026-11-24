@@ -387,10 +387,8 @@ void *grid_anchor(void *grid, int a1, int a2, int a3, int a4, int *flag_slot,
     a[4] = (int)(size_t)flag_slot;
     a[5] = (int)(size_t)world;
     int ret = g_cfg.anchor_null ? 0 : (int)g_env.tree_game;
-    if (flag_slot != NULL) {
-        int keep = *flag_slot & ~0xff;
-        *flag_slot = keep | (g_cfg.anchor_null ? 0 : 1);
-    }
+    /* Ветка, пишющая флаг (1 @0x4580fd / 0 @0x458161), не выводится из модельного
+     * состояния, а байт ниже по потоке не читается — не пишем его. */
     record(0x458050, grid, 6, a, ret, NULL, 0);
     /* v15: вложенный вызов сайта 0x458142 → 0x456b60 (chain_head) внутри
      * 0x458050 (`CALL 0x456b60` после проверки статуса == 2). Порт 0x458050

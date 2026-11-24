@@ -402,7 +402,10 @@ GridCell *s6_grid_chain_head(GridCell *node, void *world)
  * E−0x18: [esp+0x28]=E+0x10, [esp+0x2c]=E+0x14, [esp+0x30]=E+0x18; запись
  * `"va":"458050"` в захватах подтверждает: args[2] — float (0x42A80000 = 84.0),
  * args[3] — указатель узла (0 или куча), args[4] — адрес в стеке вызывающего
- * (&байт-флаг), args[5] — unit. `RET 0x18`, EAX = GridCell* или 0:
+ * (&байт-флаг), args[5] — unit. `[esp+0x30]` у 0x4580e3 и 0x45812e = E+0x18 =
+ * arg6 (world): вложенный `call 0x457e20` — `ret 0x10`, ESP восстанавливается,
+ * поэтому arg2 (float) tree-контекстом не становится ни у одного из двух слотов.
+ * `RET 0x18`, EAX = GridCell* или 0:
  *
  *   GridCell *__thiscall f(GridLevel *grid [ECX],
  *                          float x        [S+4  ] — координата x-индекса
@@ -423,14 +426,17 @@ GridCell *s6_grid_chain_head(GridCell *node, void *world)
  * считаются истинным делением по трём живым push'ам, поэтому индексы реальны.
  * Узлы сравнений (PC=53, double):
  *   x-гейт 0x4580a3..0x4580b1: FILD xi / FILD size_x / FCOMPP / `TEST AH,0x41;
- *     JNP` — выход ⟺ size_x ≤ xi (JP ⟺ size_x > xi или unordered). Операнды —
+ *     JNP` — выход ⟺ JNP взят ⟺ size_x ≤ xi; скан продолжается ⟺ JNP не взят ⟺
+ *     size_x > xi (а = ST(0) = size_x; JNP ⟺ NOT(a>b)). Операнды —
  *     точные целые (FILD), поэтому unordered недостижим; граница сравнивается
  *     с ЦЕЛЫМ size (не с (float)size, как в 0x457e20, где лимит кладётся FSTP
  *     m32). Так же y-гейт 0x4580b7..0x4580c5.
  *   min-гейт 0x4581b6..0x4581cc: dist = fabs(min_metric − y_metric) в double, `FCOMPP
  *     dist,best` + `TEST AH,0x5; JP` — JP ⟺ NOT(dist < best) → пропуск
  *     (unordered тоже пропуск); обновление пишет best как float (`FSTP m32`),
- *     поэтому аккумулятор округляется на каждом шаге.
+ *     поэтому аккумулятор округляется на каждом шаге. Базис правила — таблица
+ *     probe8 (re/battle_ai_x87.md §1): a<b → AH=0x01 → PF=0 → JP не взят;
+ *     «C0 == C2» из FCOMP паритет не задаёт.
  * Переиспользование слота (моделируется только видимым эффектом): в ветке
  * node == 0 флаг НЕ пишется (0x4580d1 je 0x45817f), а слот S+0x14 занят
  * float-аккумулятором best (10000.0f @0x458196, затем FSTP @0x4581ce). Слоты
