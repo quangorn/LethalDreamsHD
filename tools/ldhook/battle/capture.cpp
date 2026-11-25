@@ -83,6 +83,9 @@
 #define CAP_BDD0_GS_SIZE    0x20   /* объект FUN_00442570, читаемый телом */
 #define CAP_B64_MAX         (CAP_BDD0_UNIT_SIZE * 4 / 3 + 8)
 #define CAP_B64_BAND_MAX    (CAP_BDD0_BAND_MAX * CAP_BDD0_BAND_ELEM * 4 / 3 + 8)
+/* v16 (аддитивно): потолок узлов на одну RB-карту PathFinder за снимок
+ * (cap_read_map). 512*(4+0x18+0x58+4) ≈ 60 КБ статики на обе карты. */
+#define CAP_BDD0_MAP_MAX    512
 
 /* v3: значение узла map2 (PathState*). w[] — сырые dword'ы PathState; ptr[] —
  * 11 указателей LDPos* (pos, parent, nbr[9]); ptr-поля в w[] харнесс подменяет
@@ -246,6 +249,18 @@ static int          g_band_pos_y[CAP_BDD0_BAND_MAX];
 static unsigned int g_band_pos_sa[CAP_BDD0_BAND_MAX];
 static unsigned int g_band_pos_sl[CAP_BDD0_BAND_MAX];
 static unsigned int g_band_pos_sm[CAP_BDD0_BAND_MAX];
+/* v16 (аддитивно): содержимое одной RB-карты PathFinder (map1 head +0x6c,
+ * map2 head +0x78). Заполняется cap_read_map, пишется cap_write_map; массивы
+ * переиспользуются между картами и между pre/post (fill → write → refill), без
+ * malloc в горячем пути. Узел committed только после чтения 0x18 узла и 0x58
+ * PathState — сбой оставляет последний полный узел, без half-init записи. */
+static unsigned int  g_map_addr[CAP_BDD0_MAP_MAX];
+static unsigned char g_map_node[CAP_BDD0_MAP_MAX][0x18];
+static unsigned char g_map_ps[CAP_BDD0_MAP_MAX][0x58];
+static int           g_map_ps_ok[CAP_BDD0_MAP_MAX];
+static int           g_map_cnt = 0;
+static int           g_map_trunc = 0;
+static int           g_map_fault = 0;
 
 /* Адреса оригинальных листьев (устанавливаются из install_capture_sites). */
 static void *g_fn_cb40 = NULL;
@@ -1951,6 +1966,260 @@ static int  g_leaf_q_order[BDD0_STACK_MAX];
 static int  g_leaf_q_site[BDD0_STACK_MAX];
 static int  g_leaf_q_n = 0;
 
+/* v16 (аддитивно): ограниченный вариант s6_tree_next (порт 0x47f800) для
+ * capture-side обхода карты. Тело — байт-в-байт s6_tree_next (is_nil +0x15,
+ * right +0x08, parent +0x04), но каждый из двух внутренних циклов (спуск к
+ * левому краю, подъём по parent) ограничен CAP_BDD0_MAP_MAX (512) итерациями;
+ * при превышении — NULL, что отличает кап от натурального конца обхода (тот
+ * возвращает head-сентинел, не NULL). __try не ловит бесконечный цикл, а
+ * capture идёт в живой игре — кап обязателен. head в логике не участвует
+ * (сигнатура симметрична cap_read_map). */
+static TreeNode *cap_tree_next_bounded(TreeNode *cur, TreeNode *head)
+{
+    TreeNode *next;
+    int guard;
+
+    (void)head;                              /* сигнатура; логика — s6_tree_next */
+    if (cur->is_nil) {
+        return cur;
+    }
+    next = cur->right;
+    if (!next->is_nil) {
+        guard = CAP_BDD0_MAP_MAX;
+        while (!next->left->is_nil) {
+            if (--guard < 0) {
+                return NULL;                 /* кап: спуск к левому краю не сошёлся */
+            }
+            next = next->left;
+        }
+        return next;
+    }
+    next = cur->parent;
+    guard = CAP_BDD0_MAP_MAX;
+    while (!next->is_nil) {
+        if (cur != next->right) {
+            break;
+        }
+        if (--guard < 0) {
+            return NULL;                     /* кап: подъём по parent не сошёлся */
+        }
+        cur = next;
+        next = next->parent;
+    }
+    return next;
+}
+
+/* v16 (аддитивно): обход одной RB-карты PathFinder от head-сентинела. Паттерн
+ * cap_read_map1: root = head->left (== head у пустой), cap_tree_next_bounded
+ * (кэп-вариант s6_tree_next, порт 0x47f800), стоп на head/NULL/капе
+ * CAP_BDD0_MAP_MAX. NULL = кап внутреннего цикла (не натуральный конец) → trap=1,
+ * собранные узлы сохраняются. Смещения голов подтверж-
+ * дены дизасмом: 0x45ca70 (clear) читает [ebx+0x6c]/[ebx+0x78], 0x45dd00
+ * (вставка) — map-объекты +0x68/+0x74 (голова = объект+4), 0x45ce80 — [ecx+0x6c].
+ * Узел с is_nil не считается данными (сентинел в nodes не пишется) — обход
+ * стопается. Весь обход под __try: fault → trap=1 и останов, собранные узлы
+ * сохраняются; узел, на котором упали, не committed (count++ после обоих read).
+ * head==0 → n=0, узлы не фабрикуются. */
+static void cap_read_map(unsigned int head)
+{
+    TreeNode *h = (TreeNode *)(size_t)head;
+    TreeNode *cur;
+
+    g_map_cnt = 0;
+    g_map_trunc = 0;
+    g_map_fault = 0;
+    if (head == 0) {
+        return;
+    }
+    __try {
+        cur = h->left;                              /* root (== head если пусто) */
+        while (cur != NULL && cur != h && g_map_cnt < CAP_BDD0_MAP_MAX) {
+            unsigned int va = (unsigned int)(size_t)(void *)cur;
+            unsigned char *v;
+            if (cur->is_nil) {                      /* сентинел/битый — не данные */
+                break;
+            }
+            v = (unsigned char *)cur->value;
+            memcpy(g_map_node[g_map_cnt], cur, 0x18);
+            g_map_addr[g_map_cnt] = va;
+            if (v != NULL) {
+                memcpy(g_map_ps[g_map_cnt], v, 0x58);
+                g_map_ps_ok[g_map_cnt] = 1;
+            } else {
+                g_map_ps_ok[g_map_cnt] = 0;
+            }
+            g_map_cnt++;                            /* commit после обоих read */
+            cur = cap_tree_next_bounded(cur, h);
+            if (cur == NULL) {                      /* кап внутреннего цикла: обход не сошёлся */
+                g_map_fault = 1;                    /* trap=1; собранные узлы сохранены */
+                break;
+            }
+        }
+        if (cur != NULL && cur != h && g_map_cnt >= CAP_BDD0_MAP_MAX) {
+            g_map_trunc = 1;                        /* кап остановил обход */
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        g_map_fault = 1;                            /* узел-виновник не committed */
+    }
+}
+
+/* v16: одна карта в JSON — {"head":u32,"n":int,"trunc":0/1,"trap":0/1,
+ * "nodes":[{"a":u32,"n":<b64 0x18>,"ps":<b64 0x58>|null}, ...]}. */
+static void cap_write_map(FILE *f, unsigned int head)
+{
+    int i;
+
+    fprintf(f, "{\"head\":%u,\"n\":%d,\"trunc\":%d,\"trap\":%d,\"nodes\":[",
+            head, g_map_cnt, g_map_trunc, g_map_fault);
+    for (i = 0; i < g_map_cnt; i++) {
+        fprintf(f, "%s{\"a\":%u,\"n\":\"", i ? "," : "", g_map_addr[i]);
+        cap_b64_encode(g_b64, g_map_node[i], 0x18);
+        fputs(g_b64, f);
+        fputs("\",\"ps\":", f);
+        if (g_map_ps_ok[i]) {
+            fputc('"', f);
+            cap_b64_encode(g_b64, g_map_ps[i], 0x58);
+            fputs(g_b64, f);
+            fputc('"', f);
+        } else {
+            fputs("null", f);
+        }
+        fputc('}', f);
+    }
+    fputs("]}", f);
+}
+
+/* v16 (аддитивно): состояние листа 0x45e1d0 (PathFinder/record/sub/ctx/bandrec)
+ * для bdd0_leaf_pre (до вызова) и bdd0_leaf_post (после). Каждое разыменование
+ * под __try; сбой помечает null только свой blob, указатели пишутся всегда
+ * (нужны загрузчику для привязки). ecx==0 → цепочка pf/rec/sub/ctx обнулена;
+ * bandrec = args[1] (от ecx не зависит). Без malloc, буферы — на стеке. */
+static void cap_write_leaf_state(FILE *f, int ecx, const int *args, int nargs)
+{
+    unsigned char pf[0x78];
+    unsigned char recb[0x1c];
+    unsigned char subb[0x10];
+    unsigned char bandb[0x24];
+    unsigned int rec = 0, sub = 0, ctx = 0, bandrec = 0;
+    unsigned int ctx120 = 0, ctx134 = 0;
+    unsigned int head1 = 0, head2 = 0;       /* v16: головы map1 +0x6c / map2 +0x78 */
+    int pf_ok = 0, rec_ok = 0, sub_ok = 0, band_ok = 0, ctx_ok = 0;
+
+    if (args != NULL && nargs > 1) {
+        bandrec = (unsigned int)args[1];
+    }
+    __try {
+        if (ecx != 0) {
+            memcpy(pf, (const void *)(size_t)ecx, 0x78);
+            pf_ok = 1;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        pf_ok = 0;
+    }
+    __try {
+        if (ecx != 0) {
+            rec = *(const unsigned int *)(size_t)ecx;
+            if (rec != 0) {
+                memcpy(recb, (const void *)(size_t)rec, 0x1c);
+                rec_ok = 1;
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        rec_ok = 0;                      /* rec (указатель) сохраняется */
+    }
+    __try {
+        if (rec != 0) {
+            sub = *(const unsigned int *)(size_t)(rec + 0x0c);
+            if (sub != 0) {
+                memcpy(subb, (const void *)(size_t)sub, 0x10);
+                sub_ok = 1;
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        sub_ok = 0;                      /* sub (указатель) сохраняется */
+    }
+    __try {
+        if (rec != 0) {
+            ctx = *(const unsigned int *)(size_t)(rec + 0x04);
+            if (ctx != 0) {
+                ctx120 = *(const unsigned int *)(size_t)(ctx + 0x120);
+                ctx134 = *(const unsigned int *)(size_t)(ctx + 0x134);
+                ctx_ok = 1;
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ctx_ok = 0;                      /* ctx (указатель) сохраняется */
+    }
+    __try {
+        if (bandrec != 0) {
+            memcpy(bandb, (const void *)(size_t)bandrec, 0x24);
+            band_ok = 1;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        band_ok = 0;
+    }
+    fputs(",\"pf\":", f);
+    cap_write_b64_field(f, pf_ok, pf, 0x78);
+    fprintf(f, ",\"rec\":%u", rec);
+    fputs(",\"rec_b64\":", f);
+    cap_write_b64_field(f, rec_ok, recb, 0x1c);
+    fprintf(f, ",\"sub\":%u", sub);
+    fputs(",\"sub_b64\":", f);
+    cap_write_b64_field(f, sub_ok, subb, 0x10);
+    fprintf(f, ",\"ctx\":%u", ctx);
+    fputs(",\"ctx120\":", f);
+    if (ctx_ok) fprintf(f, "%u", ctx120); else fputs("null", f);
+    fputs(",\"ctx134\":", f);
+    if (ctx_ok) fprintf(f, "%u", ctx134); else fputs("null", f);
+    fprintf(f, ",\"bandrec\":%u", bandrec);
+    fputs(",\"bandrec_b64\":", f);
+    cap_write_b64_field(f, band_ok, bandb, 0x24);
+    /* v16 (аддитивно): обе RB-карты PathFinder — map1 head +0x6c, map2 head
+     * +0x78 (0x45ca70/0x45dd00/0x45ce80). head=0/n=0 при NULL-голове или
+     * нечитаемом ecx; узлы не фабрикуются. Порядок ключей одинаков в pre/post. */
+    __try {
+        if (ecx != 0) {
+            head1 = *(const unsigned int *)(size_t)(ecx + 0x6c);
+            head2 = *(const unsigned int *)(size_t)(ecx + 0x78);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        head1 = 0;
+        head2 = 0;
+    }
+    fputs(",\"maps\":{\"m1\":", f);
+    cap_read_map(head1);
+    cap_write_map(f, head1);
+    fputs(",\"m2\":", f);
+    cap_read_map(head2);
+    cap_write_map(f, head2);
+    fputc('}', f);
+}
+
+/* v16: bdd0_leaf_pre/bdd0_leaf_post — тот же заголовок, что bdd0_leaf (v, kind,
+ * seq, order, site, va, ecx, args) + состояние (cap_write_leaf_state). site/va —
+ * hex-строки (как в bdd0_leaf). Один ключевой набор в обоих родах. */
+static void cap_write_bdd0_leaf_state_rec(const char *kind, int seq, int order,
+                                          int site, int va, int ecx,
+                                          const int *args, int nargs)
+{
+    int k;
+
+    if (g_file == NULL) {
+        return;
+    }
+    fprintf(g_file, "{\"v\":%d,\"kind\":\"%s\",\"seq\":%d,\"order\":%d,"
+            "\"site\":\"%x\",\"va\":\"%x\",\"ecx\":%d,\"args\":[",
+            CAP_BDD0_SNAP_VER, kind, seq, order, site, va, ecx);
+    for (k = 0; k < nargs; k++) {
+        if (args != NULL) {
+            fprintf(g_file, "%s%d", k ? "," : "", args[k]);
+        }
+    }
+    fputc(']', g_file);
+    cap_write_leaf_state(g_file, ecx, args, nargs);
+    fputs("}\n", g_file);
+}
+
 static int cap_leaf_sink_enter(int site, int va, int ecx, const int *args,
                                int nargs)
 {
@@ -1970,6 +2239,13 @@ static int cap_leaf_sink_enter(int site, int va, int ecx, const int *args,
     g_leaf_q_seq[g_leaf_q_n] = fr->seq;
     g_leaf_q_order[g_leaf_q_n] = fr->call_order++;
     g_leaf_q_site[g_leaf_q_n] = site;
+    /* v16: pre-состояние только листа 0x45e1d0 (guard по va, не по сайту) —
+     * тем же order/seq, что понесёт bdd0_leaf этого вызова. */
+    if (va == 0x45e1d0) {
+        cap_write_bdd0_leaf_state_rec("bdd0_leaf_pre", g_leaf_q_seq[g_leaf_q_n],
+                                      g_leaf_q_order[g_leaf_q_n], site, va, ecx,
+                                      args, nargs);
+    }
     return g_leaf_q_n++;
 }
 
@@ -1991,6 +2267,13 @@ static void cap_leaf_sink_exit(int token, int va, int ecx, const int *args,
     site = g_leaf_q_site[token];
     battle_capture_bdd0_leaf_rec(site, va, (const void *)(size_t)ecx, args,
                                  nargs, ret_bits, w, nw, seq, order, trap);
+    /* v16: post-состояние сразу за bdd0_leaf, тем же seq/order/site/va и
+     * ecx/args из exit; не пишется при trap (в т.ч. рассинхрон LIFO) — token
+     * уже проверен выше. Только лист 0x45e1d0 (guard по va). */
+    if (va == 0x45e1d0 && !trap) {
+        cap_write_bdd0_leaf_state_rec("bdd0_leaf_post", seq, order, site, va,
+                                      ecx, args, nargs);
+    }
 }
 
 /* Пропущенный сайт (не `call rel32` / чужой rel32 / нет адреса) — маркер в
