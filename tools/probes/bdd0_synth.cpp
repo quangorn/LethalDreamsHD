@@ -120,6 +120,19 @@ static const Profile k_profiles[] = {
     /* band: u170=1 и лента длиной 2 → B10/B11 → ранний выход R22. */
     { "band", 1, 0, 0.0f, 1.0f, 3u, 1, 2, 0, 0, 0u, 0, 0,
       { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0u, 2 },
+    /* band_geo: v16 — путь pos3_neq (state 3, лента 2, u170=0): тело band-loop
+     * B55→B56(≠)→B59→B67 (45b150) →B70 (45b3e0). 458050 (B82) на этом тике НЕ
+     * достигается (нужен путь R12, как в grid). Тройка {100,2,100} далеко от
+     * ленты ⇒ 45b150 > 3.0 (B70 достигнут). В "all". */
+    { "band_geo", 1, 0, 0.0f, -1.0f, 3u, 0, 2, 0, 0, 0u, 0, 0,
+      { 1.0f, 2.0f, 3.0f }, { 100.0f, 2.0f, 100.0f }, 1, 0, 0u, -1,
+      0, 0, 0, 1, 0 },   /* ctx_pos (v15): независимая тройка → leaf_value 45c6f0 сверяется */
+    /* band_big: как band_geo, но band_n == BDD0_BAND_MAX (64) — проверка
+     * запаса арены в 2 элемента (floor elem[64] материализуется, 45b3e0
+     * читает LDPos* на begin+count*0x18+0x10 без trap). В "all". */
+    { "band_big", 1, 0, 0.0f, -1.0f, 3u, 0, 64, 0, 0, 0u, 0, 0,
+      { 1.0f, 2.0f, 3.0f }, { 100.0f, 2.0f, 100.0f }, 1, 0, 0u, -1,
+      0, 0, 0, 1, 0 },   /* ctx_pos (v15): независимая тройка */
     /* band0: u170=1, end != 0, но begin = 0 → 45af50 даёт 0 (TEST/JZ) →
      * голова NULL. Отличает правило begin==0 от «end != begin». */
     { "band0", 1, 0, 0.0f, 1.0f, 3u, 1, 2, 1, 1, 0u, 0, 0,
@@ -191,6 +204,48 @@ static const Profile k_profiles[] = {
       { 1.0f, 2.0f, 3.0f }, { 1.0f, 2.0f, 3.0f }, 1, 0, 0x20000000u, 2, 0, 0,
       0, 1, 1 }
 };
+
+/* v16: игровые адреса геометрии. band[i].pos = GAME_LDPOS + i*0x40; уровень
+ * элемента i = GAME_GRIDLVL + (i%nlev)*0x30 (тот же объект, что в grid-записи).
+ * GAME_TREE == GAME_GRIDLVL: корень сетки = уровень 0. */
+#define GAME_LDPOS    0x10070000u
+#define GAME_GRIDLVL  0x10030000u   /* = GAME_TREE */
+#define GAME_CELLS    0x10080000u
+#define GAME_FRAME    0x0012E000u
+#define BAND_SCALE_ADD  0.0f
+#define BAND_SCALE_LOAD 0.0f
+#define BAND_SCALE_MUL  1.0f
+
+/* Модель сетки (grid record + арена): 2 уровня, лист 2x2 (4 ячейки), scale
+ * 1/3/1 на обоих уровнях (совпадает с band_pos — один источник чисел). */
+static GridModel g_grid;
+
+static void build_grid_model(void)
+{
+    int i;
+
+    g_grid = GridModel();
+    g_grid.valid = 1;
+    g_grid.nlev = 2;
+    g_grid.leaf = 1;
+    for (i = 0; i < 2; i++) {
+        g_grid.lev[i].sx = 2;
+        g_grid.lev[i].sy = 2;
+        g_grid.lev[i].rx = 0;
+        g_grid.lev[i].ry = 0;
+        g_grid.lev[i].sa = fbits(BAND_SCALE_ADD);
+        g_grid.lev[i].sl = fbits(BAND_SCALE_LOAD);
+        g_grid.lev[i].sm = fbits(BAND_SCALE_MUL);
+        g_grid.lev[i].next = (i + 1 < 2) ? i + 1 : -1;
+    }
+    g_grid.ncell = 4;
+    for (i = 0; i < 4; i++) {
+        g_grid.rows[i] = i;
+        g_grid.key[i] = i;
+        g_grid.nextc[i] = -1;
+        g_grid.minm[i] = 0;
+    }
+}
 
 /* Снимок по профилю: unit 0x180, встроенный BattleAI 0x80 (unit+0x138),
  * кадр 0x168, лента band_n*0x18, game state 0x20. */
@@ -276,6 +331,27 @@ static void fill_record(TickRecord &t, const Profile &pf, int seq, int tick)
         float x = (float)i;
         memcpy(t.band + i * BDD0_BAND_ELEM + 0x00, &x, 4);
     }
+    /* v16: геометрия ленты. [elem+0x14] = GAME_LDPOS+i*0x40 (сырой LDPos*),
+     * pos/level (x=i*10, y=i*20+5, scale 1/3/1) — в band_pos. Арена читает
+     * [elem+0x14] из band_b64 и материализует LDPos/level по band_pos, поэтому
+     * порт и модель считают по одним числам. band_n==0 → band_pos null. */
+    t.has_band_pos = 0;
+    t.band_pos_n = 0;
+    if (pf.band_n > 0) {
+        for (int i = 0; i < pf.band_n && i < BDD0_BAND_MAX; i++) {
+            unsigned pos = GAME_LDPOS + (unsigned)i * 0x40;
+
+            memcpy(t.band + i * BDD0_BAND_ELEM + 0x14, &pos, 4);
+            t.band_pos_ok[i] = 1;
+            t.band_pos_x[i] = i * 10;
+            t.band_pos_y[i] = i * 20 + 5;
+            t.band_pos_sa[i] = fbits(BAND_SCALE_ADD);
+            t.band_pos_sl[i] = fbits(BAND_SCALE_LOAD);
+            t.band_pos_sm[i] = fbits(BAND_SCALE_MUL);
+        }
+        t.has_band_pos = 1;
+        t.band_pos_n = pf.band_n;
+    }
 
     /* game state: фаза 0.., pos-тройка, player (не NULL), cursor */
     memset(t.gs, 0, sizeof(t.gs));
@@ -334,7 +410,7 @@ static void write_jsonl(FILE *f, const TickRecord &in, const TickRecord &post,
         memcpy(&cp[0], &tx, 4);
     }
 
-    fprintf(f, "{\"v\":15,\"kind\":\"bdd0_in\",\"seq\":%d,\"tick\":%d,\"unit\":%d,"
+    fprintf(f, "{\"v\":16,\"kind\":\"bdd0_in\",\"seq\":%d,\"tick\":%d,\"unit\":%d,"
                "\"fn\":\"44bdd0\",\"self\":%u,\"p1\":%d,\"p2\":%d,\"p3\":%d,"
                "\"ai_ctx\":%u,\"u170\":%d,\"gate114\":%u,\"band\":[%u,%u],"
                "\"frame_b64\":\"%s\","
@@ -352,6 +428,26 @@ static void write_jsonl(FILE *f, const TickRecord &in, const TickRecord &post,
      * пишут его всегда: null при NULL-ctx или сбое чтения). */
     if (pf.ctx_pos_mode != 0) {
         fprintf(f, ",\"ctx_pos\":[%d,%d,%d]", cp[0], cp[1], cp[2]);
+    }
+    /* v16: "band_pos" — геометрия ленты (null при band_n==0). */
+    fputs(",\"band_pos\":", f);
+    if (in.band_n > 0 && in.has_band_pos) {
+        int i, n = in.band_n;
+        fputs("{\"ok\":[", f);
+        for (i = 0; i < n; i++) fprintf(f, "%s%d", i ? "," : "", in.band_pos_ok[i]);
+        fputs("],\"x\":[", f);
+        for (i = 0; i < n; i++) fprintf(f, "%s%d", i ? "," : "", in.band_pos_x[i]);
+        fputs("],\"y\":[", f);
+        for (i = 0; i < n; i++) fprintf(f, "%s%d", i ? "," : "", in.band_pos_y[i]);
+        fputs("],\"sa\":[", f);
+        for (i = 0; i < n; i++) fprintf(f, "%s%u", i ? "," : "", in.band_pos_sa[i]);
+        fputs("],\"sl\":[", f);
+        for (i = 0; i < n; i++) fprintf(f, "%s%u", i ? "," : "", in.band_pos_sl[i]);
+        fputs("],\"sm\":[", f);
+        for (i = 0; i < n; i++) fprintf(f, "%s%u", i ? "," : "", in.band_pos_sm[i]);
+        fputs("]}", f);
+    } else {
+        fputs("null", f);
     }
     fputs(",\"trap\":0}\n", f);
 
@@ -420,6 +516,49 @@ static void write_jsonl(FILE *f, const TickRecord &in, const TickRecord &post,
     fputs("\"trap\":0}\n", f);
 }
 
+/* v16: одна grid-запись на файл (форма cap_write_grid_record, capture.cpp). */
+static void write_grid_record(FILE *f)
+{
+    int i, n = g_grid.ncell;
+
+    fprintf(f, "{\"v\":10,\"kind\":\"grid\",\"sx\":%d,\"sy\":%d,\"leaf\":%d,\"cells_base\":%u,"
+               "\"levels\":[", g_grid.lev[g_grid.leaf].sx,
+               g_grid.lev[g_grid.leaf].sy, g_grid.leaf, GAME_CELLS);
+    for (i = 0; i < g_grid.nlev; i++) {
+        fprintf(f, "%s{\"i\":%d,\"sx\":%d,\"sy\":%d,\"rx\":%d,\"ry\":%d,"
+                   "\"sa\":%u,\"sl\":%u,\"sm\":%u,\"next\":%d}",
+                i ? "," : "", i, g_grid.lev[i].sx, g_grid.lev[i].sy,
+                g_grid.lev[i].rx, g_grid.lev[i].ry, g_grid.lev[i].sa,
+                g_grid.lev[i].sl, g_grid.lev[i].sm, g_grid.lev[i].next);
+    }
+    fputs("],\"world\":{\"w110\":0,\"vt\":0,\"a1\":0,\"obj4\":0,\"wscale\":0},"
+          "\"rows\":[", f);
+    for (i = 0; i < n; i++) fprintf(f, "%s%d", i ? "," : "", g_grid.rows[i]);
+    fputs("],\"cells\":{\"key\":[", f);
+    for (i = 0; i < n; i++) fprintf(f, "%s%d", i ? "," : "", g_grid.key[i]);
+    fputs("],\"status\":[", f);
+    for (i = 0; i < n; i++) fputs(i ? ",0" : "0", f);
+    fputs("],\"min\":[", f);
+    for (i = 0; i < n; i++) fprintf(f, "%s%d", i ? "," : "", g_grid.minm[i]);
+    fputs("],\"max\":[", f);
+    for (i = 0; i < n; i++) fputs(i ? ",0" : "0", f);
+    fputs("],\"next\":[", f);
+    for (i = 0; i < n; i++) fprintf(f, "%s%d", i ? "," : "", g_grid.nextc[i]);
+    fputs("],\"chain\":[", f);
+    for (i = 0; i < n; i++) fputs(i ? ",-1" : "-1", f);
+    fputs("],\"w0\":[", f);
+    for (i = 0; i < n; i++) fputs(i ? ",0" : "0", f);
+    fputs("],\"w1\":[", f);
+    for (i = 0; i < n; i++) fputs(i ? ",0" : "0", f);
+    fputs("],\"w2\":[", f);
+    for (i = 0; i < n; i++) fputs(i ? ",0" : "0", f);
+    fputs("],\"w3\":[", f);
+    for (i = 0; i < n; i++) fputs(i ? ",0" : "0", f);
+    fputs("],\"w4\":[", f);
+    for (i = 0; i < n; i++) fputs(i ? ",0" : "0", f);
+    fputs("]}}\n", f);
+}
+
 /* Один тик: арена → модельный тик → запись. Возврат 0 при успехе. */
 static int run_tick(FILE *f, const Profile &pf, int seq, int verbose)
 {
@@ -443,6 +582,8 @@ static int run_tick(FILE *f, const Profile &pf, int seq, int verbose)
     env.ctx_pos[0] = pf.ai_pos[0];
     env.ctx_pos[1] = pf.ai_pos[1];
     env.ctx_pos[2] = pf.ai_pos[2];
+    env.grid_cells_game = GAME_CELLS;   /* v16: перевод ret/arg 458050 */
+    env.frame_game = GAME_FRAME;
     /* v14: после-состояние ленты для модели 45eee0 (ww-пара [0x5c,0x60]).
      * post_band_n < 0 — старая семантика без ww (resync-fallback). */
     env.band_post_game = (pf.post_band_n > 0) ? GAME_BAND : 0u;
@@ -494,20 +635,28 @@ int main(int argc, char **argv)
 {
     if (argc < 2) {
         fputs("usage: bdd0_synth.exe <out.jsonl> "
-              "[grid|simple|band|band0|band_rec|band_trunc|band_trunc_neg|"
-              "pos_null|pos3_eq|pos3_neq|pos3_nan|ctx_pos|ctx_pos_bad|"
-              "chain_nested|all] [-v]\n", stderr);
+              "[grid|simple|band|band_geo|band_big|band0|band_rec|band_trunc|"
+              "band_trunc_neg|pos_null|pos3_eq|pos3_neq|pos3_nan|ctx_pos|"
+              "ctx_pos_bad|chain_nested|all] [-v]\n", stderr);
         return 2;
     }
     const char *out = argv[1];
     const char *which = (argc > 2 && argv[2][0] != '-') ? argv[2] : "all";
     int verbose = (argc > 2 && strcmp(argv[argc - 1], "-v") == 0) ? 1 : 0;
 
+    build_grid_model();                 /* v16: модель сетки (grid + арена) */
+    arena_set_grid_model(&g_grid);
+    /* v16: во время ЗАПИСИ гейты модели читают 0 — поток ведут native:: листья
+     * (native_model.cpp), не порт; арена всё равно материализует grid/band_pos.
+     * Харнесс читает файл с флагом 0 → гейты 1 → порт исполняется. */
+    arena_set_model_gates_off(1);
+
     FILE *f = fopen(out, "wb");
     if (f == NULL) {
         fprintf(stderr, "cannot write %s\n", out);
         return 2;
     }
+    write_grid_record(f);               /* v16: одна grid-запись перед bdd0_in */
     int rc = 0, seq = 0;
     for (size_t i = 0; i < sizeof(k_profiles) / sizeof(k_profiles[0]); i++) {
         const Profile &pf = k_profiles[i];
@@ -517,6 +666,6 @@ int main(int argc, char **argv)
         rc |= run_tick(f, pf, seq, verbose);
     }
     fclose(f);
-    if (rc == 0) fprintf(stderr, "synth: %s (%d ticks)\n", out, seq);
+    if (rc == 0) fprintf(stderr, "synth: %s (%d ticks) model_calls: band_interp_gate=%d band_target_moved=%d grid_anchor=%d\n", out, seq, model_band_gate_calls(), model_band_target_calls(), model_grid_anchor_calls());
     return rc;
 }

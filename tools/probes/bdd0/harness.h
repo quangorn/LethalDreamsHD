@@ -106,9 +106,24 @@ struct TickRecord {
      * записи листа, поэтому заявка 45c6f0 сверяется как обычное значение. */
     int has_ctx_pos;
     int ctx_pos[3];
+    /* v16 (аддитивно): геометрия ленты — параллельные массивы на band_n
+     * элементов (bdd0_in "band_pos"). has_band_pos=1 только когда ключ есть,
+     * длина совпадает с (end-begin)/0x18 и все ok[i]==1 (правило загрузчика:
+     * неполная геометрия не моделируется). sa/sl/sm — сырые биты float-тройки
+     * уровня (GridLevel +0x20/+0x24/+0x28). */
+    int has_band_pos;
+    int band_pos_n;
+    int band_pos_ok[BDD0_BAND_MAX];
+    int band_pos_x[BDD0_BAND_MAX];
+    int band_pos_y[BDD0_BAND_MAX];
+    unsigned band_pos_sa[BDD0_BAND_MAX];
+    unsigned band_pos_sl[BDD0_BAND_MAX];
+    unsigned band_pos_sm[BDD0_BAND_MAX];
     unsigned self_raw;         /* bdd0_in self = адрес unit в игре */
     unsigned band_raw;         /* bdd0_in band_begin = адрес ленты */
     unsigned gs_raw;           /* возврат 442570 = адрес объекта состояния игры */
+    unsigned grid_cells_raw;   /* v16: база массива ячеек листа (grid cells_base) */
+    unsigned grid_cells_len;   /* v16: длина массива ячеек (ncell*0x34), 0 — нет */
     unsigned char frame[BDD0_FRAME_LEN];
     unsigned char unit[BDD0_UNIT_LEN];
     unsigned char ai[BDD0_AI_LEN];
@@ -134,7 +149,8 @@ struct TickRecord {
           band_in_end(0), has_res_band(0), band_post_begin(0), band_post_end(0),
           has_chain(0), e0(0), e0_44(0), tree(0),
           has_gctx0(0), gctx0(0), has_ctx_pos(0), self_raw(0), band_raw(0),
-          gs_raw(0), trap(0),
+          gs_raw(0), grid_cells_raw(0), grid_cells_len(0), trap(0),
+          has_band_pos(0), band_pos_n(0),
           has_res(0), res_trap(0), res_al(0), res_out(0), res_u170(0),
           leaf_first(0), leaf_n(0), native_first(0), native_n(0),
           native_eee0_no_ww(0), incomplete_tail(0), res_missing_nontail(0)
@@ -146,7 +162,38 @@ struct TickRecord {
         for (int i = 0; i < BDD0_GS_LEN; i++) gs[i] = 0;
         ctx_pos[0] = ctx_pos[1] = ctx_pos[2] = 0;
         res_m[0] = res_m[1] = res_m[2] = 0;
+        for (int i = 0; i < BDD0_BAND_MAX; i++) {
+            band_pos_ok[i] = 0;
+            band_pos_x[i] = band_pos_y[i] = 0;
+            band_pos_sa[i] = band_pos_sl[i] = band_pos_sm[i] = 0;
+        }
     }
+};
+
+/* v16: модель сетки pathfinding'а из записи kind:"grid" (cap_write_grid_record,
+ * tools/ldhook/battle/capture.cpp). Один снимок на файл; арена материализует
+ * под неё GridLevel/ячейки/rows, чтобы порт 0x458050 (s6_grid_anchor_lookup)
+ * читал свои входы. Уровни: scale-тройка (биты float), size_x/size_y, next
+ * (индекс следующего уровня, -1 — лист). Ячейки листа: key_rec->key, next
+ * (цепочка +0x24), min_metric (float-биты). rows[x][y] — индекс ячейки. */
+#define BDD0_GRID_MAX_LEVELS 16
+#define BDD0_GRID_MAX_CELLS  256
+struct GridLevelModel {
+    int sx, sy, rx, ry;
+    unsigned sa, sl, sm;       /* float-биты scale_add/scale_load/scale_mul */
+    int next;                  /* индекс следующего уровня, -1 — лист */
+};
+struct GridModel {
+    int valid;
+    int nlev, leaf;
+    GridLevelModel lev[BDD0_GRID_MAX_LEVELS];
+    int ncell;                 /* leaf.sx * leaf.sy */
+    unsigned cells_game;       /* v16: база массива ячеек в игре (grid "cells_base"; 0 — нет) */
+    int rows[BDD0_GRID_MAX_CELLS];   /* rows[x][y] = индекс ячейки */
+    int key[BDD0_GRID_MAX_CELLS];    /* key_rec->key */
+    int nextc[BDD0_GRID_MAX_CELLS];  /* cell.next (индекс, -1) */
+    int minm[BDD0_GRID_MAX_CELLS];   /* cell.min_metric (float-биты) */
+    GridModel() : valid(0), nlev(0), leaf(-1), ncell(0), cells_game(0) {}
 };
 
 struct Scenario {
@@ -154,6 +201,8 @@ struct Scenario {
     std::vector<TickRecord> ticks;
     std::vector<LeafRec> leaves;
     std::vector<NativeRec> natives;
+    GridModel grid;            /* v16: модель сетки из kind:"grid" (bdd0-путь) */
+    int has_grid;              /* 1 — grid-запись разобрана (bdd0_grid_level_modelled) */
     int snap_records;          /* сколько bdd0_in прочитано */
     int leaf_records;
     int native_records;
@@ -175,7 +224,8 @@ struct Scenario {
     Scenario() : snap_records(0), leaf_records(0), native_records(0),
                  truncated(0), records(0), leaf_missing_n(0),
                  native_missing_n(0), nested_leaf_n(0), input_trap(0),
-                 outcome_trap(0), incomplete_tail(0), res_missing_nontail(0) {}
+                 outcome_trap(0), incomplete_tail(0), res_missing_nontail(0),
+                 has_grid(0) {}
 };
 
 /* Загрузчик (scenario.cpp). Ошибка формата → std::runtime_error (rc 2). */
@@ -348,6 +398,14 @@ Arena *arena_build(const TickRecord *rec);
 void arena_release(Arena *a);
 void arena_set_current(Arena *a);
 Arena *arena_current(void);
+/* v16: модель сетки на весь файл (kind:"grid"). Ставится загрузчиком один раз;
+ * arena_build копирует указатель в арену, bdd0_grid_level_modelled() его читает. */
+void arena_set_grid_model(const GridModel *g);
+/* v16: генератор синтетики ставит 1 — гейты модели (bdd0_*_modelled) читают 0
+ * во время записи файла (запись ведёт модельный натив); харнесс оставляет 0. */
+void arena_set_model_gates_off(int off);
+/* v16: сколько bind_add отброшено из-за переполнения (диагностика, не молчание). */
+int arena_bind_overflow(const Arena *a);
 
 const RegionView *arena_regions(const Arena *a);
 int arena_region_n(const Arena *a);
@@ -410,6 +468,10 @@ int bdd0_band_gate_replayed(void);
 /* 45b3e0: то же для предиката ленты — sites 18/22 реплеятся, порт не исполнялся
  * (геометрия ленты в захвате отсутствует). */
 int bdd0_band_target_replayed(void);
+/* v16: порт реально исполнился (заявка снята) — счётчики исполнения. */
+int bdd0_band_gate_port(void);
+int bdd0_band_target_port(void);
+int bdd0_grid_anchor_port(void);
 const LeafRec *bdd0_leaf_record_at(int i);
 
 /* v12: заявки портированных листьев (battle/ported.h) текущего тика. */

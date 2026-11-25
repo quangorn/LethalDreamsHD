@@ -110,6 +110,11 @@ static int g_band_gate_replayed = 0;
 /* 45b3e0: то же для предиката ленты — sites 18/22 делят тот же гейт
  * bdd0_band_geometry_modelled (tick.cpp b0_band_target_moved). */
 static int g_band_target_replayed = 0;
+/* v16: порт РЕАЛЬНО исполнился (заявка снята) — счётчики исполнения, а не
+ * реплея. Ненулевые на synth_v16 (band_geo/grid), нулевые на v12..v15. */
+static int g_band_gate_port = 0;
+static int g_band_target_port = 0;
+static int g_grid_anchor_port = 0;
 
 static void ctx_pos_from_stream(void)
 {
@@ -136,6 +141,9 @@ void bdd0_leaf_begin(int seq, const LeafRec *v, int n)
     g_grid_anchor_replayed = 0;
     g_band_gate_replayed = 0;
     g_band_target_replayed = 0;
+    g_band_gate_port = 0;
+    g_band_target_port = 0;
+    g_grid_anchor_port = 0;
     g_log_n = 0;
     g_claim_n = 0;
     for (int k = 0; k < LEAF_LOG_MAX; k++) {
@@ -159,6 +167,10 @@ int bdd0_band_gate_replayed(void) { return g_band_gate_replayed; }
 /* 45b3e0: тик потребил запись потока (порт не исполнялся — геометрии ленты в
  * захвате нет; tick.cpp b0_band_target_moved). Сбрасывается в bdd0_leaf_begin. */
 int bdd0_band_target_replayed(void) { return g_band_target_replayed; }
+/* v16: счётчики исполнения порта (заявка снята). */
+int bdd0_band_gate_port(void) { return g_band_gate_port; }
+int bdd0_band_target_port(void) { return g_band_target_port; }
+int bdd0_grid_anchor_port(void) { return g_grid_anchor_port; }
 const char *bdd0_leaf_violation_why(void) { return g_why; }
 
 const CallLogEnt *bdd0_calllog(int *n)
@@ -377,6 +389,10 @@ void bdd0_leaf_claim_w(unsigned int va, void *ecx, int ret, const int *args,
         }
         g_claim_n++;
         appended = 1;
+        /* v16: порт исполнился (снял заявку) — счётчик исполнения. */
+        if (va == B0_LEAF_INTERP_GATE) g_band_gate_port++;
+        else if (va == B0_LEAF_BAND_TARGET) g_band_target_port++;
+        else if (va == B0_LEAF_GRID_ANCHOR) g_grid_anchor_port++;
     } else {
         viol("leaf claim log overflow at claim %d (va=0x%x)", g_claim_n, va);
     }

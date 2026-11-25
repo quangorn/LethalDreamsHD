@@ -17,7 +17,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <math.h>
+
 #include "../../ldhook/battle/native.h"
+#include "../../ldhook/battle/battle.h"
 #include "../../ldhook/battle/ported.h"
 #include "harness.h"
 #include "model.h"
@@ -27,6 +30,11 @@ static ModelCfg g_cfg;
 static std::vector<LeafRec> g_rec;
 static std::vector<NativeRec> g_nat;
 static int g_order = 0;
+/* v16: счётчики вызовов модельного натива (доказательство, что при
+ * генерации зовётся модель, а не порт). Печатает bdd0_synth main. */
+static int g_band_gate_calls = 0;
+static int g_band_target_calls = 0;
+static int g_grid_anchor_calls = 0;
 
 void model_set(const ModelEnv &env, const ModelCfg &cfg) { g_env = env; g_cfg = cfg; }
 void model_leaf_reset(void) { g_rec.clear(); g_nat.clear(); g_order = 0; }
@@ -40,6 +48,9 @@ const NativeRec *model_native_at(int i)
 {
     return (i >= 0 && i < (int)g_nat.size()) ? &g_nat[i] : NULL;
 }
+int model_band_gate_calls(void) { return g_band_gate_calls; }
+int model_band_target_calls(void) { return g_band_target_calls; }
+int model_grid_anchor_calls(void) { return g_grid_anchor_calls; }
 
 /* v12: реплей-слой в генераторе не читает поток. */
 void bdd0_native_begin(int seq, const NativeRec *v, int n,
@@ -90,20 +101,21 @@ const LeafRec *bdd0_leaf_record_at(int i) { (void)i; return NULL; }
 int bdd0_leaf_applied_w(int i, int *w3) { (void)i; (void)w3; return 0; }
 int bdd0_leaf_consumed(void) { return 0; }
 const LeafRec *bdd0_leaf_pending(void) { return NULL; }
-/* 458050: генератор линкуется с BATTLE_REPLAY, bdd0_grid_level_modelled() = 0 —
- * диспетчер tick.cpp всегда берёт модельную ветку (native::grid_anchor из этого
- * файла), тело порта в генераторе не исполняется. native_replay.cpp сюда не линкуется:
- * счётчика реплея нет, stub 0. */
+/* 458050: arena_set_model_gates_off(1) → bdd0_grid_level_modelled() = 0, поэтому
+ * диспетчер tick.cpp берёт модельную ветку (native::grid_anchor ниже), тело порта
+ * не исполняется. native_replay.cpp не линкуется: счётчика реплея нет, stub 0. */
 int bdd0_grid_anchor_replayed(void) { return 0; }
-/* 45b150: генератор линкуется с BATTLE_REPLAY, bdd0_band_geometry_modelled() = 0 —
- * диспетчер tick.cpp всегда берёт модельную ветку (native::band_interp_gate из этого
- * файла), тело порта в генераторе не исполняется. native_replay.cpp сюда не линкуется:
- * счётчика реплея нет, stub 0. */
+/* 45b150: arena_set_model_gates_off(1) → bdd0_band_geometry_modelled() = 0, диспетчер
+ * tick.cpp берёт модельную ветку (native::band_interp_gate ниже). native_replay.cpp не
+ * линкуется: счётчика реплея нет, stub 0. */
 int bdd0_band_gate_replayed(void) { return 0; }
-/* 45b3e0: тот же гейт bdd0_band_geometry_modelled() = 0 — диспетчер всегда
- * берёт модельную ветку (native::band_target_moved из этого файла), тело порта
- * в генераторе не исполняется; счётчика реплея нет, stub 0. */
+/* 45b3e0: тот же гейт (switch) = 0 — диспетчер берёт модельную ветку
+ * (native::band_target_moved ниже); счётчика реплея нет, stub 0. */
 int bdd0_band_target_replayed(void) { return 0; }
+/* v16: генератор не судит заявки — счётчиков исполнения порта нет. */
+int bdd0_band_gate_port(void) { return 0; }
+int bdd0_band_target_port(void) { return 0; }
+int bdd0_grid_anchor_port(void) { return 0; }
 /* v15: восстановленной записи 0x45eee0 в генераторе нет — поток пишет он сам. */
 int bdd0_eee0_synth(void) { return 0; }
 /* Заявки портированных листьев: генератор их не судит (поток он создаёт сам,
@@ -188,6 +200,45 @@ static const PortedLeafModel *ported_model_find(unsigned va)
 void bdd0_leaf_claim_w(unsigned int va, void *ecx, int ret, const int *args,
                        int nargs, const int *w, int nw)
 {
+    /* v16: условные порты (45b150/45b3e0/458050) исполняются в синтетике, когда
+     * арена несёт модель; их заявка пишется в поток в ИГРОВОМ пространстве
+     * (ecx/ret/args переводятся из shadow по правилам листа). */
+    if (va == B0_LEAF_INTERP_GATE || va == B0_LEAF_BAND_TARGET) {
+        int a[3];
+        a[0] = (nargs > 0 && args) ? args[0] : 0;
+        a[1] = (nargs > 1 && args) ? args[1] : 0;
+        a[2] = (nargs > 2 && args) ? args[2] : 0;
+        record((int)va, (void *)(size_t)((int)g_env.self_game + BDD0_AI_OFF +
+               B0_BATTLE_AI_BAND), 3, a, ret, NULL, 0);
+        return;
+    }
+    if (va == B0_LEAF_GRID_ANCHOR) {
+        unsigned char *frame_sh = arena_region_w(arena_current(), "frame");
+        unsigned char *unit_sh = arena_region_w(arena_current(), "unit");
+        unsigned char *cells_sh = arena_region_w(arena_current(), "grid_cells");
+        int a[6];
+        int game_ret = 0;
+        a[0] = (nargs > 0 && args) ? args[0] : 0;
+        a[1] = (nargs > 1 && args) ? args[1] : 0;
+        a[2] = (nargs > 2 && args) ? args[2] : 0;
+        a[3] = (nargs > 3 && args) ? args[3] : 0;      /* node (сырой a4n, как есть) */
+        /* arg[4] = &frame+0x3f (кадровый указатель — anchor, база кадра игры) */
+        a[4] = (frame_sh != NULL && nargs > 4 && args)
+                   ? (int)(g_env.frame_game +
+                           (unsigned)((int)(size_t)args[4] - (int)(size_t)frame_sh))
+                   : 0;
+        /* arg[5] = world = unit (shadow) → self_game */
+        a[5] = (unit_sh != NULL && nargs > 5 && args)
+                   ? (int)(g_env.self_game +
+                           (unsigned)((int)(size_t)args[5] - (int)(size_t)unit_sh))
+                   : 0;
+        if (ret != 0 && cells_sh != NULL) {
+            game_ret = (int)(g_env.grid_cells_game +
+                             (unsigned)((int)(size_t)ret - (int)(size_t)cells_sh));
+        }
+        record((int)va, (void *)(size_t)g_env.tree_game, 6, a, game_ret, NULL, 0);
+        return;
+    }
     const PortedLeafModel *pm = ported_model_find(va);
     int game_ecx = 0;
     int game_ret = ret;
@@ -295,53 +346,227 @@ void *band_cursor(void *ai)
     return NULL;
 }
 
+/* v16: faithful-модель трёх условных листьев. Гейты модели (arena.cpp
+ * bdd0_*_modelled) в генераторе читают 0 (arena_set_model_gates_off), поэтому
+ * диспетчер tick.cpp зовёт ЭТИ функции (native::), а не порт; их значения и
+ * пишутся в поток. Это НЕзависимая реализация (читает ту же арену, но своим
+ * кодом), поэтому запись не тавтологична: харнесс сравнивает порт с моделью.
+ * ecx/ret переводятся в ИГРОВОЕ пространство (как в bdd0_leaf_claim_w). */
+static float fb(const unsigned char *p)
+{
+    float f;
+    memcpy(&f, p, 4);
+    return f;
+}
+
+static float fb_bits(int b)
+{
+    float f;
+    memcpy(&f, &b, 4);
+    return f;
+}
+
+/* 0x4d17e0: double -> int64 (trunc к нулю), вне диапазона/NaN — indefinite. */
+static int m_ftoll(double v)
+{
+    long long n;
+    if (v >= -9223372036854775808.0 && v < 9223372036854775808.0) {
+        n = (long long)v;
+    } else {
+        n = -9223372036854775807LL - 1;
+    }
+    return (int)(unsigned int)(unsigned long long)n;
+}
+
 void band_interp_gate(void *band, float p2, int p3, float p4, float *out_f)
 {
+    const unsigned char *b = (const unsigned char *)band;
+    float best = 100.0f;
+    unsigned i = 1, off = B0_BAND_ELEM;
+    float fx = 0.0f, fy = 0.0f;
     int a[3];
-    a[0] = fbits(p2);
-    a[1] = p3;
-    a[2] = fbits(p4);
-    float v = p2 + g_cfg.interp_add;
-    int bits = fbits(v);
-    if (out_f != NULL) *out_f = v;
-    record(0x45b150, band, 3, a, bits, NULL, 0);
+
+    for (;;) {
+        unsigned begin, end;
+        int count;
+        memcpy(&begin, b + B0_BAND_BEGIN_OFF, 4);
+        if (begin == 0) break;
+        memcpy(&end, b + B0_BAND_END_OFF, 4);
+        count = (int)(end - begin) / B0_BAND_ELEM;
+        if (i >= (unsigned)count) break;
+        {
+            const unsigned char *e1 = (const unsigned char *)(size_t)begin + off;
+            const unsigned char *e0 = e1 - B0_BAND_ELEM;
+            LDPos *pos0, *pos1;
+            float o0[2], o1[2], x0, y0, x1, y1;
+            int d, e, f;
+            memcpy(&pos0, e0 + 0x14, sizeof(pos0));
+            s6_grid_scale_compute(pos0, o0);
+            x0 = (float)((double)o0[0] + (double)fb(e0 + 0x00));
+            y0 = (float)((double)o0[1] + (double)fb(e0 + 0x08));
+            memcpy(&pos1, e1 + 0x14, sizeof(pos1));
+            s6_grid_scale_compute(pos1, o1);
+            x1 = (float)((double)o1[0] + (double)fb(e1 + 0x00));
+            y1 = (float)((double)o1[1] + (double)fb(e1 + 0x08));
+            d = (x0 == x1) && (p4 >= ((y0 < y1) ? y0 : y1)) &&
+                (p4 < ((y0 > y1) ? y0 : y1));
+            e = (y0 == y1) && (p2 >= ((x0 < x1) ? x0 : x1)) &&
+                (p2 < ((x0 > x1) ? x0 : x1));
+            f = (x0 != x1) && (y0 != y1) && (p2 >= ((x0 < x1) ? x0 : x1)) &&
+                (p2 < ((x0 > x1) ? x0 : x1));
+            if (d) { fx = x0; fy = p4; }
+            else if (e) { fx = p2; fy = y0; }
+            else if (f) {
+                double dy = (double)y1 - (double)y0;
+                double dx = (double)x1 - (double)x0;
+                double m = dy / dx;
+                float mf = (float)m;
+                double bb = (double)y0 - (dy * (double)x0) / dx;
+                double inv = 1.0 / (double)mf;
+                double num = (double)p2 * inv + (double)p4;
+                double den = inv + (double)mf;
+                num = num - bb;
+                fx = (float)(num / den);
+                fy = (float)((double)mf * (double)fx + bb);
+            }
+            {
+                double fxd = (double)fx - (double)p2;
+                double fyd = (double)fy - (double)p4;
+                double d2 = fxd * fxd + fyd * fyd;
+                if (d2 < best) best = (float)d2;
+            }
+            i++;
+            off += B0_BAND_ELEM;
+        }
+    }
+    a[0] = fbits(p2); a[1] = p3; a[2] = fbits(p4);
+    if (out_f != NULL) *out_f = best;
+    record(0x45b150, (void *)(size_t)(g_env.self_game + BDD0_AI_OFF +
+           B0_BATTLE_AI_BAND), 3, a, fbits(best), NULL, 0);
+    g_band_gate_calls++;
 }
 
 int band_target_moved(void *band, float p1, int p2, float p3)
 {
+    const unsigned char *b = (const unsigned char *)band;
+    unsigned begin, end;
+    int count;
+    float o0[2], o1[2], Lx0, Ly0, Lx1;
+    double Yn, dot;
+    float s;
+    const unsigned char *e0, *en1, *en2;
+    LDPos *pos;
+    int ret = 0;
     int a[3];
-    a[0] = fbits(p1);
-    a[1] = p2;
-    a[2] = fbits(p3);
-    return record(0x45b3e0, band, 3, a, g_cfg.moved, NULL, 0);
+
+    memcpy(&begin, b + B0_BAND_BEGIN_OFF, 4);
+    if (begin == 0) goto claim;
+    memcpy(&end, b + B0_BAND_END_OFF, 4);
+    count = (int)(end - begin) / B0_BAND_ELEM;
+    if ((unsigned)count < 2u) goto claim;
+    e0 = (const unsigned char *)(size_t)begin;
+    en1 = (const unsigned char *)(size_t)
+          (begin + (unsigned)B0_BAND_ELEM * (unsigned)count);
+    en2 = (const unsigned char *)(size_t)
+          (begin + (unsigned)B0_BAND_ELEM * (unsigned)(count - 2));
+    memcpy(&pos, e0 + 0x14, sizeof(pos));
+    s6_grid_scale_compute(pos, o0);
+    Lx0 = (float)((double)o0[0] + (double)fb(e0 + 0x00));
+    Ly0 = (float)((double)o0[1] + (double)fb(e0 + 0x08));
+    memcpy(&pos, en1 - 4 + 0x14, sizeof(pos));
+    s6_grid_scale_compute(pos, o1);
+    Lx1 = (float)((double)o1[0] + (double)fb(en2 + 0x00));
+    Yn = (double)o1[1] + (double)fb(en2 + 0x08);
+    dot = ((double)Lx0 - (double)p1) * ((double)Lx0 - (double)Lx1)
+        + ((double)Ly0 - (double)p3) * ((double)Ly0 - Yn);
+    if (dot < 0.0) goto claim;
+    s = (float)dot;
+    if (!(acos((double)s) < 0.3490654230117798)) goto claim;
+    ret = 1;
+claim:
+    a[0] = fbits(p1); a[1] = p2; a[2] = fbits(p3);
+    record(0x45b3e0, (void *)(size_t)(g_env.self_game + BDD0_AI_OFF +
+           B0_BATTLE_AI_BAND), 3, a, ret, NULL, 0);
+    g_band_target_calls++;
+    return ret;
 }
 
 void *grid_anchor(void *grid, int a1, int a2, int a3, int a4, int *flag_slot,
                   void *world)
 {
+    GridLevel *g = (GridLevel *)grid;
+    float x = fb_bits(a1), y_metric = fb_bits(a2), y_coord = fb_bits(a3);
+    void *node = (void *)(size_t)a4;
+    unsigned char *cells_sh = arena_region_w(arena_current(), "grid_cells");
+    unsigned char *frame_sh = arena_region_w(arena_current(), "frame");
+    unsigned char *unit_sh = arena_region_w(arena_current(), "unit");
+    GridCell *res = NULL;
+    int xi, yi, idx;
     int a[6];
+
+    (void)y_metric;
+    xi = m_ftoll(((double)x - (double)g->scale_add) / (double)g->scale_mul);
+    yi = m_ftoll(((double)y_coord - (double)g->scale_load) / (double)g->scale_mul);
+    if (xi < 0) goto claim;
+    if (yi < 0) goto claim;
+    if (!((double)xi < (double)g->size_x)) goto claim;
+    if (!((double)yi < (double)g->size_y)) goto claim;
+    if (node == NULL) {
+        float best = 10000.0f;
+        GridCell *bestc;
+        idx = g->rows[xi][yi];
+        res = s6_grid_cell(g, idx);
+        bestc = res;
+        if (res == NULL) goto claim;
+        for (; res != NULL; res = res->next) {
+            if (native::tree_lookup(world,
+                    (unsigned int)res->key_rec->key) == 1) {
+                double dist = fabs((double)res->min_metric - (double)y_metric);
+                if (dist < (double)best) { best = (float)dist; bestc = res; }
+            }
+        }
+        res = bestc;
+        goto claim;
+    }
+    /* node != NULL: map = [node+0x238]; в синтетике tree_lookup == 0, поэтому
+     * ветка tree+key (s6_grid_key_lookup) недостижима — обе fallback-ветки
+     * возвращают s6_grid_cell. */
+    {
+        const int *map = *(const int **)((unsigned char *)node + 0x238);
+        if (map == NULL || native::tree_lookup(world, (unsigned int)*map) == 0) {
+            idx = g->rows[xi][yi];
+            res = s6_grid_cell(g, idx);
+            goto claim;
+        }
+        res = NULL;   /* tree+key недостижим при tree_lookup == 0 */
+        goto claim;
+    }
+
+claim:
     a[0] = a1; a[1] = a2; a[2] = a3; a[3] = a4;
-    a[4] = (int)(size_t)flag_slot;
-    a[5] = (int)(size_t)world;
-    int ret = g_cfg.anchor_null ? 0 : (int)g_env.tree_game;
-    /* Ветка, пишющая флаг (1 @0x4580fd / 0 @0x458161), не выводится из модельного
-     * состояния, а байт ниже по потоке не читается — не пишем его. */
-    record(0x458050, grid, 6, a, ret, NULL, 0);
-    /* v15: вложенный вызов сайта 0x458142 → 0x456b60 (chain_head) внутри
-     * 0x458050 (`CALL 0x456b60` после проверки статуса == 2). Порт 0x458050
-     * не исполняет, поэтому запись выносится загрузчиком из окна тика
-     * (BDD0_NESTED_SITE_GRID_ANCHOR); профиль nested_chain её и создаёт,
-     * чтобы корпус показывал: такой захват остаётся самосогласованным. */
+    a[4] = (frame_sh != NULL)
+               ? (int)(g_env.frame_game + (unsigned)((int)(size_t)flag_slot -
+                       (int)(size_t)frame_sh)) : 0;
+    a[5] = (unit_sh != NULL)
+               ? (int)(g_env.self_game + (unsigned)((int)(size_t)world -
+                       (int)(size_t)unit_sh)) : 0;
+    {
+        int game_ret = 0;
+        if (res != NULL && cells_sh != NULL) {
+            game_ret = (int)(g_env.grid_cells_game +
+                       (unsigned)((int)(size_t)res - (int)(size_t)cells_sh));
+        }
+        record(0x458050, (void *)(size_t)g_env.tree_game, 6, a, game_ret, NULL, 0);
+    }
     if (g_cfg.nested_chain) {
         int na[1];
-
-        na[0] = (int)(size_t)world;          /* args[0] = world */
-        record(0x456b60, (void *)(size_t)ret, 1, na, ret, NULL, 0,
+        na[0] = (int)(size_t)world;
+        record(0x456b60, (void *)(size_t)res, 1, na, (int)(size_t)res, NULL, 0,
                (int)BDD0_NESTED_SITE_GRID_ANCHOR);
     }
-    return g_cfg.anchor_null ? NULL : arena_resolve_ptr(g_env.tree_game);
+    g_grid_anchor_calls++;
+    return res;
 }
-
 void grid_recompute(void *rec_pf, void *pos, void *req, float out3[3])
 {
     int a[2];

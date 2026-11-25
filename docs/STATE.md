@@ -193,9 +193,9 @@
 - `[P]` capture v14 (24.11.2026): `band` (begin/end ленты, `unit+0x194/0x198`) в `bdd0_in`/`bdd0_res`,
   replay применяет его вместо реконструкции из `45af50` — `leaf_value` сравнивает заявки порта.
   Слой e0a0 отключается `LDHOOK_BATTLE_CAPTURE_E0=0`; запись буферизована 1 МиБ.
-- `[P]` capture v16 (аддитивно, 25.11.2026): `bdd0_in "band_pos"` (на элемент ленты ok/x/y + scale-триплет
-  уровня sa/sl/sm) и grid-запись `kind:"grid"` из bdd0-пути (BattleAI = unit+0x138) — `battle/capture.cpp`;
-  чтение ключей и `bdd0_band_geometry_modelled()`/`bdd0_grid_level_modelled()` → 1 — следующий батч (загрузчик).
+- `[P]` capture v16 (аддитивно, 25.11.2026): `bdd0_in "band_pos"` (ok/x/y + scale-триплет sa/sl/sm на элемент)
+  и grid-запись `kind:"grid"` — `battle/capture.cpp`; загрузчик/арена (`bdd0/scenario.cpp`/`arena.cpp`) материализуют
+  LDPos/GridLevel и биндят указатели; гейты `bdd0_band_geometry_modelled()`/`bdd0_grid_level_modelled()` data-driven, порты 45b150/45b3e0/458050 claim'ят.
 - `[P]` capture v16 (25.11.2026): `bdd0_leaf_pre`/`bdd0_leaf_post` только для листа `0x45e1d0` (guard по va) —
   аддитивные ключи `pf`, `rec`/`rec_b64`, `sub`/`sub_b64`, `ctx`/`ctx120`/`ctx134`, `bandrec`/`bandrec_b64` (сбой blob → null, указатели
   всегда) и `maps`{`m1`,`m2`} (обе RB-карты PathFinder, головы +0x6c/+0x78, узлы `a`/`n`/`ps`, кап `CAP_BDD0_MAP_MAX`/карту) — `battle/capture.cpp` `cap_write_leaf_state`.

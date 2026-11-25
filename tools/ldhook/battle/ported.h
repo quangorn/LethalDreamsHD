@@ -80,8 +80,15 @@
  * реплеится записанным нативом (модели сетки в захвате нет), поэтому оба
  * вложенных листа в захватах v12..v15 не исполняются вовсе. */
 #define B0_LEAF_GRID_KEY_LOOKUP 0x457e20u
+/* Grid-якорь (FUN_00458050): тело — s6_grid_anchor_lookup (battle/grid.cpp).
+ * С v16 (модель сетки в захвате) порт исполняет тело и заявляет значение; без
+ * модели (v12..v15) сайт реплеит записанный натив. Поэтому порт условный —
+ * b0_leaf_ported(0x458050) = bdd0_grid_level_modelled(). */
+#define B0_LEAF_GRID_ANCHOR 0x458050u
 
 #ifdef BATTLE_REPLAY
+int bdd0_grid_level_modelled(void);
+int bdd0_band_geometry_modelled(void);
 /* VA портированных листьев: список живёт только в replay-сборке. В живом
  * билде (BATTLE_REPLAY не определён) порт не судит запросы, поэтому статики
  * были бы мёртвыми. */
@@ -97,13 +104,22 @@ static const unsigned int b0_ported_leaf_va[] = {
 #define B0_PORTED_LEAF_COUNT \
     ((int)(sizeof(b0_ported_leaf_va) / sizeof(b0_ported_leaf_va[0])))
 
-/* 1 — тело листа портировано: его запись потока снимает claim, не запрос. */
+/* 1 — тело листа портировано: его запись потока снимает claim, не запрос.
+ * v16: три листа (45b150/45b3e0/458050) условны — порт исполняет их только
+ * когда арена несёт модель (band_pos / grid record); иначе сайт реплеит натив
+ * (старое поведение, регресс v12..v15). */
 static int b0_leaf_ported(unsigned int va)
 {
     int i;
 
     for (i = 0; i < B0_PORTED_LEAF_COUNT; i++) {
         if (b0_ported_leaf_va[i] == va) return 1;
+    }
+    if (va == B0_LEAF_INTERP_GATE || va == B0_LEAF_BAND_TARGET) {
+        return bdd0_band_geometry_modelled();
+    }
+    if (va == B0_LEAF_GRID_ANCHOR) {
+        return bdd0_grid_level_modelled();
     }
     return 0;
 }

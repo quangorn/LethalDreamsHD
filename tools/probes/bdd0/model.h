@@ -33,6 +33,10 @@ struct ModelEnv {
     /* Сверх длины: байты после post_band_n*0x18 — для проверки усечения
      * (end-begin не кратно 0x18). 0 — обычная лента. */
     int band_post_extra;
+    /* v16: базы игры для перевода shadow-указателей заявки 458050 в игровые
+     * адреса записи (ret = ячейка, arg[4] = &frame+0x3f, arg[5] = unit). */
+    unsigned grid_cells_game;   /* база массива ячеек листа (GAME_CELLS) */
+    unsigned frame_game;        /* база кадра вызывающего (для arg[4], anchor) */
 };
 
 struct ModelCfg {
@@ -51,5 +55,9 @@ int model_leaf_count(void);
 const LeafRec *model_leaf_at(int i);
 int model_native_count(void);
 const NativeRec *model_native_at(int i);
+/* v16: вызовы модельного натива 45b150/45b3e0/458050 при генерации. */
+int model_band_gate_calls(void);
+int model_band_target_calls(void);
+int model_grid_anchor_calls(void);
 
 #endif

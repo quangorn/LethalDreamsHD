@@ -449,7 +449,7 @@ GridCell *s6_grid_anchor_lookup(GridLevel *grid, float x, float y_metric,
 {
     const int *map;                                 /* [node+0x238]: первый dword = key */
     int xi, yi, idx;
-    GridCell *cell, *anchor;
+    GridCell *cell, *anchor, *res;
     unsigned char *p = (unsigned char *)node;
 
     /* 0x458058..0x458070 / 0x458072..0x458091: trunc((coord − scale)/mul).
@@ -461,17 +461,21 @@ GridCell *s6_grid_anchor_lookup(GridLevel *grid, float x, float y_metric,
                   (double)grid->scale_mul);
 
     if (xi < 0) {                                   /* 0x458095 jl */
-        return NULL;
+        res = NULL;
+        goto claim;
     }
     if (yi < 0) {                                   /* 0x45809d jl */
-        return NULL;
+        res = NULL;
+        goto claim;
     }
     /* Узел 1 (0x4580a3..0x4580b1) / узел 2 (0x4580b7..0x4580c5). */
     if (!((double)xi < (double)grid->size_x)) {
-        return NULL;
+        res = NULL;
+        goto claim;
     }
     if (!((double)yi < (double)grid->size_y)) {
-        return NULL;
+        res = NULL;
+        goto claim;
     }
 
     if (node == NULL) {                             /* 0x4580cf/0x4580d1 je */
@@ -484,7 +488,8 @@ GridCell *s6_grid_anchor_lookup(GridLevel *grid, float x, float y_metric,
         cell = s6_grid_cell(grid, idx);             /* 0x45818b */
         bestc = cell;                               /* 0x458194 */
         if (cell == NULL) {                         /* 0x45819e je 0x4581df */
-            return bestc;
+            res = bestc;
+            goto claim;
         }
         for (cell = cell; cell != NULL; cell = cell->next) {   /* +0x24 @0x4581d8 */
             if (native::tree_lookup(world,
@@ -497,19 +502,22 @@ GridCell *s6_grid_anchor_lookup(GridLevel *grid, float x, float y_metric,
                 }
             }
         }
-        return bestc;
+        res = bestc;
+        goto claim;
     }
 
     map = *(const int **)(p + 0x238);               /* 0x4580d7 */
     if (map == NULL) {                              /* 0x4580df je */
         *flag = 0;                                  /* 0x458161 */
         idx = grid->rows[xi][yi];                   /* 0x458164..0x45816a */
-        return s6_grid_cell(grid, idx);             /* 0x458170 */
+        res = s6_grid_cell(grid, idx);              /* 0x458170 */
+        goto claim;
     }
     if (native::tree_lookup(world, (unsigned int)*map) == 0) {   /* 0x4580e1..0x4580ef */
         *flag = 0;                                  /* 0x458161 */
         idx = grid->rows[xi][yi];
-        return s6_grid_cell(grid, idx);             /* 0x458170 */
+        res = s6_grid_cell(grid, idx);              /* 0x458170 */
+        goto claim;
     }
     *flag = 1;                                      /* 0x4580fd */
 
@@ -518,11 +526,29 @@ GridCell *s6_grid_anchor_lookup(GridLevel *grid, float x, float y_metric,
     anchor = s6_grid_key_lookup(grid, x, b0_fbits(y_metric), y_coord,
                                 (int)(size_t)node);
     if (anchor == NULL) {                           /* 0x458123 je */
-        return NULL;
+        res = NULL;
+        goto claim;
     }
     if (native::tree_lookup(world,
             (unsigned int)anchor->key_rec->key) == 2) {   /* 0x458135..0x45813d */
-        return s6_grid_chain_head(anchor, world);   /* 0x458142 */
+        res = s6_grid_chain_head(anchor, world);    /* 0x458142 */
+        goto claim;
     }
-    return anchor;                                  /* 0x458151 */
+    res = anchor;                                   /* 0x458151 */
+
+claim:
+    /* v16: тело порта заявляет значение (ecx = grid, ret = узел, 6 аргументов
+     * ABI сайта 0x44c7da). В живом билде B0_LEAF_CLAIM — no-op. */
+    {
+        int av[6];
+
+        av[0] = b0_fbits(x);
+        av[1] = b0_fbits(y_metric);
+        av[2] = b0_fbits(y_coord);
+        av[3] = (int)(size_t)node;
+        av[4] = (int)(size_t)flag;
+        av[5] = (int)(size_t)world;
+        B0_LEAF_CLAIM(B0_LEAF_GRID_ANCHOR, grid, res, av, 6);
+    }
+    return res;
 }

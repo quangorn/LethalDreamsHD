@@ -347,6 +347,55 @@ static void apply_in(TickRecord &t, const JVal &v, int *bad)
             t.ctx_pos[2] = (int)cp->a[2].n;
         }
     }
+    /* v16 (аддитивно): "band_pos" — геометрия ленты (параллельные массивы на
+     * band_n элементов). Моделируется только когда ключ есть, длина совпадает
+     * с band_n и все ok[i]==1; иначе has_band_pos=0 (старое поведение: порт
+     * 45b150/45b3e0 реплеит натив). sa/sl/sm — сырые биты float-тройки уровня. */
+    {
+        const JVal *bp = jget(v, "band_pos");
+        if (bp != NULL && bp->t == JVal::OBJ) {
+            const JVal *ok = jget(*bp, "ok");
+            const JVal *xs = jget(*bp, "x");
+            const JVal *ys = jget(*bp, "y");
+            const JVal *sa = jget(*bp, "sa");
+            const JVal *sl = jget(*bp, "sl");
+            const JVal *sm = jget(*bp, "sm");
+            int n = (ok != NULL && ok->t == JVal::ARR) ? (int)ok->a.size() : 0;
+            /* Правило загрузчика: тик, чей (end-begin)/0x18 превышает захваченное
+             * число элементов, НЕ моделируется (порт прочитал бы за band_b64). */
+            int tick_cnt = (t.has_band_state &&
+                            t.band_in_end >= t.band_in_begin)
+                           ? (int)((t.band_in_end - t.band_in_begin) / BDD0_BAND_ELEM)
+                           : 0;
+            int complete = (n > 0 && n <= BDD0_BAND_MAX && n == t.band_n &&
+                            tick_cnt <= n &&
+                            xs != NULL && xs->t == JVal::ARR &&
+                            (int)xs->a.size() == n &&
+                            ys != NULL && ys->t == JVal::ARR &&
+                            (int)ys->a.size() == n &&
+                            sa != NULL && sa->t == JVal::ARR &&
+                            (int)sa->a.size() == n &&
+                            sl != NULL && sl->t == JVal::ARR &&
+                            (int)sl->a.size() == n &&
+                            sm != NULL && sm->t == JVal::ARR &&
+                            (int)sm->a.size() == n);
+            for (int i = 0; complete && i < n; i++) {
+                if (ok->a[i].t != JVal::NUM || ok->a[i].n != 1) complete = 0;
+            }
+            if (complete) {
+                t.has_band_pos = 1;
+                t.band_pos_n = n;
+                for (int i = 0; i < n; i++) {
+                    t.band_pos_ok[i] = (int)ok->a[i].n;
+                    t.band_pos_x[i] = (int)xs->a[i].n;
+                    t.band_pos_y[i] = (int)ys->a[i].n;
+                    t.band_pos_sa[i] = (unsigned)sa->a[i].n;
+                    t.band_pos_sl[i] = (unsigned)sl->a[i].n;
+                    t.band_pos_sm[i] = (unsigned)sm->a[i].n;
+                }
+            }
+        }
+    }
 }
 
 static void apply_res(ResRec &r, const JVal &v)
@@ -459,6 +508,63 @@ static void apply_native(NativeRec &n, const JVal &v)
     }
 }
 
+static void apply_grid(GridModel &g, const JVal &v)
+{
+    const JVal *lv = jget(v, "levels");
+    const JVal *rows = jget(v, "rows");
+    const JVal *cells = jget(v, "cells");
+    int i;
+
+    g = GridModel();
+    /* ВНИМАНИЕ: офлайн-кэпы BDD0_GRID_MAX_CELLS=256 / BDD0_GRID_MAX_LEVELS=16
+     * НЕ совпадают с живыми (CAP_MAX_GRID_CELLS=200000). Превышение офлайн-кэпа
+     * НЕ ошибка формата: ncell/nlev обнуляются, g.valid остаётся 0 → has_grid=0 →
+     * bdd0_grid_level_modelled()=0 (модель молча выключается, порт 458050 реплеит
+     * натив). Читатель загрузчика: это осознанный потолок, не тихий сбой. */
+    if (jint_opt(v, "error", 0)) return;            /* grid error-запись */
+    if (lv == NULL || lv->t != JVal::ARR || rows == NULL ||
+        rows->t != JVal::ARR || cells == NULL || cells->t != JVal::OBJ) {
+        return;
+    }
+    g.nlev = (int)lv->a.size();
+    if (g.nlev <= 0 || g.nlev > BDD0_GRID_MAX_LEVELS) { g.nlev = 0; return; }
+    for (i = 0; i < g.nlev; i++) {
+        const JVal &L = lv->a[i];
+        GridLevelModel &m = g.lev[i];
+        m.sx = (int)jint_opt(L, "sx", 0);
+        m.sy = (int)jint_opt(L, "sy", 0);
+        m.rx = (int)jint_opt(L, "rx", 0);
+        m.ry = (int)jint_opt(L, "ry", 0);
+        m.sa = (unsigned)jint_opt(L, "sa", 0);
+        m.sl = (unsigned)jint_opt(L, "sl", 0);
+        m.sm = (unsigned)jint_opt(L, "sm", 0);
+        m.next = (int)jint_opt(L, "next", -1);
+    }
+    g.cells_game = (unsigned)jint_opt(v, "cells_base", 0);   /* v16: база ячеек в игре */
+    g.leaf = (int)jint_opt(v, "leaf", g.nlev - 1);
+    if (g.leaf < 0 || g.leaf >= g.nlev) g.leaf = g.nlev - 1;
+    g.ncell = (int)rows->a.size();
+    if (g.ncell <= 0 || g.ncell > BDD0_GRID_MAX_CELLS) { g.ncell = 0; return; }
+    for (i = 0; i < g.ncell; i++) {
+        g.rows[i] = (int)rows->a[i].n;
+    }
+    {
+        const JVal *key = jget(*cells, "key");
+        const JVal *nx = jget(*cells, "next");
+        const JVal *mn = jget(*cells, "min");
+        int n = (key != NULL && key->t == JVal::ARR) ? (int)key->a.size() : 0;
+        if (n != g.ncell) { g.ncell = 0; return; }
+        for (i = 0; i < g.ncell; i++) {
+            g.key[i] = (int)key->a[i].n;
+            g.nextc[i] = (nx != NULL && nx->t == JVal::ARR && i < (int)nx->a.size())
+                         ? (int)nx->a[i].n : -1;
+            g.minm[i] = (mn != NULL && mn->t == JVal::ARR && i < (int)mn->a.size())
+                        ? (int)mn->a[i].n : 0;
+        }
+    }
+    g.valid = 1;
+}
+
 Scenario *load_capture(const char *path)
 {
     FILE *f = fopen(path, "rb");
@@ -557,6 +663,11 @@ Scenario *load_capture(const char *path)
                 natives.push_back(std::make_pair(
                     (int)jint_opt(v, "seq", 0), n));
                 sc->native_records++;
+            } else if (kind == "grid") {
+                /* v16 (аддитивно): модель сетки из bdd0-пути (cap_write_grid_record).
+                 * Один снимок на файл; последняя валидная запись побеждает. */
+                apply_grid(sc->grid, v);
+                sc->has_grid = sc->grid.valid;
             } else if (kind == "native_site_skipped") {
                 std::string site = jstr_opt(v, "site");
                 std::string va = jstr_opt(v, "va");
@@ -621,6 +732,8 @@ Scenario *load_capture(const char *path)
         t.native_first = (int)nfirst;
         t.native_n = (int)(ni - nfirst);
         t.native_eee0_no_ww = 0;
+        t.grid_cells_raw = sc->grid.valid ? sc->grid.cells_game : 0;  /* v16 */
+        t.grid_cells_len = sc->grid.valid ? (unsigned)sc->grid.ncell * 0x34u : 0;
         t.gs_raw = 0;          /* адрес объекта состояния — из потока 442570 */
         for (size_t k = nfirst; k < ni; k++) {
             if (natives[k].second.va == 0x45eee0 &&

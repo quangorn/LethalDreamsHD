@@ -56,11 +56,15 @@
 #include <string.h>
 
 #include "harness.h"
+#include "../../ldhook/battle/structs.h"
 
 #define ARENA_PAGE 0x1000u
 #define ARENA_CANARY 64u
 #define ARENA_CANARY_BYTE 0xCDu
-#define ARENA_BAND_MAX_BYTES (BDD0_BAND_MAX * BDD0_BAND_ELEM)
+/* +2 элемента запаса: 45b3e0 читает LDPos* на elem[count]+0x10 (floor), при
+ * band_n == BDD0_BAND_MAX это индекс BDD0_BAND_MAX — без запаса читалось бы за
+ * концом области. Ёмкость = (BDD0_BAND_MAX + 2) элементов, floor материализуется. */
+#define ARENA_BAND_MAX_BYTES ((BDD0_BAND_MAX + 2) * BDD0_BAND_ELEM)
 /* Неразыменовываемый сентинел указателя из пространства игры (см.
  * arena_resolve_ptr_at ниже): весь диапазон сентинелов лежит в одной странице
  * 0xDEAD0000..0xDEAD0FFF, поэтому разыменование сентинела ловится по старшим
@@ -77,6 +81,7 @@ struct Reg {
     unsigned char *alloc;
     unsigned alloc_len;
     unsigned char *pre;         /* копия на входе тика */
+    int fixed;                  /* v16: выделена по фикс. адресу (grid_node) */
 };
 
 struct Bind {
@@ -91,7 +96,12 @@ struct Ident {
 };
 
 #define ARENA_REGS_MAX 32        /* области фиксированного набора + leafN */
-#define ARENA_BINDS_MAX 32
+/* 64 LDPos + базовые привязки (self/band/e0/e0_44/tree/gs/ctx/grid_node) + запас:
+ * 256 покрывает band_n == BDD0_BAND_MAX (64) с большим отрывом. Переполнение
+ * (bind_overflow) печатается в сводке харнесса — молчаливой деградации нет. */
+#define ARENA_BINDS_MAX 256
+static_assert(ARENA_BINDS_MAX >= BDD0_BAND_MAX + 16,
+              "bind capacity must cover BDD0_BAND_MAX LDPos + base binds");
 
 struct Arena {
     /* фиксированные массивы, а не vector: RegionView.name ссылается на
@@ -112,12 +122,24 @@ struct Arena {
     char miss_why[192];
     unsigned miss_raw[16];
     int miss_raw_n;
+    int bind_overflow;      /* v16: bind_add отброшен из-за переполнения (диагностика) */
     const TickRecord *rec;
+    const GridModel *grid;      /* v16: модель сетки (NULL — нет grid-записи) */
     int leaf_nodes;
     int leaf_identity;      /* leaf rets bound by identity (см. k_identity_rets) */
 };
 
 static Arena *g_cur = NULL;
+static const GridModel *g_grid_model = NULL;
+/* v16: генератор синтетики ставит 1, чтобы во время ЗАПИСИ файла гейты
+ * bdd0_grid_level_modelled/bdd0_band_geometry_modelled читали 0 (запись ведёт
+ * модельный натив, не порт); арена всё равно материализует области. Харнесс
+ * читает файл с этим флагом 0 → гейты 1 → порт исполняется. */
+static int g_model_gates_off = 0;
+
+void arena_set_grid_model(const GridModel *g) { g_grid_model = g; }
+
+void arena_set_model_gates_off(int off) { g_model_gates_off = off ? 1 : 0; }
 
 void arena_set_current(Arena *a) { g_cur = a; }
 Arena *arena_current(void) { return g_cur; }
@@ -159,9 +181,37 @@ static int reg_add(Arena *a, const char *name, unsigned len)
         return 0;
     }
     memset(r.pre, 0, len);
+    r.fixed = 0;
     DWORD old;
     VirtualProtect(r.alloc, ARENA_PAGE, PAGE_NOACCESS, &old);
     VirtualProtect(r.alloc + ARENA_PAGE + body, ARENA_PAGE, PAGE_NOACCESS, &old);
+    a->regs[a->reg_n++] = r;
+    return 1;
+}
+
+/* v16: область по ФИКСИРОВАННОМУ адресу (grid_node = сырой a4n). Узел 458050
+ * разыменовывается напрямую (node+0x238), поэтому он обязан лежать по сырому
+ * адресу, а сам node остаётся сырым (arg[3] записи совпадает). Без canary/guard:
+ * порт только читает узел. Возврат 0 — адрес занят. */
+static int reg_add_fixed(Arena *a, const char *name, unsigned addr, unsigned len)
+{
+    if (len == 0 || a->reg_n >= ARENA_REGS_MAX) return 0;
+    unsigned body = round_up(len, ARENA_PAGE);
+    unsigned char *p = (unsigned char *)VirtualAlloc((void *)(size_t)addr, body,
+                          MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (p == NULL) return 0;
+    memset(p, 0, body);
+    Reg r;
+    memset(&r, 0, sizeof(r));
+    _snprintf_s(r.name, sizeof(r.name), _TRUNCATE, "%s", name);
+    r.base = p;
+    r.len = len;
+    r.alloc = p;
+    r.alloc_len = body;
+    r.fixed = 1;
+    r.pre = (unsigned char *)malloc(len);
+    if (r.pre == NULL) { VirtualFree(p, 0, MEM_RELEASE); return 0; }
+    memset(r.pre, 0, len);
     a->regs[a->reg_n++] = r;
     return 1;
 }
@@ -236,6 +286,11 @@ int arena_handle_misses(const Arena *a)
     return (a == NULL) ? 0 : a->handle_miss;
 }
 
+int arena_bind_overflow(const Arena *a)
+{
+    return (a == NULL) ? 0 : a->bind_overflow;
+}
+
 const char *arena_handle_miss_why(const Arena *a)
 {
     return (a == NULL) ? "" : a->miss_why;
@@ -308,7 +363,7 @@ static void miss(Arena *a, const char *what, unsigned raw)
 static void bind_add(Arena *a, unsigned raw, unsigned char *base, unsigned size)
 {
     if (raw == 0 || base == NULL || size == 0) return;
-    if (a->bind_n >= ARENA_BINDS_MAX) return;
+    if (a->bind_n >= ARENA_BINDS_MAX) { a->bind_overflow++; return; }
     Bind b;
     b.raw = raw;
     b.base = base;
@@ -446,6 +501,157 @@ static void write_u32(unsigned char *p, unsigned v)
     memcpy(p, &v, 4);
 }
 
+/* v16: материализация модели сетки (grid record) и геометрии ленты (band_pos).
+ * Создаёт shadow-области, заполняет их из модели, переписывает указатели
+ * снимка (band[i].pos, tree.next_level/cells/rows) на shadow и привязывает
+ * сырые адреса (bind_add). Без grid/band_pos (захваты v12..v15) ничего не
+ * делает — регресс сохраняется. */
+static void materialize_models(Arena *a)
+{
+    const TickRecord *rec = a->rec;
+    const GridModel *gm = a->grid;
+    unsigned char *tree = arena_region_w(a, "tree");
+    unsigned char *band = arena_region_w(a, "band");
+    int grid_ok = (gm != NULL && gm->valid && gm->nlev >= 1 &&
+                   gm->leaf >= 0 && gm->leaf < gm->nlev && tree != NULL);
+    int lsx = grid_ok ? gm->lev[gm->leaf].sx : 0;
+    int lsy = grid_ok ? gm->lev[gm->leaf].sy : 0;
+    int ncell = grid_ok ? gm->ncell : 0;
+
+    if (grid_ok) {
+        unsigned char *glevels = NULL, *gcells = NULL, *gkeys = NULL;
+        unsigned char *grows = NULL, *growdata = NULL, *gnode = NULL;
+        int i;
+
+        if (gm->nlev > 1) {
+            reg_add(a, "grid_levels", (unsigned)(gm->nlev - 1) * 0x40);
+            glevels = arena_region_w(a, "grid_levels");
+        }
+        reg_add(a, "grid_rows", (unsigned)lsx * 4);
+        grows = arena_region_w(a, "grid_rows");
+        reg_add(a, "grid_rowdata", (unsigned)ncell * 4);
+        growdata = arena_region_w(a, "grid_rowdata");
+        reg_add(a, "grid_cells", (unsigned)ncell * S6_GRID_CELL_SIZE);
+        gcells = arena_region_w(a, "grid_cells");
+        reg_add(a, "grid_keys", (unsigned)ncell * 0x20);
+        gkeys = arena_region_w(a, "grid_keys");
+        /* узел-приёмник 458050 (frame+0x38 = a4n): порт разыменовывает node+0x238
+         * напрямую и передаёт node как arg[3] (сверяется с сырым a4n записи).
+         * Поэтому узел материализуем ПО СЫРОМУ адресу a4n (node остаётся сырым,
+         * arg[3] совпадает, deref разрешён); +0x238 = NULL → map NULL. */
+        {
+            unsigned a4n = 0;
+            unsigned char *fr = arena_region_w(a, "frame");
+            if (fr != NULL) memcpy(&a4n, fr + 0x38, 4);
+            if (a4n != 0 && reg_add_fixed(a, "grid_node", a4n, 0x240)) {
+                gnode = arena_region_w(a, "grid_node");
+                bind_add(a, a4n, gnode, 0x240);
+            }
+        }
+        /* ячейки + ключи */
+        for (i = 0; i < ncell; i++) {
+            unsigned char *c = gcells + i * S6_GRID_CELL_SIZE;
+            unsigned char *kr = gkeys + i * 0x20;
+            write_u32(kr + 0x00, (unsigned)gm->key[i]);   /* key_rec->key */
+            write_u32(kr + 0x18, 0);                       /* value */
+            write_u32(kr + 0x1c, 0);                       /* next */
+            write_u32(c + 0x14, (unsigned)gm->minm[i]);   /* min_metric */
+            write_u32(c + 0x20, (unsigned)(size_t)kr);    /* key_rec */
+            write_u32(c + 0x24, (gm->nextc[i] >= 0 && gm->nextc[i] < ncell)
+                                 ? (unsigned)(size_t)(gcells + gm->nextc[i] * S6_GRID_CELL_SIZE) : 0);
+            write_u32(c + 0x28, 0);                       /* chain_next */
+        }
+        /* rows[x][y] = индекс */
+        for (i = 0; i < ncell; i++) write_u32(growdata + i * 4, (unsigned)gm->rows[i]);
+        for (i = 0; i < lsx; i++)
+            write_u32(grows + i * 4, (unsigned)(size_t)(growdata + i * lsy * 4));
+        /* уровни: 0 = tree (root), i>0 = grid_levels+(i-1)*0x40 */
+        for (i = 0; i < gm->nlev; i++) {
+            unsigned char *L = (i == 0) ? tree : glevels + (i - 1) * 0x40;
+            const GridLevelModel &m = gm->lev[i];
+            unsigned char *cells = gcells;   /* все уровни → один массив ячеек */
+            write_u32(L + 0x0c, (unsigned)m.rx);
+            write_u32(L + 0x10, (unsigned)m.ry);
+            write_u32(L + 0x1c, (i + 1 < gm->nlev)
+                         ? (unsigned)(size_t)(glevels + i * 0x40) : 0); /* next_level */
+            write_u32(L + 0x20, m.sa);
+            write_u32(L + 0x24, m.sl);
+            write_u32(L + 0x28, m.sm);
+            write_u32(L + 0x2c, (unsigned)m.sx);   /* размеры СВОЕГО уровня (не листа) */
+            write_u32(L + 0x30, (unsigned)m.sy);
+            write_u32(L + 0x34, (unsigned)(size_t)cells);  /* cells */
+            write_u32(L + 0x38, (unsigned)(size_t)grows);   /* rows */
+            if (rec->tree != 0) bind_add(a, rec->tree + i * 0x30, L, 0x40);
+        }
+        (void)gnode;
+    }
+
+    if (rec->has_band_pos && rec->band_pos_n > 0 && band != NULL) {
+        int n = rec->band_pos_n;
+        unsigned char *ldpos = NULL, *blevel = NULL;
+        int i;
+
+        /* вектор ленты (BattleAI+0x3c): begin/end — сырые адреса игры; порт
+         * 45b150/45b3e0 индексирует их как указатели, поэтому при модели
+         * геометрии переписываем begin/end на shadow-базу band (count/head
+         * читают их как значения — разность/нуль сохраняются). */
+        {
+            unsigned char *unit = arena_region_w(a, "unit");
+            unsigned char *bv = (unit != NULL) ? unit + BDD0_AI_OFF + 0x3c : NULL;
+            if (bv != NULL) {
+                unsigned begin_raw = 0, end_raw = 0;
+                memcpy(&begin_raw, bv + 0x20, 4);
+                memcpy(&end_raw, bv + 0x24, 4);
+                if (begin_raw != 0 && rec->band_raw != 0 &&
+                    begin_raw >= rec->band_raw) {
+                    unsigned boff = begin_raw - rec->band_raw;
+                    unsigned eoff = end_raw - begin_raw;
+                    write_u32(bv + 0x20, (unsigned)(size_t)band + boff);
+                    write_u32(bv + 0x24, (unsigned)(size_t)band + boff + eoff);
+                }
+            }
+        }
+
+        reg_add(a, "band_ldpos", (unsigned)n * 0x20);
+        ldpos = arena_region_w(a, "band_ldpos");
+        if (!grid_ok) {
+            reg_add(a, "band_level", (unsigned)n * 0x40);
+            blevel = arena_region_w(a, "band_level");
+        }
+        for (i = 0; i < n; i++) {
+            unsigned char *elem = band + i * BDD0_BAND_ELEM;
+            unsigned raw_pos;
+            unsigned char *P;
+            unsigned char *L;
+            if (!rec->band_pos_ok[i]) continue;
+            memcpy(&raw_pos, elem + 0x14, 4);
+            if (raw_pos == 0) continue;
+            P = ldpos + i * 0x20;
+            /* уровень: общий с моделью сетки (i % nlev) либо свой */
+            if (grid_ok && gm->nlev > 0) {
+                int li = i % gm->nlev;
+                L = (li == 0) ? tree : arena_region_w(a, "grid_levels") + (li - 1) * 0x40;
+            } else {
+                L = blevel + i * 0x40;
+                write_u32(L + 0x20, rec->band_pos_sa[i]);
+                write_u32(L + 0x24, rec->band_pos_sl[i]);
+                write_u32(L + 0x28, rec->band_pos_sm[i]);
+            }
+            write_u32(P + 0x0c, (unsigned)rec->band_pos_x[i]);
+            write_u32(P + 0x10, (unsigned)rec->band_pos_y[i]);
+            write_u32(P + 0x1c, (unsigned)(size_t)L);      /* pos->level */
+            write_u32(elem + 0x14, (unsigned)(size_t)P);   /* band[i].pos → shadow */
+            bind_add(a, raw_pos, P, 0x20);
+        }
+        /* v16: 45b3e0 читает pos на begin+count*0x18+0x10 (elem[count]+0x10) —
+         * кладём туда валидный LDPos (нулевой элемент), чтобы scale_compute не
+         * разыменовал мусор. Запас в 2 элемента (ARENA_BAND_MAX_BYTES) гарантирует
+         * попадание в область даже при band_n == BDD0_BAND_MAX (floor = индекс 64). */
+        write_u32(band + n * BDD0_BAND_ELEM + 0x10, (unsigned)(size_t)ldpos);
+        write_u32(band + n * BDD0_BAND_ELEM + 0x14, (unsigned)(size_t)ldpos);
+    }
+}
+
 Arena *arena_build(const TickRecord *rec)
 {
     Arena *a = new Arena;
@@ -456,7 +662,9 @@ Arena *arena_build(const TickRecord *rec)
     a->handle_miss = 0;
     a->miss_why[0] = '\0';
     a->miss_raw_n = 0;
+    a->bind_overflow = 0;
     a->rec = rec;
+    a->grid = g_grid_model;
     a->leaf_nodes = 0;
     a->leaf_identity = 0;
     a->id_n = 0;
@@ -481,6 +689,10 @@ Arena *arena_build(const TickRecord *rec)
     ok &= reg_add(a, "tree", 0x40);
     unsigned band_len = (rec->band_n > 0)
         ? (unsigned)rec->band_n * BDD0_BAND_ELEM : 0;
+    /* v16: 45b3e0 (target_moved) читает pos-указатель на elem[count-1]+0x28
+     * (en1-4+0x14 = begin+count*0x18+0x10) — за пределами count элементов.
+     * Даём запас в 2 элемента, чтобы чтение попало в материализованную память. */
+    if (rec->has_band_pos && band_len > 0) band_len += 2 * BDD0_BAND_ELEM;
     if (band_len > ARENA_BAND_MAX_BYTES) band_len = ARENA_BAND_MAX_BYTES;
     if (band_len == 0) band_len = BDD0_BAND_ELEM;      /* место под один элемент */
     ok &= reg_add(a, "band", band_len);
@@ -611,6 +823,10 @@ Arena *arena_build(const TickRecord *rec)
         write_u32(arena_region_w(a, "node_e0") + 0x44,
                   (unsigned)(size_t)arena_region_w(a, "node_e044"));
     }
+
+    /* v16: модель сетки (grid) и геометрия ленты (band_pos) — до копии входа,
+     * чтобы pre-state нёс материализованную модель. */
+    materialize_models(a);
 
     /* 5. views + копия входа (pre-state) */
     /* out-слот стартует с сентинела, чтобы «не писано» отличалось от «= 0» */
@@ -743,7 +959,9 @@ int arena_addr_ok(const void *p, unsigned len)
  * Гейт читает тик (tick.cpp, BATTLE_REPLAY). */
 int bdd0_grid_level_modelled(void)
 {
-    return 0;
+    Arena *a = g_cur;
+    if (g_model_gates_off) return 0;    /* генератор: запись ведёт модельный натив */
+    return (a != NULL && a->grid != NULL && a->grid->valid) ? 1 : 0;
 }
 
 /* 1 — арена несёт модель геометрии ленты: на каждый 24-байтный элемент ленты
@@ -770,7 +988,10 @@ int bdd0_grid_level_modelled(void)
  * Гейт читает тик (tick.cpp, BATTLE_REPLAY). */
 int bdd0_band_geometry_modelled(void)
 {
-    return 0;
+    Arena *a = g_cur;
+    if (g_model_gates_off) return 0;    /* генератор: запись ведёт модельный натив */
+    if (a == NULL || a->rec == NULL) return 0;
+    return (a->rec->has_band_pos && a->rec->band_pos_n > 0) ? 1 : 0;
 }
 
 /* Изменённые канарейки = запись до начала области (запись за конец ловит
@@ -780,6 +1001,7 @@ int arena_scan_writes(Arena *a, char *why, int cap)
     if (a == NULL) return 0;
     for (int i = 0; i < a->reg_n; i++) {
         const Reg &r = a->regs[i];
+        if (r.fixed) continue;      /* v16: grid_node без canary (только чтение) */
         const unsigned char *c = r.alloc + ARENA_PAGE;
         for (unsigned k = 0; k < ARENA_CANARY; k++) {
             if (c[k] != ARENA_CANARY_BYTE) {

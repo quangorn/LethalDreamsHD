@@ -509,6 +509,9 @@ int main(int argc, char **argv)
         scenario_free(sc);
         return 2;
     }
+    /* v16: модель сетки на весь файл (kind:"grid"). Нет записи → NULL (старые
+     * захваты: порт 458050 реплеит натив, как раньше). */
+    arena_set_grid_model(sc->has_grid ? &sc->grid : NULL);
     if (sc->truncated) {
         fprintf(stderr, "note: capture tail truncated (%d records read, "
                         "last chunk dropped)\n", sc->records);
@@ -557,8 +560,12 @@ int main(int argc, char **argv)
     int grid_anchor_replayed = 0;
     int band_gate_replayed = 0;
     int band_target_replayed = 0;
+    int band_gate_port = 0;
+    int band_target_port = 0;
+    int grid_anchor_port = 0;
     int eee0_synth = 0;
     int leaf_identity = 0;
+    int bind_overflow = 0;
     long long sum_wall = 0;
     long long uninit_total = 0;
     long long noncomp_total = 0;
@@ -877,12 +884,16 @@ int main(int argc, char **argv)
         noncomp_total += bdd0_noncomp_skipped();
         leaf_nodes += arena_leaf_nodes(arena);
         leaf_identity += arena_leaf_identity(arena);
+        bind_overflow += arena_bind_overflow(arena);
         /* 458050: тик потребил запись потока вместо порта (арена не несёт модель
          * сетки). Считает сам replay-слой (native_replay.cpp, request) — тики,
          * где подстановка не состоялась (тик упал раньше), не попадают. */
         grid_anchor_replayed += bdd0_grid_anchor_replayed();
         band_gate_replayed += bdd0_band_gate_replayed();
         band_target_replayed += bdd0_band_target_replayed();
+        band_gate_port += bdd0_band_gate_port();
+        band_target_port += bdd0_band_target_port();
+        grid_anchor_port += bdd0_grid_anchor_port();
         arena_set_current(NULL);
         arena_release(arena);
     }
@@ -990,6 +1001,18 @@ int main(int argc, char **argv)
                "leaf geometry (per-element LDPos/GridLevel) is not in the capture, "
                "so the 45b3e0 port did not run on those ticks - see "
                "bdd0_band_geometry_modelled)\n", band_target_replayed);
+    }
+    /* v16: счётчики ИСПОЛНЕНИЯ порта (заявка снята) — ненулевые только когда
+     * арена несёт модель (band_pos/grid record), т.е. на synth_v16. */
+    if (band_gate_port > 0 || band_target_port > 0 || grid_anchor_port > 0) {
+        printf("  port_runs: band_interp_gate=%d band_target_moved=%d "
+               "grid_anchor=%d (v16 ports executed on the modelled geometry)\n",
+               band_gate_port, band_target_port, grid_anchor_port);
+    }
+    if (bind_overflow > 0) {
+        printf("  bind_overflow=%d (bind_add dropped: pointer fields degraded to "
+               "noncomparable - raise ARENA_BINDS_MAX or reduce band_n)\n",
+               bind_overflow);
     }
     printf("  leaf_nodes=%d (unbound raw game pointers bound to identity cells; "
            "0 = every leaf pointer was materialised)\n", leaf_nodes);

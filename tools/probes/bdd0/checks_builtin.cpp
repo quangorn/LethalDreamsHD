@@ -450,12 +450,13 @@ static const LeafAbi *leaf_abi_find(int va)
     return NULL;
 }
 
-enum { NK_NUL = 0, NK_GS, NK_UNIT, NK_BAND, NK_NODE_E0, NK_NODE_E044, NK_TREE, NK_RAW };
+enum { NK_NUL = 0, NK_GS, NK_UNIT, NK_BAND, NK_NODE_E0, NK_NODE_E044, NK_TREE,
+       NK_GRID_CELLS, NK_RAW };
 
 /* Области арены в порядке привязок arena.cpp (перекрывающийся view "ai" не
  * участвует: он подмножество "unit"). */
 static const char *const k_ptr_prio[] = {
-    "unit", "band", "node_e0", "node_e044", "tree",
+    "unit", "band", "node_e0", "node_e044", "tree", "grid_cells",
     "frame", "gs", "ctx", "player", "flags", "out"
 };
 
@@ -494,7 +495,10 @@ static int native_ptr_base(const TickRecord *rec, unsigned nv, int *off)
         { rec->band_raw, band_len,                                 NK_BAND },
         { rec->e0,       0x240u,                                   NK_NODE_E0 },
         { rec->e0_44,    0x240u,                                   NK_NODE_E044 },
-        { rec->tree,     0x40u,                                    NK_TREE }
+        { rec->tree,     0x40u,                                    NK_TREE },
+        /* v16: массив ячеек листа (ret 458050). База/длина — из grid-записи
+         * ("cells_base"); 0 — не адресован, ячейка уходит в NK_RAW (несравнимо). */
+        { rec->grid_cells_raw, rec->grid_cells_len, NK_GRID_CELLS }
     };
     for (int i = 0; i < (int)(sizeof(k_base) / sizeof(k_base[0])); i++) {
         if (k_base[i].raw == 0) continue;
@@ -515,6 +519,7 @@ static int kind_of_region_name(const char *n)
     if (strcmp(n, "node_e0") == 0) return NK_NODE_E0;
     if (strcmp(n, "node_e044") == 0) return NK_NODE_E044;
     if (strcmp(n, "tree") == 0) return NK_TREE;
+    if (strcmp(n, "grid_cells") == 0) return NK_GRID_CELLS;
     return -1;
 }
 
