@@ -193,6 +193,9 @@
 - `[P]` capture v14 (24.11.2026): `band` (begin/end ленты, `unit+0x194/0x198`) в `bdd0_in`/`bdd0_res`,
   replay применяет его вместо реконструкции из `45af50` — `leaf_value` сравнивает заявки порта.
   Слой e0a0 отключается `LDHOOK_BATTLE_CAPTURE_E0=0`; запись буферизована 1 МиБ.
+- `[P]` capture v16 (аддитивно, 25.11.2026): `bdd0_in "band_pos"` (на элемент ленты ok/x/y + scale-триплет
+  уровня sa/sl/sm) и grid-запись `kind:"grid"` из bdd0-пути (BattleAI = unit+0x138) — `battle/capture.cpp`;
+  чтение ключей и `bdd0_band_geometry_modelled()`/`bdd0_grid_level_modelled()` → 1 — следующий батч (загрузчик).
 - `[P]` Фаза 5.2 (24.11.2026): портированы `45c370`/`45af50`/`45c6f0`(`b0_read_pos_from_ctx`)/`403e80`
   (`b0_pos3_equal`; в захватах всегда `ret=0`, истинная ветвь — только синтетика)/`456b60`/`457e20`/
   `458050` — `battle/grid.cpp`, сайты 33/34 (`0x458142`/`0x45811a`), `grid.cpp` в харнессе.

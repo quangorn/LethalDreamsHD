@@ -60,7 +60,7 @@
 /* v12: снапшот входа (kind bdd0_in) и поток логических листьев (bdd0_leaf).
  * Версия только этих двух родов; пара bdd0_cap/res остаётся CAP_BDD0_VER (11),
  * cap/res/grid/eee0_* — CAP_VERSION (10). */
-#define CAP_BDD0_SNAP_VER   15         /* v15: bdd0_in несёт независимую тройку "ctx_pos" */
+#define CAP_BDD0_SNAP_VER   16         /* v16: + "band_pos" (геометрия ленты) и grid-запись из bdd0-пути */
 #define CAP_BDD0_FRAME_SIZE 0x168  /* локалы 0x00..0x15b + param_1/2/3 (0x15c/0x160/0x164) */
 /* unit-блок 0x180: покрывает все чтения unit из tick.cpp (максимум +0x170;
  * +0x138 — встроенный BattleAI, снимается отдельным блоком ниже). 0x180
@@ -237,6 +237,15 @@ static unsigned char g_snap_band[CAP_BDD0_BAND_MAX * CAP_BDD0_BAND_ELEM];
 static unsigned char g_snap_gs[CAP_BDD0_GS_SIZE];
 static char          g_b64[CAP_B64_MAX];
 static char          g_b64_big[CAP_B64_BAND_MAX];
+/* v16 (аддитивно): геометрия ленты (band_pos) — параллельные массивы на
+ * CAP_BDD0_BAND_MAX элементов; заполняет cap_read_band_pos, пишет
+ * cap_write_band_pos. sa/sl/sm — сырые биты float-тройки уровня. */
+static int          g_band_pos_ok[CAP_BDD0_BAND_MAX];
+static int          g_band_pos_x[CAP_BDD0_BAND_MAX];
+static int          g_band_pos_y[CAP_BDD0_BAND_MAX];
+static unsigned int g_band_pos_sa[CAP_BDD0_BAND_MAX];
+static unsigned int g_band_pos_sl[CAP_BDD0_BAND_MAX];
+static unsigned int g_band_pos_sm[CAP_BDD0_BAND_MAX];
 
 /* Адреса оригинальных листьев (устанавливаются из install_capture_sites). */
 static void *g_fn_cb40 = NULL;
@@ -579,6 +588,17 @@ static void cap_write_ints(FILE *f, const int *arr, int n)
     fputc('[', f);
     for (i = 0; i < n; i++) {
         fprintf(f, "%s%d", i ? "," : "", arr[i]);
+    }
+    fputc(']', f);
+}
+
+/* v16: массив u32 (сырые биты float) — %u, без знака. */
+static void cap_write_uints(FILE *f, const unsigned int *arr, int n)
+{
+    int i;
+    fputc('[', f);
+    for (i = 0; i < n; i++) {
+        fprintf(f, "%s%u", i ? "," : "", arr[i]);
     }
     fputc(']', f);
 }
@@ -1631,6 +1651,72 @@ static void cap_write_b64_field(FILE *f, int ok, const unsigned char *p, int n)
     fputc('"', f);
 }
 
+/* v16 (аддитивно): геометрия ленты для портов 45b150/45b3e0. На каждый из n
+ * захваченных элементов (те же, что несёт band_b64; n ≤ CAP_BDD0_BAND_MAX)
+ * читается elem+0x14 → LDPos*, из него +0x0c/+0x10 (int-координаты записи) и
+ * +0x1c → GridLevel, из которого +0x20/+0x24/+0x28 (биты float: scale_add/
+ * scale_load/scale_mul). Каждый элемент под __try; NULL-указатель или сбой →
+ * ok=0, остальные массивы 0 (значения не фабрикуются). Потолок
+ * CAP_BDD0_BAND_MAX: элементы за ним не снимаются — загрузчик тик, у которого
+ * (end−begin)/0x18 больше захваченного числа, считает немоделированным. */
+static void cap_read_band_pos(unsigned int bb, int n)
+{
+    int i;
+    for (i = 0; i < n; i++) {
+        g_band_pos_ok[i] = 0;
+        g_band_pos_x[i] = 0;
+        g_band_pos_y[i] = 0;
+        g_band_pos_sa[i] = 0;
+        g_band_pos_sl[i] = 0;
+        g_band_pos_sm[i] = 0;
+        __try {
+            unsigned char *elem = (unsigned char *)(size_t)bb +
+                                  (size_t)i * CAP_BDD0_BAND_ELEM;
+            void *pos = *(void **)(elem + 0x14);
+            if (pos != NULL) {
+                void *lvl = *(void **)((const unsigned char *)pos + 0x1c);
+                if (lvl != NULL) {
+                    g_band_pos_sa[i] = *(const unsigned int *)((const unsigned char *)lvl + 0x20);
+                    g_band_pos_sl[i] = *(const unsigned int *)((const unsigned char *)lvl + 0x24);
+                    g_band_pos_sm[i] = *(const unsigned int *)((const unsigned char *)lvl + 0x28);
+                    g_band_pos_x[i] = *(const int *)((const unsigned char *)pos + 0x0c);
+                    g_band_pos_y[i] = *(const int *)((const unsigned char *)pos + 0x10);
+                    g_band_pos_ok[i] = 1;
+                }
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            g_band_pos_ok[i] = 0;
+            g_band_pos_x[i] = 0;
+            g_band_pos_y[i] = 0;
+            g_band_pos_sa[i] = 0;
+            g_band_pos_sl[i] = 0;
+            g_band_pos_sm[i] = 0;
+        }
+    }
+}
+
+/* v16: bdd0_in "band_pos" — параллельные массивы длиной n; n==0 → null. */
+static void cap_write_band_pos(FILE *f, int n)
+{
+    if (n <= 0) {
+        fputs("null", f);
+        return;
+    }
+    fputs("{\"ok\":", f);
+    cap_write_ints(f, g_band_pos_ok, n);
+    fputs(",\"x\":", f);
+    cap_write_ints(f, g_band_pos_x, n);
+    fputs(",\"y\":", f);
+    cap_write_ints(f, g_band_pos_y, n);
+    fputs(",\"sa\":", f);
+    cap_write_uints(f, g_band_pos_sa, n);
+    fputs(",\"sl\":", f);
+    cap_write_uints(f, g_band_pos_sl, n);
+    fputs(",\"sm\":", f);
+    cap_write_uints(f, g_band_pos_sm, n);
+    fputc('}', f);
+}
+
 static void cap_write_bdd0_in(int seq, void *self, void *esp, int p1, int p2,
                               int p3, int ai_ctx, int u170,
                               unsigned int gate114)
@@ -1775,6 +1861,11 @@ static void cap_write_bdd0_in(int seq, void *self, void *esp, int p1, int p2,
     } else {
         fputs("null", g_file);
     }
+    /* v16 (аддитивно): геометрия ленты (band_pos) для портов 45b150/45b3e0 —
+     * те же band_n элементов, что несёт band_b64, из живой памяти (bb). */
+    cap_read_band_pos(bb, band_n);
+    fputs(",\"band_pos\":", g_file);
+    cap_write_band_pos(g_file, band_n);
     /* v12: объект состояния игры FUN_00442570 (0x20 Б; тело зовёт аксессор
      * 4+ раз за тик) — ключ `gs_b64` (иначе contract_min считается по нулям). */
     fputs(",\"gs_b64\":", g_file);
@@ -2168,6 +2259,15 @@ void battle_capture_bdd0_enter(void *self, void *esp)
             ai_ctx, u170, gate114, trap);
     if (g_snap) {
         cap_write_bdd0_in(seq, self, esp, p1, p2, p3, ai_ctx, u170, gate114);
+        /* v16 (аддитивно): полный снимок сетки (kind "grid") из bdd0-пути —
+         * 458050 нельзя сверить офлайн, пока слой e0a0 выключен. BattleAI
+         * встроен в unit по +0x138; g_grid_written — ровно один раз за захват
+         * (как в e0a0-пути). Все чтения — под __try в cap_write_grid_record. */
+        if (self != NULL && !g_grid_written) {
+            g_grid_written = 1;
+            cap_write_grid_record(
+                (BattleAI *)((const unsigned char *)self + CAP_BDD0_AI_OFF));
+        }
     }
 }
 
