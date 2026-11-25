@@ -211,6 +211,7 @@ static const Profile k_profiles[] = {
 #define GAME_LDPOS    0x10070000u
 #define GAME_GRIDLVL  0x10030000u   /* = GAME_TREE */
 #define GAME_CELLS    0x10080000u
+#define GAME_ROWS     0x100A0000u
 #define GAME_FRAME    0x0012E000u
 #define BAND_SCALE_ADD  0.0f
 #define BAND_SCALE_LOAD 0.0f
@@ -224,7 +225,10 @@ static void build_grid_model(void)
 {
     int i;
 
-    g_grid = GridModel();
+    /* Сброс скалярных полей без временного GridModel() на стеке (см. scenario.cpp:
+     * массивы 200000 int переполнили бы 1-МБ стек). */
+    g_grid.valid = 0; g_grid.nlev = 0; g_grid.leaf = -1; g_grid.ncell = 0;
+    g_grid.cells_game = 0; g_grid.rows_game = 0;
     g_grid.valid = 1;
     g_grid.nlev = 2;
     g_grid.leaf = 1;
@@ -521,9 +525,10 @@ static void write_grid_record(FILE *f)
 {
     int i, n = g_grid.ncell;
 
-    fprintf(f, "{\"v\":10,\"kind\":\"grid\",\"sx\":%d,\"sy\":%d,\"leaf\":%d,\"cells_base\":%u,"
-               "\"levels\":[", g_grid.lev[g_grid.leaf].sx,
-               g_grid.lev[g_grid.leaf].sy, g_grid.leaf, GAME_CELLS);
+    fprintf(f, "{\"v\":10,\"kind\":\"grid\",\"sx\":%d,\"sy\":%d,\"leaf\":%d,"
+               "\"cells_base\":%u,\"rows_base\":%u,\"levels\":[",
+            g_grid.lev[g_grid.leaf].sx,
+            g_grid.lev[g_grid.leaf].sy, g_grid.leaf, GAME_CELLS, GAME_ROWS);
     for (i = 0; i < g_grid.nlev; i++) {
         fprintf(f, "%s{\"i\":%d,\"sx\":%d,\"sy\":%d,\"rx\":%d,\"ry\":%d,"
                    "\"sa\":%u,\"sl\":%u,\"sm\":%u,\"next\":%d}",

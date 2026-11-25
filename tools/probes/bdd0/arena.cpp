@@ -125,6 +125,9 @@ struct Arena {
     int bind_overflow;      /* v16: bind_add отброшен из-за переполнения (диагностика) */
     const TickRecord *rec;
     const GridModel *grid;      /* v16: модель сетки (NULL — нет grid-записи) */
+    int grid_node_ok;       /* v16: 0 — узел 458050 (unit+0x74) не удалось
+                             * материализовать (DOM занял фикс. страницу): тик
+                             * реплеит 458050, fail-closed, без trap */
     int leaf_nodes;
     int leaf_identity;      /* leaf rets bound by identity (см. k_identity_rets) */
 };
@@ -419,7 +422,17 @@ static const IdentRet k_identity_rets[] = {
     /* 0x44c3fa → 0x45c730 (band_cursor): возврат → `MOV EAX,EDI` @0x44c3f8 и
      * только два равенства: `CMP 0x14(EDI),EAX` @0x44c3ff (gs-поле курсора) и
      * `CMP EDI,EAX` @0x44c7df (EDI живёт до join B77). Разыменования нет. */
-    { 0x44c3fau, 0x45c730u }
+    { 0x44c3fau, 0x45c730u },
+    /* 0x44c36f → 0x45c730 (band_cursor, B47): возврат читает ТОЛЬКО `TEST EAX,EAX`
+     * @0x44c374 / `JE` @0x44c376 (NULL-тест курсора), разыменования нет; порт —
+     * `head = native::band_cursor(...); if (head == NULL) goto b75` (tick.cpp). */
+    { 0x44c36fu, 0x45c730u },
+    /* 0x44c37e → 0x45c730 (band_cursor, B48): возврат идёт в `native::player_get`
+     * (сайт 0x44c387, слот u+0x40) как получатель (this). Живой `MOV EDX,[EAX]` /
+     * `CALL *[EDX+0x40]` (vtable+0x40) офлайн НЕ моделируется — порт заменяет его
+     * прямым вызовом, а replay player_get (native_replay.cpp) отвечает из
+     * NativeRec / shadow-области "player" и аргумент НЕ разыменовывает. */
+    { 0x44c37eu, 0x45c730u }
 };
 
 static int identity_hit(unsigned site, unsigned va)
@@ -514,13 +527,20 @@ static void materialize_models(Arena *a)
     unsigned char *band = arena_region_w(a, "band");
     int grid_ok = (gm != NULL && gm->valid && gm->nlev >= 1 &&
                    gm->leaf >= 0 && gm->leaf < gm->nlev && tree != NULL);
+    /* Инвариант: tree/grid_levels у элементов ленты берём ТОЛЬКО если уровни
+     * сетки реально записаны — тот же предикат, что у grid-блока ниже.
+     * grid_node_ok==0 → узел 458050 реплеит натив, уровни не заполнены
+     * (триплет 0), поэтому лента использует собственные band_level-триплеты. */
+    int grid_levels_done = grid_ok && a->grid_node_ok;
     int lsx = grid_ok ? gm->lev[gm->leaf].sx : 0;
     int lsy = grid_ok ? gm->lev[gm->leaf].sy : 0;
     int ncell = grid_ok ? gm->ncell : 0;
 
-    if (grid_ok) {
+    /* grid_node_ok=0 (узел не материализуем) → 458050 реплеит натив, grid-области
+     * не нужны: не тратим 8-МБ alloc/memset на тик (см. bdd0_grid_level_modelled). */
+    if (grid_levels_done) {
         unsigned char *glevels = NULL, *gcells = NULL, *gkeys = NULL;
-        unsigned char *grows = NULL, *growdata = NULL, *gnode = NULL;
+        unsigned char *grows = NULL, *growdata = NULL;
         int i;
 
         if (gm->nlev > 1) {
@@ -535,19 +555,13 @@ static void materialize_models(Arena *a)
         gcells = arena_region_w(a, "grid_cells");
         reg_add(a, "grid_keys", (unsigned)ncell * 0x20);
         gkeys = arena_region_w(a, "grid_keys");
-        /* узел-приёмник 458050 (frame+0x38 = a4n): порт разыменовывает node+0x238
-         * напрямую и передаёт node как arg[3] (сверяется с сырым a4n записи).
-         * Поэтому узел материализуем ПО СЫРОМУ адресу a4n (node остаётся сырым,
-         * arg[3] совпадает, deref разрешён); +0x238 = NULL → map NULL. */
-        {
-            unsigned a4n = 0;
-            unsigned char *fr = arena_region_w(a, "frame");
-            if (fr != NULL) memcpy(&a4n, fr + 0x38, 4);
-            if (a4n != 0 && reg_add_fixed(a, "grid_node", a4n, 0x240)) {
-                gnode = arena_region_w(a, "grid_node");
-                bind_add(a, a4n, gnode, 0x240);
-            }
-        }
+        /* grid_node (fixed по unit+0x74) зарезервирован в arena_build ПЕРВЫМ
+         * (до OS-chosen областей); здесь только ячейки/ключи/уровни/rows.
+         * Материализуем per-tick: статические области содержат указатели на
+         * shadow-адреса (gkeys/gcells), которые меняются от тика к тику, а
+         * кэш 8-МБ committed-памяти (OS-chosen) конфликтует с per-tick фикс.
+         * grid_node (куча игры) на unpredict. адресах. ~4 с на cap_v16 (971
+         * тик × 90000 ячеек) — приемлемо для офлайн-инструмента. */
         /* ячейки + ключи */
         for (i = 0; i < ncell; i++) {
             unsigned char *c = gcells + i * S6_GRID_CELL_SIZE;
@@ -583,7 +597,6 @@ static void materialize_models(Arena *a)
             write_u32(L + 0x38, (unsigned)(size_t)grows);   /* rows */
             if (rec->tree != 0) bind_add(a, rec->tree + i * 0x30, L, 0x40);
         }
-        (void)gnode;
     }
 
     if (rec->has_band_pos && rec->band_pos_n > 0 && band != NULL) {
@@ -614,7 +627,7 @@ static void materialize_models(Arena *a)
 
         reg_add(a, "band_ldpos", (unsigned)n * 0x20);
         ldpos = arena_region_w(a, "band_ldpos");
-        if (!grid_ok) {
+        if (!grid_levels_done) {
             reg_add(a, "band_level", (unsigned)n * 0x40);
             blevel = arena_region_w(a, "band_level");
         }
@@ -628,7 +641,7 @@ static void materialize_models(Arena *a)
             if (raw_pos == 0) continue;
             P = ldpos + i * 0x20;
             /* уровень: общий с моделью сетки (i % nlev) либо свой */
-            if (grid_ok && gm->nlev > 0) {
+            if (grid_levels_done) {
                 int li = i % gm->nlev;
                 L = (li == 0) ? tree : arena_region_w(a, "grid_levels") + (li - 1) * 0x40;
             } else {
@@ -665,13 +678,31 @@ Arena *arena_build(const TickRecord *rec)
     a->bind_overflow = 0;
     a->rec = rec;
     a->grid = g_grid_model;
+    a->grid_node_ok = 1;
     a->leaf_nodes = 0;
     a->leaf_identity = 0;
     a->id_n = 0;
-    a->id_pool = (unsigned char *)VirtualAlloc(NULL,
-                                               ARENA_ID_POOL_PAGES * ARENA_PAGE,
-                                               MEM_RESERVE, PAGE_NOACCESS);
-    /* пул = резерв без коммита: адрес валиден, разыменование бьёт ACCESS_VIOLATION */
+    /* v16: grid_node (fixed по сырому unit+0x74 = arg4 узла 458050 в B5)
+     * резервируем ПЕРВЫМ — до любых OS-chosen областей (base/id_pool/grid_cells),
+     * иначе 8-МБ grid_cells или пул идентичности займут фикс. страницу узла на
+     * другом тике, и reg_add_fixed провалится → node+0x238 читается из живой
+     * кучи игры → trap. unit+0x74 берём из СЫРОГО снимка (rec->unit), не из арены. */
+    {
+        const GridModel *gm = a->grid;
+        int gok = (gm != NULL && gm->valid && gm->nlev >= 1 &&
+                   gm->leaf >= 0 && gm->leaf < gm->nlev);
+        if (gok && rec->has_unit) {
+            unsigned a4n;
+            memcpy(&a4n, rec->unit + 0x74, 4);
+            if (a4n != 0) {
+                if (reg_add_fixed(a, "grid_node", a4n, 0x240))
+                    bind_add(a, a4n, arena_region_w(a, "grid_node"), 0x240);
+                else
+                    a->grid_node_ok = 0;  /* фикс. страница занята (DOM): реплей */
+            }
+            /* a4n == 0 → узел NULL (ветка node==NULL), grid_node_ok=1 */
+        }
+    }
 
     /* 1. области: unit-блок 0x1b8 — объявленная область unit 0x180 плюс
      *    встроенный BattleAI (unit+0x138..+0x1b7, отдельная view "ai"). */
@@ -714,6 +745,12 @@ Arena *arena_build(const TickRecord *rec)
     }
 
     a->out_slot = arena_region_w(a, "out");
+
+    /* пул идентичности — резерв без коммита: адрес валиден, разыменование бьёт
+     * ACCESS_VIOLATION. Резервируется ПОСЛЕ grid_node (тот взят первым). */
+    a->id_pool = (unsigned char *)VirtualAlloc(NULL,
+                                               ARENA_ID_POOL_PAGES * ARENA_PAGE,
+                                               MEM_RESERVE, PAGE_NOACCESS);
 
     /* 3. привязки сырых адресов: self покрывает весь unit-блок (band_head
      *    вернёт self+0x174 = &BattleAI[0x3c]). */
@@ -961,7 +998,8 @@ int bdd0_grid_level_modelled(void)
 {
     Arena *a = g_cur;
     if (g_model_gates_off) return 0;    /* генератор: запись ведёт модельный натив */
-    return (a != NULL && a->grid != NULL && a->grid->valid) ? 1 : 0;
+    return (a != NULL && a->grid != NULL && a->grid->valid &&
+            a->grid_node_ok) ? 1 : 0;
 }
 
 /* 1 — арена несёт модель геометрии ленты: на каждый 24-байтный элемент ленты

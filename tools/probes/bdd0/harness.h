@@ -177,7 +177,9 @@ struct TickRecord {
  * (индекс следующего уровня, -1 — лист). Ячейки листа: key_rec->key, next
  * (цепочка +0x24), min_metric (float-биты). rows[x][y] — индекс ячейки. */
 #define BDD0_GRID_MAX_LEVELS 16
-#define BDD0_GRID_MAX_CELLS  256
+/* Совпадает с живым писателем (capture.cpp CAP_MAX_GRID_CELLS=200000): реальный
+ * лист 300x300 = 90000 ячеек, старый офлайн-кэп 256 молча выключал модель. */
+#define BDD0_GRID_MAX_CELLS  200000
 struct GridLevelModel {
     int sx, sy, rx, ry;
     unsigned sa, sl, sm;       /* float-биты scale_add/scale_load/scale_mul */
@@ -189,11 +191,13 @@ struct GridModel {
     GridLevelModel lev[BDD0_GRID_MAX_LEVELS];
     int ncell;                 /* leaf.sx * leaf.sy */
     unsigned cells_game;       /* v16: база массива ячеек в игре (grid "cells_base"; 0 — нет) */
+    unsigned rows_game;        /* v16: база rows[x][y] в игре (grid "rows_base"; 0 — нет) */
     int rows[BDD0_GRID_MAX_CELLS];   /* rows[x][y] = индекс ячейки */
     int key[BDD0_GRID_MAX_CELLS];    /* key_rec->key */
     int nextc[BDD0_GRID_MAX_CELLS];  /* cell.next (индекс, -1) */
     int minm[BDD0_GRID_MAX_CELLS];   /* cell.min_metric (float-биты) */
-    GridModel() : valid(0), nlev(0), leaf(-1), ncell(0), cells_game(0) {}
+    GridModel() : valid(0), nlev(0), leaf(-1), ncell(0), cells_game(0),
+                  rows_game(0) {}
 };
 
 struct Scenario {

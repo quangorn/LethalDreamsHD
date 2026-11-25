@@ -515,12 +515,17 @@ static void apply_grid(GridModel &g, const JVal &v)
     const JVal *cells = jget(v, "cells");
     int i;
 
-    g = GridModel();
-    /* ВНИМАНИЕ: офлайн-кэпы BDD0_GRID_MAX_CELLS=256 / BDD0_GRID_MAX_LEVELS=16
-     * НЕ совпадают с живыми (CAP_MAX_GRID_CELLS=200000). Превышение офлайн-кэпа
-     * НЕ ошибка формата: ncell/nlev обнуляются, g.valid остаётся 0 → has_grid=0 →
+    /* Сброс скалярных полей БЕЗ временного GridModel() на стеке: массивы на
+     * BDD0_GRID_MAX_CELLS=200000 (3.2 МБ) переполнили бы 1-МБ стек. Массивы
+     * читаются только при valid==1, а он ставится лишь после полного заполнения
+     * ncell записей — устаревшие хвосты безвредны. */
+    g.valid = 0; g.nlev = 0; g.leaf = -1; g.ncell = 0;
+    g.cells_game = 0; g.rows_game = 0;
+    /* Офлайн-кэп BDD0_GRID_MAX_CELLS совпадает с живым (CAP_MAX_GRID_CELLS=200000),
+     * BDD0_GRID_MAX_LEVELS=16 ≥ живого. Превышение офлайн-кэпа НЕ ошибка формата:
+     * ncell/nlev обнуляются, g.valid остаётся 0 → has_grid=0 →
      * bdd0_grid_level_modelled()=0 (модель молча выключается, порт 458050 реплеит
-     * натив). Читатель загрузчика: это осознанный потолок, не тихий сбой. */
+     * натив — fail-closed). Читатель загрузчика: это осознанный потолок, не сбой. */
     if (jint_opt(v, "error", 0)) return;            /* grid error-запись */
     if (lv == NULL || lv->t != JVal::ARR || rows == NULL ||
         rows->t != JVal::ARR || cells == NULL || cells->t != JVal::OBJ) {
@@ -541,6 +546,7 @@ static void apply_grid(GridModel &g, const JVal &v)
         m.next = (int)jint_opt(L, "next", -1);
     }
     g.cells_game = (unsigned)jint_opt(v, "cells_base", 0);   /* v16: база ячеек в игре */
+    g.rows_game = (unsigned)jint_opt(v, "rows_base", 0);     /* v16: база rows в игре */
     g.leaf = (int)jint_opt(v, "leaf", g.nlev - 1);
     if (g.leaf < 0 || g.leaf >= g.nlev) g.leaf = g.nlev - 1;
     g.ncell = (int)rows->a.size();
