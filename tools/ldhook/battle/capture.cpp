@@ -911,47 +911,81 @@ static void cap_read_cell_fields(unsigned char *cells, int n, int *out)
     }
 }
 
-static void cap_write_grid_record(BattleAI *self)
-{
-    GridLevel *levels[16];
-    int nlev = 0, leaf = 0;
-    int sx = 0, sy = 0, n = 0, ok = 1;
-    unsigned char *cells = NULL;
-    int **rows = NULL;
-    cap_grid_deps dep;
-    void *world = NULL;
-    int i;
+/* v16: общие данные листового уровня сетки. Заполняются под __try без запи —
+ * один и тот же снимок читают и писатель записи, и предикат bdd0-пути. */
+typedef struct {
+    int ok;                     /* 0 — чтение упало (любая ошибка) */
+    int nlev;                   /* число уровней (1..16) */
+    int leaf;                   /* индекс листового уровня */
+    int sx, sy;                 /* размеры листа */
+    unsigned char *cells;       /* массив ячеек листа */
+    int **rows;                 /* rows[x][y] → индекс ячейки */
+    void *world;                /* game_ctx[4] */
+    GridLevel *levels[16];      /* цепочка уровней сверху вниз */
+} cap_grid_view;
 
-    cap_read_grid_deps(self, &dep);
+/* Снимает листовой уровень сетки BattleAI. Только чтение, всё под __try;
+ * при любой ошибке ok=0 — ровно как в error-ветке писателя. */
+static void cap_grid_read(BattleAI *self, cap_grid_view *v)
+{
+    int nlev = 0;
+
+    v->ok = 1;
+    v->nlev = 0;
+    v->leaf = 0;
+    v->sx = 0;
+    v->sy = 0;
+    v->cells = NULL;
+    v->rows = NULL;
+    v->world = NULL;
     __try {
         if (self != NULL && self->game_ctx != NULL) {
-            world = *(void **)((unsigned char *)self->game_ctx + 4);
-            levels[0] = *(GridLevel **)((unsigned char *)self->game_ctx + 8);
-            while (nlev < 16 && levels[nlev] != NULL) {
-                if (levels[nlev]->next_level == NULL) break;
-                levels[nlev + 1] = levels[nlev]->next_level;
+            v->world = *(void **)((unsigned char *)self->game_ctx + 4);
+            v->levels[0] = *(GridLevel **)((unsigned char *)self->game_ctx + 8);
+            while (nlev < 16 && v->levels[nlev] != NULL) {
+                if (v->levels[nlev]->next_level == NULL) break;
+                v->levels[nlev + 1] = v->levels[nlev]->next_level;
                 nlev++;
             }
             nlev++;
-            leaf = nlev - 1;
-            sx = levels[leaf]->size_x;
-            sy = levels[leaf]->size_y;
-            cells = (unsigned char *)levels[leaf]->cells;
-            rows = levels[leaf]->rows;
+            v->leaf = nlev - 1;
+            v->sx = v->levels[v->leaf]->size_x;
+            v->sy = v->levels[v->leaf]->size_y;
+            v->cells = (unsigned char *)v->levels[v->leaf]->cells;
+            v->rows = v->levels[v->leaf]->rows;
         }
+        v->nlev = nlev;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        ok = 0;
+        v->ok = 0;
     }
-    if (!ok || sx <= 0 || sy <= 0 || cells == NULL || rows == NULL ||
-        (long long)sx * sy > CAP_MAX_GRID_CELLS) {
+}
+
+/* Единственное условие «сетка валидна → запись будет реальной, а не error».
+ * Его используют и error-ветка cap_write_grid_record, и предикат bdd0-пути,
+ * поэтому предикат и писатель не могут разойтись. */
+static int cap_grid_ok(const cap_grid_view *v)
+{
+    return v->ok && v->sx > 0 && v->sy > 0 && v->cells != NULL &&
+           v->rows != NULL && (long long)v->sx * v->sy <= CAP_MAX_GRID_CELLS;
+}
+
+static void cap_write_grid_record(BattleAI *self)
+{
+    cap_grid_view v;
+    cap_grid_deps dep;
+    int n = 0, i;
+
+    cap_read_grid_deps(self, &dep);
+    cap_grid_read(self, &v);
+    if (!cap_grid_ok(&v)) {
         fprintf(g_file, "{\"v\":5,\"kind\":\"grid\",\"error\":1,"
-                        "\"sx\":%d,\"sy\":%d}\n", sx, sy);
+                        "\"sx\":%d,\"sy\":%d}\n", v.sx, v.sy);
         return;
     }
-    n = sx * sy;
+    n = v.sx * v.sy;
     __try {
         for (i = 0; i < n; i++) {
-            unsigned char *c = cells + i * S6_GRID_CELL_SIZE;
+            unsigned char *c = v.cells + i * S6_GRID_CELL_SIZE;
             void *kr = *(void **)(c + 0x20);
             void *nx = *(void **)(c + 0x24);
             void *ch = *(void **)(c + 0x28);
@@ -965,42 +999,47 @@ static void cap_write_grid_record(BattleAI *self)
             g_gw3[i] = *(int *)(c + 0x0c);
             g_gw4[i] = *(int *)(c + 0x10);
             g_gkey[i] = key;
-            g_gstatus[i] = native::tree_lookup(world, (unsigned int)key);
+            g_gstatus[i] = native::tree_lookup(v.world, (unsigned int)key);
             g_gmin[i] = *(int *)(c + 0x14);
             g_gmax[i] = *(int *)(c + 0x18);
             /* +0x1c — уровень ячейки (FUN_00456b20 через spec->pos) */
-            g_gnext[i] = (nx >= cells && nx < cells + (size_t)n * S6_GRID_CELL_SIZE)
-                         ? (int)(((unsigned char *)nx - cells) / S6_GRID_CELL_SIZE) : -1;
-            g_gchain[i] = (ch >= cells && ch < cells + (size_t)n * S6_GRID_CELL_SIZE)
-                          ? (int)(((unsigned char *)ch - cells) / S6_GRID_CELL_SIZE) : -1;
+            g_gnext[i] = (nx >= v.cells && nx < v.cells + (size_t)n * S6_GRID_CELL_SIZE)
+                         ? (int)(((unsigned char *)nx - v.cells) / S6_GRID_CELL_SIZE) : -1;
+            g_gchain[i] = (ch >= v.cells && ch < v.cells + (size_t)n * S6_GRID_CELL_SIZE)
+                          ? (int)(((unsigned char *)ch - v.cells) / S6_GRID_CELL_SIZE) : -1;
         }
         g_grid_n = n;
         memcpy(g_tree_prev, g_gstatus, (size_t)n * sizeof(int));
-        cap_read_cell_fields(cells, n, g_prev_fields);
+        cap_read_cell_fields(v.cells, n, g_prev_fields);
         for (i = 0; i < n; i++) {
-            g_prev_rows[i] = rows[i / sy][i % sy];
+            g_prev_rows[i] = v.rows[i / v.sy][i % v.sy];
         }
         for (i = 0; i < n; i++) {
-            int x = i / sy, y = i % sy;
-            g_grows[i] = rows[x][y];
+            int x = i / v.sy, y = i % v.sy;
+            g_grows[i] = v.rows[x][y];
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         fprintf(g_file, "{\"v\":5,\"kind\":\"grid\",\"error\":1,"
-                        "\"sx\":%d,\"sy\":%d,\"trap\":1}\n", sx, sy);
+                        "\"sx\":%d,\"sy\":%d,\"trap\":1}\n", v.sx, v.sy);
         return;
     }
 
+    /* cells_base/rows_base — сырые игровые указатели листа; офлайн-харнесс
+     * переводит ими cell-указатель порта в индекс ячейки. */
     fprintf(g_file, "{\"v\":%d,\"kind\":\"grid\",\"sx\":%d,\"sy\":%d,"
-                    "\"leaf\":%d,\"levels\":[", CAP_VERSION, sx, sy, leaf);
-    for (i = 0; i < nlev; i++) {
+                    "\"cells_base\":%u,\"rows_base\":%u,"
+                    "\"leaf\":%d,\"levels\":[", CAP_VERSION, v.sx, v.sy,
+            (unsigned int)(size_t)v.cells, (unsigned int)(size_t)v.rows,
+            v.leaf);
+    for (i = 0; i < v.nlev; i++) {
         fprintf(g_file, "%s{\"i\":%d,\"sx\":%d,\"sy\":%d,\"rx\":%d,\"ry\":%d,"
                         "\"sa\":%u,\"sl\":%u,\"sm\":%u,\"next\":%d}",
-                i ? "," : "", i, levels[i]->size_x, levels[i]->size_y,
-                levels[i]->rec_x, levels[i]->rec_y,
-                *(unsigned int *)((unsigned char *)levels[i] + 0x20),
-                *(unsigned int *)((unsigned char *)levels[i] + 0x24),
-                *(unsigned int *)((unsigned char *)levels[i] + 0x28),
-                (i + 1 < nlev) ? i + 1 : -1);
+                i ? "," : "", i, v.levels[i]->size_x, v.levels[i]->size_y,
+                v.levels[i]->rec_x, v.levels[i]->rec_y,
+                *(unsigned int *)((unsigned char *)v.levels[i] + 0x20),
+                *(unsigned int *)((unsigned char *)v.levels[i] + 0x24),
+                *(unsigned int *)((unsigned char *)v.levels[i] + 0x28),
+                (i + 1 < v.nlev) ? i + 1 : -1);
     }
     fputs("],\"world\":{\"w110\":", g_file);
     fprintf(g_file, "%u,\"vt\":%u,\"a1\":%u,\"obj4\":%u,\"wscale\":%u},",
@@ -1030,6 +1069,19 @@ static void cap_write_grid_record(BattleAI *self)
     fputs(",\"w4\":", g_file);
     cap_write_ints(g_file, g_gw4, n);
     fputs("}}\n", g_file);
+}
+
+/* v16: ответил бы cap_write_grid_record реальной записью (а не error) для этого
+ * BattleAI? Только чтение, под __try, без запи. Условие — то же cap_grid_ok,
+ * что и в error-ветке писателя, поэтому предикат и писатель не расходятся.
+ * Нужен bdd0-пути: первые юниты боя могут иметь game_ctx == 0, и одноразовый
+ * флаг g_grid_written не должен расходоваться на них. */
+static int cap_grid_record_would_write(BattleAI *self)
+{
+    cap_grid_view v;
+
+    cap_grid_read(self, &v);
+    return cap_grid_ok(&v);
 }
 
 /* v5: world+0x104 (tree_lookup) меняется в ходе боя — снимаем ТОЛЬКО дельты
@@ -2545,11 +2597,20 @@ void battle_capture_bdd0_enter(void *self, void *esp)
         /* v16 (аддитивно): полный снимок сетки (kind "grid") из bdd0-пути —
          * 458050 нельзя сверить офлайн, пока слой e0a0 выключен. BattleAI
          * встроен в unit по +0x138; g_grid_written — ровно один раз за захват
-         * (как в e0a0-пути). Все чтения — под __try в cap_write_grid_record. */
+         * (как в e0a0-пути). Все чтения — под __try в cap_write_grid_record.
+         * ВАЖНО: первые вызовы 44bdd0 в бою принадлежат юнитам, у которых
+         * встроенный BattleAI ещё с game_ctx == 0 (сетки нет). Одноразовый флаг
+         * g_grid_written нельзя расходовать на них — иначе реальная запись не
+         * пишется за весь захват. Поэтому флаг ставим и пишем ТОЛЬКО когда
+         * предикат cap_grid_record_would_write подтвердил валидную сетку;
+         * иначе не делаем ничего (ни error-записи, ни расхода флага). */
         if (self != NULL && !g_grid_written) {
-            g_grid_written = 1;
-            cap_write_grid_record(
-                (BattleAI *)((const unsigned char *)self + CAP_BDD0_AI_OFF));
+            BattleAI *ai = (BattleAI *)((const unsigned char *)self +
+                                        CAP_BDD0_AI_OFF);
+            if (cap_grid_record_would_write(ai)) {
+                g_grid_written = 1;
+                cap_write_grid_record(ai);
+            }
         }
     }
 }
