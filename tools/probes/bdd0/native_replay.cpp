@@ -107,6 +107,9 @@ static int g_grid_anchor_replayed = 0;
 /* 45b150: то же для float-гейта ленты (порт не исполнялся — геометрии ленты в
  * захвате нет: tick.cpp b0_band_interp_gate + bdd0_band_geometry_modelled). */
 static int g_band_gate_replayed = 0;
+/* 45b3e0: то же для предиката ленты — sites 18/22 делят тот же гейт
+ * bdd0_band_geometry_modelled (tick.cpp b0_band_target_moved). */
+static int g_band_target_replayed = 0;
 
 static void ctx_pos_from_stream(void)
 {
@@ -132,6 +135,7 @@ void bdd0_leaf_begin(int seq, const LeafRec *v, int n)
     g_call_seq = 0;
     g_grid_anchor_replayed = 0;
     g_band_gate_replayed = 0;
+    g_band_target_replayed = 0;
     g_log_n = 0;
     g_claim_n = 0;
     for (int k = 0; k < LEAF_LOG_MAX; k++) {
@@ -152,6 +156,9 @@ int bdd0_grid_anchor_replayed(void) { return g_grid_anchor_replayed; }
 /* 45b150: тик потребил запись потока (порт не исполнялся — геометрии ленты в
  * захвате нет; tick.cpp b0_band_interp_gate). Сбрасывается в bdd0_leaf_begin. */
 int bdd0_band_gate_replayed(void) { return g_band_gate_replayed; }
+/* 45b3e0: тик потребил запись потока (порт не исполнялся — геометрии ленты в
+ * захвате нет; tick.cpp b0_band_target_moved). Сбрасывается в bdd0_leaf_begin. */
+int bdd0_band_target_replayed(void) { return g_band_target_replayed; }
 const char *bdd0_leaf_violation_why(void) { return g_why; }
 
 const CallLogEnt *bdd0_calllog(int *n)
@@ -661,6 +668,7 @@ int band_target_moved(void *band, float p1, int p2, float p3)
     a[1] = p2;
     a[2] = fbits(p3);
     const LeafRec *r = request(0x45b3e0, band, 3, a);
+    if (r != NULL) g_band_target_replayed = 1;   /* порт не исполнялся */
     if (r != NULL) return r->ret;
     return 0;
 }

@@ -34,7 +34,7 @@
  * join out=1 + dtor строки msg, фаза code==4 — цепочки 2/4, `448c30(0x40)`,
  * лог `0x51cc50`/0xa) и R22 (`0x44cf78..0x44d071`, B143..B156: cursor K,
  * финальные band-гейты, `448ee0`×2, out-writes, AL=1 пути); из 12 листьев
- * нативны 4 — `44bbf0`, `45c730`, `45b3e0`, `45e1d0`, остальные портированы
+ * нативны 3 — `44bbf0`, `45c730`, `45e1d0`, остальные портированы
  * (список — battle/ported.h), один детур на функцию (инвариант 5) — H1
  * `0x44bdf5` с возвратом в нативный эпилог `0x44d074` (там же H2/capture,
  * поэтому трассировка тика и захват продолжают работать).
@@ -50,6 +50,7 @@
  * `B0_BODY_COMPLETE` (ниже). Тело R1..R22 портировано целиком (до `0x44d071`);
  * R23 (`0x44d072..0x44d08e`) остаётся нативной — эпилог и H2/capture.
  */
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -70,10 +71,11 @@
 int bdd0_grid_level_modelled(void);
 /* То же для листа 0x45b150: 1 — арена несёт геометрию ленты (на каждый
  * 24-байтный элемент — его LDPos и scale-триплет уровня). Ни один формат
- * захвата (v12..v15) её не пишет, поэтому сайты 0x44c4cb/0x44c5e0 реплеят
- * записанный натив. Включение (захват v16) — (а) эта функция → 1, (б) ключ
- * bdd0_in "band_pos" в загрузчик, (в) 0x45b150 в b0_ported_leaf_va с claim из
- * тела порта. Всё разом: arena.cpp bdd0_band_geometry_modelled, battle/ported.h. */
+ * захвата (v12..v15) её не пишет, поэтому сайты 0x44c4cb/0x44c5e0 (leaf
+ * 0x45b150) и 0x44c554/0x44c666 (leaf 0x45b3e0) реплеят записанный натив.
+ * Включение (захват v16) — (а) эта функция → 1, (б) ключ bdd0_in "band_pos"
+ * в загрузчик, (в) оба VA в b0_ported_leaf_va с claim из тел портов.
+ * Всё разом: arena.cpp bdd0_band_geometry_modelled, battle/ported.h. */
 int bdd0_band_geometry_modelled(void);
 #endif
 /* === BEGIN LABEL TRACE === */
@@ -320,12 +322,12 @@ const char *b0_cond_names[] = {
     "p3 != NULL",
     "p3 != NULL",
     "*(const unsigned char *)(unit_x + 0x34) == 0",
-    "(unsigned char)native::band_target_moved(head, band_triple[0], b0_float_bits(band_triple[1]), band_triple[2]) == 0",
+    "(unsigned char)b0_band_target_moved(head, band_triple[0], b0_float_bits(band_triple[1]), band_triple[2]) == 0",
     "*(const unsigned char *)(unit_x + 0x34) == 0",
     "*(const int *)(unit_x + 0x170) == 1",
     "b0_gate_41_jp(gate, 3.0f)",
     "*(const unsigned char *)(unit_x + 0x34) == 0",
-    "(unsigned char)native::band_target_moved(head, band_triple[0], b0_float_bits(band_triple[1]), band_triple[2]) == 0",
+    "(unsigned char)b0_band_target_moved(head, band_triple[0], b0_float_bits(band_triple[1]), band_triple[2]) == 0",
     "*(const unsigned char *)(unit_x + 0x34) == 0",
     "native::band_cursor(unit + 0x138) != *(void *const *)((const unsigned char *)res + 0x14)",
     "!b0_pos3_equal(out, (const unsigned char *)res + 4)",
@@ -693,6 +695,137 @@ static float b0_band_interp_gate(void *band, float px, int dead_arg, float py)
     }
 #endif
     return s6_band_interp_gate(band, px, dead_arg, py);
+}
+
+/* --- Порт листа 0x45b3e0 (band_target_moved) ---------------------------- *
+ * Листинг `0x45b3e0..0x45b52f` (336 Б, 117 инстр., 15 блоков) сверен с байтами
+ * baseline `backup/LETHALDREAMS.EXE.pre4` (md5 45e93d46…, fileoff = VA −
+ * 0x400000): `sub esp,0x10; push esi; mov esi,ecx`, SEH/jmp-таблиц нет,
+ * callee — 0x456b20 (×2) и CRT-acos 0x4d1950, оба выхода `ret 0xc`.
+ *
+ * ABI: __thiscall, ECX = лента (BattleAI+0x3c), 3 стек-аргумента: [E+0x4] = p1
+ * (float32), [E+0x8] = мёртвый (в теле нет ни одного чтения), [E+0xc] = p3
+ * (float32). Результат — AL (0/1); старшие 24 бита EAX наследуют callee'ы.
+ * Сайты тика: B63 0x44c554 (site 18) и B70 0x44c666 (site 22).
+ *
+ * Слоты `sub esp,0x10` (B = ESP после push esi): out0[0]/[1] = B+4/B+8 (первый
+ * 0x456b20), out1[0]/[1] = B+0xc/B+0x10 (второй), Lx0 = B+4, Ly0 = B+8,
+ * Lx1 = B+0xc. Слот B+0x10 (o1[1]) читается один раз и НЕ пишется в память —
+ * Yn остаётся в x87-регистре.
+ *
+ * count = trunc((end−begin)/0x18) знаковым magic-делением (0x2aaaaaab…),
+ * guard `CMP EDX,2; JB` БЕЗзнаковый — отрицательный count его проходит и уводит
+ * `elem[count−1]`/`elem[count−2]` за начало ленты; порт воспроизводит это
+ * буквально (без «защит»). Шаг элемента 0x18:
+ *   pos(elem[0]) = [begin+0x14] → 0x456b20 → o0;
+ *   Lx0 = fl(o0[0] + elem[0].x), Ly0 = fl(o0[1] + elem[0].y)   (два FSTP m32)
+ *   pos(elem[count−1]) = [begin+24·count−4] → 0x456b20 → o1;
+ *   Lx1 = fl(o1[0] + elem[count−2].x)                          (FSTP m32)
+ *   Yn  = o1[1] + elem[count−2].y                              (FSTP НЕТ → double)
+ *   dot = (Lx0−p1)·(Lx0−Lx1) + (Ly0−p3)·(Ly0−Yn)
+ * Разности — в extended (PC=53): в C++ это `double`-разности float-операндов,
+ * `(double)Lx0 − (double)p1`, а НЕ `(double)(Lx0 − p1)` (второе округлило бы в
+ * float и дало другие биты для далёких операндов).
+ *
+ * Гейты (маска 0x5 в AH, правило battle_ai_x87.md §1):
+ *   gate1 (0x45b4fb..0x45b506): FCOMP 0.0f; `TEST AH,0x5; JNP` взят ⟺ dot < 0
+ *     → 0. Unordered (NaN) — PF=1, JNP не берёт → fall.
+ *   gate2 (0x45b508..0x45b51c): `FST m32` (0x45b4f1 — float32-округление dot),
+ *     FLD, CRT-acos 0x4d1950, FCOMP 0.34906542f; `TEST AH,0x5; JP` взят ⟺
+ *     NOT(acos(s) < thr) (включая unordered) → 0; fall → 1.
+ *     Литеральный перенос: `acos((double)s)` C-рантайма против порога
+ *     `0.3490654230117798` (= (double)float 0x3eb2b8b4 из 0x4ef4b8). acos игры
+ *     (0x4d1950) — отдельная реализация CRT; её 1-ULP-поведение на границе НЕ
+ *     проверено (recon §9) — открытый пункт: побитовое сравнение после захвата
+ *     v16 его и закроет. NaN → 0 через те же маски.
+ *
+ * Запись `FST [p1-слот]` в тройку вызывающего НЕ моделируется: после `ret 0xc`
+ * тройка `result+4..0xc` мёртва (recon §6 — log-функции получают слоты ВЫШЕ
+ * неё), значимый выход листа — только AL.
+ *
+ * Чтения: [band+0x20], [band+0x24], elem[0]+0x00/+0x08, elem[count−2]+0x00/+0x08,
+ * elem+0x14 (LDPos → 0x456b20 читает pos+0x0c/+0x10, [pos+0x1c] и
+ * level+0x20/+0x24/+0x28). Записей в игру нет — функция чистая.
+ *
+ * Офлайн: claim выпускается телом, но 0x45b3e0 НЕ в b0_ported_leaf_va — его вход
+ * (`[elem+0x14]` → LDPos → scale уровня) ни один захват v12..v15 не пишет; сайты
+ * 18/22 идут через b0_band_target_moved (реплей натива, см. ниже). */
+int s6_band_target_moved(const void *band_, float p1, int dead_arg, float p3)
+{
+    const unsigned char *b = (const unsigned char *)band_;
+    unsigned begin, end;
+    int count;
+    float o0[2], o1[2];
+    float Lx0, Ly0, Lx1;
+    double Yn, dot;
+    float s;
+    const unsigned char *e0, *en1, *en2;
+    LDPos *pos;
+    int ret = 0;
+
+    memcpy(&begin, b + B0_BAND_BEGIN_OFF, 4);           /* 0x45b3e6 */
+    if (begin == 0) {                                   /* 0x45b3e9/0x45b3eb */
+        goto claim;
+    }
+    memcpy(&end, b + B0_BAND_END_OFF, 4);               /* 0x45b3f1 */
+    count = (int)(end - begin) / B0_BAND_ELEM;          /* 0x45b3f4..0x45b407, trunc */
+    if ((unsigned)count < 2u) {                         /* 0x45b40a JB — беззнаково */
+        goto claim;
+    }
+
+    /* Адресация scaled-index натива (3·count → *8): 32-битное заворачивание. */
+    e0  = (const unsigned char *)(size_t)begin;
+    en1 = (const unsigned char *)(size_t)
+          (begin + (unsigned)B0_BAND_ELEM * (unsigned)count);       /* elem[count−1]+0x18 */
+    en2 = (const unsigned char *)(size_t)
+          (begin + (unsigned)B0_BAND_ELEM * (unsigned)(count - 2)); /* elem[count−2] */
+
+    memcpy(&pos, e0 + 0x14, sizeof(pos));               /* 0x45b419 elem[0]+0x14 */
+    s6_grid_scale_compute(pos, o0);                     /* 0x45b41c CALL 0x456b20 */
+    Lx0 = (float)((double)o0[0] + (double)b0_f32(e0 + 0x00)); /* 0x45b421..0x45b42e */
+    Ly0 = (float)((double)o0[1] + (double)b0_f32(e0 + 0x08)); /* 0x45b432..0x45b439 */
+
+    memcpy(&pos, en1 - 4 + 0x14, sizeof(pos));          /* 0x45b461 elem[count−1]+0x14 */
+    s6_grid_scale_compute(pos, o1);                     /* 0x45b465 CALL 0x456b20 */
+    Lx1 = (float)((double)o1[0] + (double)b0_f32(en2 + 0x00)); /* 0x45b48c..0x45b49e */
+    Yn  = (double)o1[1] + (double)b0_f32(en2 + 0x08);   /* 0x45b4be..0x45b4c5, FSTP нет */
+
+    dot = ((double)Lx0 - (double)p1) * ((double)Lx0 - (double)Lx1)
+        + ((double)Ly0 - (double)p3) * ((double)Ly0 - Yn); /* 0x45b4c9..0x45b4ef */
+    if (dot < 0.0) {                                    /* gate1 0x45b4fb..0x45b506 */
+        goto claim;
+    }
+    s = (float)dot;                                     /* 0x45b4f1 FST m32 */
+    if (!(acos((double)s) < 0.3490654230117798)) {      /* gate2 0x45b508..0x45b51c */
+        goto claim;
+    }
+    ret = 1;                                            /* 0x45b51e mov al,1 */
+
+claim:
+    {
+        int av[3];
+
+        av[0] = b0_float_bits(p1);      /* [E+4]: сайт кладёт triple dword'ами */
+        av[1] = dead_arg;               /* [E+8]: мёртвый, но в записи есть */
+        av[2] = b0_float_bits(p3);      /* [E+0xc] */
+        B0_LEAF_CLAIM(B0_LEAF_BAND_TARGET, band_, ret, av, 3);
+    }
+    return ret;
+}
+
+/* Диспетчер листа на сайтах 18/22 (0x44c554 B63, 0x44c666 B70). Порт
+ * исполняется только там, где арена несёт модель геометрии ленты — тот же гейт,
+ * что у 0x45b150: `[elem+0x14]` → LDPos → scale-триплет уровня в захватах
+ * v12..v15 не записан, поэтому реплеится записанный натив. Живой билд всегда
+ * идёт в порт. */
+static int b0_band_target_moved(void *band, float p1, int dead_arg, float p3)
+{
+#ifdef BATTLE_REPLAY
+    if (!bdd0_band_geometry_modelled()) {
+        return native::band_target_moved(band, p1, dead_arg, p3);
+    }
+#endif
+    return s6_band_target_moved(band, p1, dead_arg, p3);
 }
 
 /* --- Порт листа 0x45c6f0 (read_pos_from_ctx) ---------------------------- *
@@ -2313,7 +2446,7 @@ B0_LBL(58);
     memcpy(band_triple, (const unsigned char *)res + 4, 12); /* 0x44c52e..0x44c544 */
     *(void **)(frame + 0x1c) = band_triple;             /* 0x44c549 mov %esp,0x28(%esp) */
     head = b0_band_head(unit_x + 0x138);                /* 0x44c54d */
-    if (B0_TST(88, ((unsigned char)native::band_target_moved(head, band_triple[0], b0_float_bits(band_triple[1]), band_triple[2]) == 0)))  {
+    if (B0_TST(88, ((unsigned char)b0_band_target_moved(head, band_triple[0], b0_float_bits(band_triple[1]), band_triple[2]) == 0)))  {
         goto b66;                                       /* 0x44c55b je 0x44c5a5 */
     }
 
@@ -2406,7 +2539,7 @@ B0_LBL(61);
     memcpy(band_triple, (const unsigned char *)res + 4, 12); /* 0x44c640..0x44c656 */
     *(void **)(frame + 0x1c) = band_triple;             /* 0x44c65b mov %esp,0x28(%esp) */
     head = b0_band_head(unit_x + 0x138);                /* 0x44c65f */
-    if (B0_TST(93, ((unsigned char)native::band_target_moved(head, band_triple[0], b0_float_bits(band_triple[1]), band_triple[2]) == 0)))  {
+    if (B0_TST(93, ((unsigned char)b0_band_target_moved(head, band_triple[0], b0_float_bits(band_triple[1]), band_triple[2]) == 0)))  {
         goto b46;                     /* 0x44c66d je 0x44c365 — back-edge в R7 B46 */
     }
 

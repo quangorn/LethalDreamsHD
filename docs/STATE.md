@@ -199,14 +199,15 @@
 - `[P]` Индексы `458050` — от arg1 и arg3 (arg2 — только `min_metric − arg2`; `docs/CONTRADICTIONS.md` п. 20).
 - `[P]` Офлайн-гейт `458050`: `bdd0_grid_level_modelled()` (сетки в v12..v15 нет) — сводка
   `grid_anchor_replayed`, включение — `docs/PITFALLS.md`. Out-writes сверяет `B0_LEAF_CLAIM_W` (`ported.h`).
-- `[P]` Офлайн-гейт `45b150`: порт `s6_band_interp_gate` (`battle/tick.cpp`), сайты `0x44c4cb`/`0x44c5e0`;
-  FX/FY (`E+0x28/E+0x2c`) занулены — явное решение (`docs/PITFALLS.md`); гейт `bdd0_band_geometry_modelled()`,
-  сводка `band_interp_gate_replayed` видима — сравнение порта требует capture v16 (геометрия ленты).
+- `[P]` Офлайн-гейт `45b150`/`45b3e0` (`battle/tick.cpp`): порты `s6_band_interp_gate`/`s6_band_target_moved`
+  (сайты `0x44c4cb`/`0x44c5e0` и `0x44c554`/`0x44c666`), гейт `bdd0_band_geometry_modelled()`,
+  сводки `band_interp_gate_replayed`/`band_target_replayed` — сравнение требует v16; FX/FY занулены
+  только у `45b150` (`docs/PITFALLS.md`).
 - `[P]` Для capture без `band` длина реконструируется из записи `45af50`, claim'ы таких тиков → `resync`
   → SKIP (тавтологический PASS невозможен) — `battle/ported.h` (mutators), `bdd0/native_replay.cpp`
   (`band_resync_from_stream`). `w` листа `45c6f0` несравним (тройка `ctx` не в захвате) — capture v15.
 - `[P]` Scope Фазы 5 (решение 5.1c): порт — слой проводки; state/string/GUI site нативны намеренно,
-  из 12 листьев нативны 4 — `44bbf0`, `45c730`, `45b3e0`, `45e1d0`; таблица сайтов `bdd0_native` —
+  из 12 листьев нативны 3 — `44bbf0`, `45c730`, `45e1d0`; таблица сайтов `bdd0_native` —
   `tools/probes/gen_native_sites.py` → `battle/native_sites_table.inc`, стубы — `battle/native_sites.cpp`.
 - `[P]` Проверки v12 (`tools/probes/bdd0/checks_builtin.cpp`): `res_match` (al/out/u170), `state_match` (m0..m2),
   `native_args` (ecx/args против записанного порядка нативов), post-state `45eee0` (`ww` = BattleAI+0x00..0x38);

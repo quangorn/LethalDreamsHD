@@ -407,6 +407,9 @@ int bdd0_grid_anchor_replayed(void);
 /* 45b150: то же для float-гейта ленты — заявка порта не выпускалась, тик
  * потребил запись потока (геометрия ленты в захвате отсутствует). */
 int bdd0_band_gate_replayed(void);
+/* 45b3e0: то же для предиката ленты — sites 18/22 реплеятся, порт не исполнялся
+ * (геометрия ленты в захвате отсутствует). */
+int bdd0_band_target_replayed(void);
 const LeafRec *bdd0_leaf_record_at(int i);
 
 /* v12: заявки портированных листьев (battle/ported.h) текущего тика. */

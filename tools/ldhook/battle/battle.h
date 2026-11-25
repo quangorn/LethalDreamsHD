@@ -101,6 +101,15 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
  * Сайты тела тика — 0x44c4cb (B60) и 0x44c5e0 (B67). */
 float s6_band_interp_gate(const void *band, float px, int dead_arg, float py);
 
+/* FUN_0045b3e0 — предикат ленты «цель сдвинулась/удалена» (re/leaf_45b3e0.md,
+ * байты сверены с baseline): count = trunc((end−begin)/0x18), беззнаковый
+ * guard ≥ 2; dot = (Lx0−p1)·(Lx0−Lx1) + (Ly0−p3)·(Ly0−Yn) в extended
+ * (Yn без FSTP — double), dot < 0 → 0; иначе acos(fl(dot)) < 0.34906542f.
+ * __thiscall: ECX = лента (BattleAI+0x3c), 3 стек-аргумента (arg2 не читается),
+ * `ret 0xc`, результат — AL (0/1). Сайты тела тика — 0x44c554 (B63, site 18) и
+ * 0x44c666 (B70, site 22). */
+int s6_band_target_moved(const void *band, float p1, int dead_arg, float p3);
+
 /* ---- move.cpp: тик юнит-AI FUN_0045eee0 (s6_unit_ai_tick, Фаза 4) ---- */
 int s6_unit_ai_tick(BattleAI *self, void *rec_arg);       /* FUN_0045eee0 — порт 4.1 */
 

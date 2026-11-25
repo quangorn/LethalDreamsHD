@@ -100,6 +100,10 @@ int bdd0_grid_anchor_replayed(void) { return 0; }
  * файла), тело порта в генераторе не исполняется. native_replay.cpp сюда не линкуется:
  * счётчика реплея нет, stub 0. */
 int bdd0_band_gate_replayed(void) { return 0; }
+/* 45b3e0: тот же гейт bdd0_band_geometry_modelled() = 0 — диспетчер всегда
+ * берёт модельную ветку (native::band_target_moved из этого файла), тело порта
+ * в генераторе не исполняется; счётчика реплея нет, stub 0. */
+int bdd0_band_target_replayed(void) { return 0; }
 /* v15: восстановленной записи 0x45eee0 в генераторе нет — поток пишет он сам. */
 int bdd0_eee0_synth(void) { return 0; }
 /* Заявки портированных листьев: генератор их не судит (поток он создаёт сам,
