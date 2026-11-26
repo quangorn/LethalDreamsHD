@@ -105,11 +105,15 @@ TreeNode *lower_bound(void *map, unsigned int key, void *hint)
 /* FUN_00434bc0 — форма вызова FUN_0045cb40 (см. native.h): ecx = map,
  * push &key, push &out, RET 8; результат пишется native в *out_slot.
  * ABI (число stack-аргументов и ret n) — стек восстанавливается сохранением
- * esp (см. lower_bound). */
+ * esp (см. lower_bound).
+ * E0COST (9.d2d): при LDHOOK_E0_DIAG=1 время внутри обёртки суммируется в
+ * g_e0c_lb_us (map2 lower_bound — и в dd70, и в cb40). env не задан →
+ * один предсказуемый branch, ни записей, ни строк. */
 TreeNode *lower_bound_slots(void *map, int *out_slot, int *key_slot)
 {
     void *addr = fn(0x434bc0);
     TreeNode *res = NULL;
+    LONGLONG t = e0_diag_on() ? ld_now_us() : -1;
 
     ld_crash_enter(9);
     if (addr == NULL) {
@@ -130,6 +134,9 @@ TreeNode *lower_bound_slots(void *map, int *out_slot, int *key_slot)
         }
     } __except (native::av_filter()) {
         res = NULL;
+    }
+    if (t >= 0) {
+        InterlockedAdd64(&g_e0c_lb_us, ld_now_us() - t);
     }
     LD_CRASH_RET(res);
 }

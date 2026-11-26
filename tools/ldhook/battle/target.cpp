@@ -542,7 +542,7 @@ typedef struct {
 static volatile LONG g_e0_lines = 0;    /* строк напечатано (этот процесс) */
 static volatile LONG g_e0_capped = 0;   /* 1 = кап объявлен */
 
-static int e0_diag_on(void)
+int e0_diag_on(void)
 {
     static int on = -1;
 
@@ -641,6 +641,95 @@ static void e0_diag_emit(long call, long iters, long distinct, long ovf,
         ld_info("E0DIAG %ld lines (limit %d), capped for this run",
                 (long)g_e0_lines, E0_DIAG_LINES);
         g_e0_capped = 1;
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* E0COST — куда уходят микросекунды длинного вызова e0a0 (план 9.d2d).   */
+/*                                                                        */
+/* env LDHOOK_E0_DIAG=1 + порт site6. Одна строка E0COST на вызов с        */
+/* iters > E0_DIAG_ITERS; сводка прогона — раз в E0C_SUM_CALLS вызовов     */
+/* (полные итоги, включая короткие вызовы: доля e0a0 во всём бое).         */
+/* Разложение: us_scan — s6_scan_map; us_update — s6_ai_update (включая   */
+/* вложенную рекурсию и us_path); us_path — s6_path_search (45cb40);       */
+/* us_lb — native::lower_bound_slots (map2: и в dd70, и в cb40).           */
+/* us_scan + (us_update − us_path) + us_path ≤ us_total; «прочее» =        */
+/* us_total − us_scan − us_update. us_lb — подмножество us_path/us_update, */
+/* в сумму разложения не входит. Кап 400 строк; кап объявлен одной строкой.*/
+/* Счётчики interlocked, diag==0 → ни записи в память, ни строки.          */
+/* Разрывность: us_lb ⊆ us_path ⊆ us_update — доли НЕ дизъюнктны.          */
+/* nodes — 64-бит: один длинный вызов сканирует ~11M узлов, прогон 538      */
+/* вызовов ~5e9; 32-бит LONG переполняется и даёт мусор дельты.             */
+/* ------------------------------------------------------------------ */
+
+#define E0C_LINES      400           /* кап строк E0COST на процесс */
+#define E0C_SUM_CALLS  250           /* период сводки E0COSTSUM (вызовов) */
+
+/* ld_now_us() = QPC.QuadPart * 1000000 / freq (64-бит). Замер на этой машине:
+ * Stopwatch.Frequency = 10 000 000, текущий QPC-таймстемп 1.45e12 (~40 ч аптайма).
+ * Переполнение ×1e6 — при QPC > 9.2e12, то есть через ~10.6 суток аптайма;
+ * живые прогоны (~70 с) выше не задевают. Правка ld_now_us вне этой задачи. */
+volatile LONGLONG g_e0c_nodes = 0;   /* узлы map1, обошедшие сканы вызова */
+volatile LONG g_e0c_b2 = 0;          /* исполнения тела ветки 2 FUN_0045dd70 */
+volatile LONGLONG g_e0c_path_us = 0; /* время внутри s6_path_search */
+volatile LONGLONG g_e0c_lb_us = 0;   /* время внутри native::lower_bound_slots */
+
+static volatile LONG g_e0c_lines = 0, g_e0c_capped = 0;
+/* Вложенность s6_ai_update: µs копятся только на верхнем входе, рекурсия
+ * dd70→dd70 не считается дважды. */
+static volatile LONG g_e0c_bad = 0;  /* самосогласованность: us_scan+us_update > us_total,
+                                      * us_path > us_update, us_lb > us_update */
+static volatile LONG g_e0c_depth = 0;
+static volatile LONGLONG g_e0c_upd_us = 0;
+/* Итоги прогона (печатаются сводкой E0COSTSUM). */
+static volatile LONG g_e0c_calls = 0, g_e0c_iters = 0;
+static volatile LONG g_e0c_b2_sum = 0;
+static volatile LONGLONG g_e0c_nodes_sum = 0;
+static volatile LONG g_e0c_live_sum = 0, g_e0c_map1_sum = 0, g_e0c_map1b_sum = 0;
+static volatile LONGLONG g_e0c_us_sum = 0, g_e0c_scan_sum = 0;
+static volatile LONGLONG g_e0c_upd_sum = 0, g_e0c_path_sum = 0;
+static volatile LONGLONG g_e0c_lb_sum = 0;
+
+/* Выход из s6_ai_update; edep < 0 = этот вход не измерялся (diag выкл). */
+static void e0c_ai_leave(long edep, LONGLONG tu)
+{
+    if (edep < 0) {
+        return;
+    }
+    InterlockedDecrement(&g_e0c_depth);
+    if (edep == 0) {
+        InterlockedAdd64(&g_e0c_upd_us, ld_now_us() - tu);
+    }
+}
+
+/* bad = самосогласованность снимка (числа не меняются, строка помечается).
+ * us_lb ⊆ us_path ⊆ us_update: us_lb и us_path — подмножества, доли не складываются. */
+static void e0c_emit(long call, int filter, long iters, int code,
+                     LONGLONG us_total, LONGLONG us_scan, LONGLONG us_update,
+                     LONGLONG us_path, LONGLONG us_lb,
+                     LONGLONG nodes, long live_before, long live_after, long b2,
+                     int map1_0, int map1_1, long tick)
+{
+    int bad = 0;
+    if (g_e0c_capped != 0) {
+        return;
+    }
+    if (us_scan + us_update > us_total || us_path > us_update ||
+        us_lb > us_update) {
+        bad = 1;
+    }
+    ld_info("E0COST call=%ld filter=%d iters=%ld code=%d us_total=%I64d "
+            "us_scan=%I64d us_update=%I64d us_path=%I64d us_lb=%I64d "
+            "nodes_scanned=%I64d live_before=%ld live_after=%ld b2=%ld "
+            "map1=%d->%d tick=%ld arm=port%s",
+            call, filter, iters, code, us_total, us_scan, us_update, us_path,
+            us_lb, nodes, live_before, live_after, b2, map1_0, map1_1, tick,
+            bad ? " bad=1" : "");
+    g_e0c_lines++;
+    if (g_e0c_lines >= E0C_LINES) {
+        ld_info("E0COST %ld lines (limit %d), capped for this run",
+                (long)g_e0c_lines, E0C_LINES);
+        g_e0c_capped = 1;
     }
 }
 
@@ -992,7 +1081,10 @@ static void s6_scan_diag(void *this_, int filter, void *res)
 }
 
 /* Один in-order проход std::map (порт FUN_0045ce80): this+0x6c = sentinel.
- * Фильтр [obj+8]==filter, минимум беззнакового [obj+0x24]; возврат LDObject*. */
+ * Фильтр [obj+8]==filter, минимум беззнакового [obj+0x24]; возврат LDObject*.
+ * nodes — число узлов, обошедших проход; при diag оно суммируется в g_e0c_nodes
+ * (глобальный счётчик, сбрасывается дельтой по вызову — least invasive: сама
+ * логика прохода и порядок выбора не тронуты). */
 LDObject *s6_scan_map(void *this_, int filter)
 {
     TreeNode *head = ((BattleAI *)this_)->cand_head;
@@ -1000,12 +1092,14 @@ LDObject *s6_scan_map(void *this_, int filter)
     TreeNode *best = head;
     unsigned int best_metric = 999999999u;
     LDObject *obj;
+    LONG nodes = 0;
 
     if (head == NULL) {
         return NULL;
     }
     cur = head->left;                    /* первый (левый) узел дерева */
     while (cur != head && cur != NULL) {
+        nodes++;
         obj = (LDObject *)cur->value;
         if (obj != NULL && obj->filter == filter) {
             unsigned int m = (unsigned int)obj->metric;
@@ -1015,6 +1109,9 @@ LDObject *s6_scan_map(void *this_, int filter)
             }
         }
         cur = s6_tree_next(cur);
+    }
+    if (e0_diag_on()) {
+        InterlockedAdd64(&g_e0c_nodes, (LONGLONG)nodes);
     }
     if (best != head) {
         obj = (LDObject *)best->value;
@@ -1043,6 +1140,20 @@ static int s6_scan_count(void *this_, int filter)
             n++;
         }
         cur = s6_tree_next(cur);
+    }
+    return n;
+}
+
+/* E0COST (9.d2d): live_before/live_after — тот же проход, но под AV-гейтом:
+ * обход чужой tree при повреждённой куче ловится, значение = -1 (sentinel),
+ * остальные поля строки сохраняются. Только при diag. */
+static int s6_scan_count_safe(void *this_, int filter)
+{
+    int n = -1;
+    __try {
+        n = s6_scan_count(this_, filter);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        n = -1;
     }
     return n;
 }
@@ -1547,13 +1658,24 @@ int s6_ai_update(void *this_, void *cand, int arg2)
     volatile LONG ai_stage = 0;   /* LOG=2: где порвал AV внутри 3x3 */
     ld_crash_enter(3);            /* LDHOOK_CRASHLOG: stage 3, depth++ (no-op off) */
     void *ex_path = NULL;         /* LOG=2: последний path_res для ai_ex */
+    /* E0COST (9.d2d): diag-мерки этого входа. diag==0 → edep<0, ни одна
+     * ветка ниже не выполняется, поведение побайтно прежнее. */
+    const int diag = e0_diag_on();
+    long edep = -1;
+    LONGLONG tu = 0, tp = -1;
 
     InterlockedIncrement(&g_ai_calls);
     /* H7: тот же счётчик vis, что у нативного 0x45dd70 (в порт-режиме он не
      * вызывается). Рекурсия s6_ai_update считает каждый вход, как native. */
     battle_trace_visit();
 
+    if (diag) {
+        tu = ld_now_us();
+        edep = InterlockedIncrement(&g_e0c_depth) - 1;
+    }
+
     if (cur == NULL) {
+        e0c_ai_leave(edep, tu);
         LD_CRASH_RET(0);
     }
 
@@ -1591,6 +1713,7 @@ int s6_ai_update(void *this_, void *cand, int arg2)
 
 
         if (x_start > x_max) {                                /* @0x45de0e JG 0x45e08d */
+            e0c_ai_leave(edep, tu);
             LD_CRASH_RET(1);
         }
         if ((x_max - x_start < 0 || y_max - y_start < 0)) {
@@ -1656,7 +1779,14 @@ int s6_ai_update(void *this_, void *cand, int arg2)
                         sp[0] = (int)(INT_PTR)cell;           /* spec[0x00]=cell @0x45df05 */
                         sp[4] = *(const int *)&cur->out_metric;  /* spec[0x10]=cur->[0x10] @0x45df13 */
                         ai_stage = 20;                        /* в cb40 */
+                        if (diag) {
+                            tp = ld_now_us();                 /* E0COST: время внутри cb40 */
+                        }
                         path_res = s6_path_search(self, (PathState *)sp);  /* @0x45df17 RET 8 */
+                        if (tp >= 0) {
+                            InterlockedAdd64(&g_e0c_path_us, ld_now_us() - tp);
+                            tp = -1;
+                        }
                         diag_path = path_res;
                         ex_path = path_res;
                         ai_stage = 30;                        /* cb40 вернул */
@@ -1702,6 +1832,9 @@ int s6_ai_update(void *this_, void *cand, int arg2)
                 if (!free_done) {                             /* ветка 2 (@0x45dfb0..0x45e037) */
                     ai_stage = 80;                            /* branch 2 */
                     if (cur->filter == 2 && nbr->filter != 3) {  /* @0x45dfb0/0x45dfba/0x45dfc0 */
+                        if (diag) {
+                            InterlockedIncrement(&g_e0c_b2);  /* E0COST: тело ветки 2 исполнено */
+                        }
                         if (nbr->filter == 1) {               /* @0x45dfc6 */
                             s6_ai_update(this_, nbr, (int)(INT_PTR)self->anchor);  /* @0x45dfd2 CALL 0x45dd70, arg2=[this+0x2c] */
                         }
@@ -1754,10 +1887,12 @@ int s6_ai_update(void *this_, void *cand, int arg2)
                      (void *)cur, cpx, cpy, (long)g_ai_cells,
                      native::av_count(), ex_path);
         }
+        e0c_ai_leave(edep, tu);
         LD_CRASH_RET(0);
     }
 
     (void)arg2;
+    e0c_ai_leave(edep, tu);
     LD_CRASH_RET(1);
 }
 
@@ -1799,9 +1934,27 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
     LONG e0n = 0, e0ovf = 0, e0nulls = 0, e0rep = 0;
     LONG e0mchg = 0, e0msame = 0, e0f3 = 0, e0f1 = 0;
     long e0reg0 = (long)g_reg_calls;
+    /* E0COST (9.d2d): снимок аккумуляторов на входе; us_scan — время всех
+     * сканов вызова (считается локально, аллокаций нет). */
+    long c_b20 = 0;
+    LONGLONG c_nodes0 = 0;
+    LONGLONG c_upd0 = 0, c_path0 = 0, c_lb0 = 0;
+    long live_before = 0;
+    LONGLONG us_scan = 0, ts = -1;
+    /* Дельты за вызов (E0COST) и длительность вызова при diag. */
+    LONGLONG us_total = 0, d_upd = 0, d_path = 0, d_lbus = 0;
+    LONGLONG d_nodes = 0;
+    long d_b2 = 0, live_after = 0;
 
     if (diag) {
         memset(e0sl, 0, sizeof(e0sl));   /* count==0 = слот пуст */
+        live_before = s6_scan_count_safe(this_, filter);  /* живые узлы на входе,
+                                                            * AV → -1 */
+        c_nodes0 = (LONGLONG)g_e0c_nodes;
+        c_b20 = (long)g_e0c_b2;
+        c_upd0 = (LONGLONG)g_e0c_upd_us;
+        c_path0 = (LONGLONG)g_e0c_path_us;
+        c_lb0 = (LONGLONG)g_e0c_lb_us;
     }
 
     ld_crash_enter(2);          /* LDHOOK_CRASHLOG: stage 2, depth++ (no-op off) */
@@ -1826,7 +1979,14 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
      * затем гейты в родном порядке: pos==cmp → code=1; c880 → code=4;
      * c5a0 → code=3. Rescan после каждого не-сработавшего кандидата; пустой
      * скан → выход без кода, return NULL. */
+    if (diag) {
+        ts = ld_now_us();                   /* E0COST: время первого скана */
+    }
     cur = s6_scan_map(this_, filter);      /* @0x45e103 */
+    if (ts >= 0) {
+        us_scan += ld_now_us() - ts;
+        ts = -1;
+    }
     if (diag && cur == NULL) {
         e0nulls++;                          /* скан пуст: цикл не начнётся */
     }
@@ -1925,7 +2085,14 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
             result = cur;
             break;
         }
+        if (diag) {
+            ts = ld_now_us();               /* E0COST: время rescan-прохода */
+        }
         cur = s6_scan_map(this_, filter);                  /* @0x45e15e: rescan */
+        if (ts >= 0) {
+            us_scan += ld_now_us() - ts;
+            ts = -1;
+        }
         if (diag && cur == NULL) {
             e0nulls++;                                     /* пустой скан → выход */
         }
@@ -1949,6 +2116,36 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
     replay_note_exit(result, code, (int)iters);            /* результат порта (v5) */
 #endif
 
+    /* E0COST (9.d2d): дельты аккумуляторов за этот вызов + его длительность.
+     * Один QPC-снимок на вызов при diag (env не задан → ветка пропущена).
+     * live_after — полный проход s6_scan_count на выходе: размер кучи, который
+     * реально держал бы индекс минимума (9.1a). */
+    if (diag) {
+        int map1_now = ((BattleAI *)this_)->reserved_70;
+        us_total = ld_now_us() - t0;
+        d_nodes = (LONGLONG)g_e0c_nodes - c_nodes0;
+        d_b2 = (long)g_e0c_b2 - c_b20;
+        d_upd = (LONGLONG)g_e0c_upd_us - c_upd0;
+        d_path = (LONGLONG)g_e0c_path_us - c_path0;
+        d_lbus = (LONGLONG)g_e0c_lb_us - c_lb0;
+        live_after = s6_scan_count_safe(this_, filter);   /* AV → -1 */
+        if (us_scan + d_upd > us_total || d_path > d_upd || d_lbus > d_upd) {
+            InterlockedIncrement(&g_e0c_bad);             /* самосогласованность */
+        }
+        InterlockedIncrement(&g_e0c_calls);
+        InterlockedAdd(&g_e0c_iters, iters);
+        InterlockedAdd64(&g_e0c_us_sum, us_total);
+        InterlockedAdd64(&g_e0c_scan_sum, us_scan);
+        InterlockedAdd64(&g_e0c_upd_sum, d_upd);
+        InterlockedAdd64(&g_e0c_path_sum, d_path);
+        InterlockedAdd64(&g_e0c_lb_sum, d_lbus);
+        InterlockedAdd64(&g_e0c_nodes_sum, d_nodes);
+        InterlockedAdd(&g_e0c_b2_sum, d_b2);
+        InterlockedAdd(&g_e0c_live_sum, live_after);
+        InterlockedAdd(&g_e0c_map1_sum, map1_now);
+        InterlockedAdd(&g_e0c_map1b_sum, map1_before);
+    }
+
     /* LDHOOK_E0_DIAG: сводка вызова с итерациями выше порога (runaway-класс). */
     if (diag && iters > E0_DIAG_ITERS) {
         e0_diag_emit((long)n, (long)iters, (long)e0n, (long)e0ovf,
@@ -1965,6 +2162,28 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
                 (long)g_ai_path_null - d_pathnull,
                 (long)g_ai_pfs_null - d_pfsnull,
                 battle_trace_tick_count());
+        e0c_emit((long)n, filter, (long)iters, code, us_total, us_scan,
+                 d_upd, d_path, d_lbus, d_nodes, live_before, live_after,
+                 d_b2, map1_before, ((BattleAI *)this_)->reserved_70,
+                 battle_trace_tick_count());
+    }
+    /* E0COSTSUM: агрегат прогона по ВСЕМ измеренным вызовам (короткие тоже) —
+     * доля e0a0 во времени боя считается офлайн против суммы `us` всех
+     * активных тиков (battle_invariants.py --profile). Период 250 вызовов:
+     * прогон ~800 вызовов даёт 3 сводки, хвост виден по последней. */
+    if (diag && (n % E0C_SUM_CALLS) == 0) {
+        ld_info("E0COSTSUM tick=%ld call=%ld filter=%d iters=%ld code=%d calls=%ld "
+                "iters_sum=%ld us=%I64d scan=%I64d update=%I64d path=%I64d lb=%I64d "
+                "nodes=%I64d live_after=%ld b2=%ld map1=%ld->%ld bad=%ld depth=%ld "
+                "arm=port",
+                battle_trace_tick_count(), (long)n, filter, (long)iters, code,
+                (long)g_e0c_calls, (long)g_e0c_iters,
+                (LONGLONG)g_e0c_us_sum, (LONGLONG)g_e0c_scan_sum,
+                (LONGLONG)g_e0c_upd_sum, (LONGLONG)g_e0c_path_sum,
+                (LONGLONG)g_e0c_lb_sum, (LONGLONG)g_e0c_nodes_sum,
+                (long)g_e0c_live_sum, (long)g_e0c_b2_sum,
+                (long)g_e0c_map1b_sum, (long)g_e0c_map1_sum,
+                (long)g_e0c_bad, (long)g_e0c_depth);
     }
     /* Периодическая сводка порта (агрегат прогона, каждые 2000 вызовов). */
     if (diag && (n % E0N_SUM_CALLS) == 0) {

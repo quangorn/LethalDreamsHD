@@ -13,6 +13,10 @@
 только из E0DIAG (cap 30); lb/nbrnull/dup/cellnull/pathnull/pfsnull — по всем
 long-вызовам. Итог печатает доли на итерацию по покрытым вызовам и объявляет
 покрытие.
+E0COST/E0COSTSUM (план 9.d2d) — разложение µs вызова e0a0: us_lb ⊆ us_path ⊆
+us_update, доли scan/(update−path)/path/other дизъюнктны, lb — subset и печатается
+отдельно; `bad=1` — строка нарушившая самосогласованность; `depth` в E0COSTSUM =
+вложенность s6_ai_update (0 = все выходы сбалансированы).
 
 Запуск:
   python3 tools/ldhook/e0diag_report.py LOG1 LOG2 [...]
@@ -41,6 +45,29 @@ P2_RE = re.compile(
 P2_KEYS = ["call", "lb", "nbrnull", "dup", "cellnull", "pathnull", "pfsnull",
            "tick"]
 
+# E0COST (план 9.d2d) — разложение µs одного вызова e0a0; кап 400 строк.
+# ПРАВИЛО ПЕРЕСЕЧЕНИЯ: us_lb ⊆ us_path ⊆ us_update. us_lb считается и в
+# s6_ai_update (map2 lower_bound), и внутри s6_path_search; us_path — время,
+# проведённый внутри s6_path_search, то есть часть us_update. Поэтому доли
+# scan / (update − path) / path / other — дизъюнктны и складываются в 100 %,
+# а lb — subset, печатается отдельной долей и в сумму НЕ входит.
+COST_RE = re.compile(
+    r"E0COST call=(\d+) filter=(-?\d+) iters=(\d+) code=(-?\d+) us_total=(\d+) "
+    r"us_scan=(\d+) us_update=(\d+) us_path=(\d+) us_lb=(\d+) nodes_scanned=(\d+) "
+    r"live_before=(-?\d+) live_after=(-?\d+) b2=(\d+) map1=(-?\d+)->(-?\d+) "
+    r"tick=(\d+) arm=port( bad=1)?")
+COST_KEYS = ["call", "filter", "iters", "code", "us_total", "us_scan",
+             "us_update", "us_path", "us_lb", "nodes", "live_before",
+             "live_after", "b2", "map1_0", "map1_1", "tick"]
+COSTSUM_RE = re.compile(
+    r"E0COSTSUM tick=(\d+) call=(\d+) filter=(-?\d+) iters=(\d+) code=(-?\d+) "
+    r"calls=(\d+) iters_sum=(\d+) us=(\d+) scan=(\d+) update=(\d+) path=(\d+) "
+    r"lb=(\d+) nodes=(\d+) live_after=(\d+) b2=(\d+) map1=(-?\d+)->(-?\d+) "
+    r"bad=(\d+) depth=(\d+) arm=port")
+COSTSUM_KEYS = ["tick", "call", "filter", "iters", "code", "calls", "iters_sum",
+                "us", "scan", "update", "path", "lb", "nodes", "live_after",
+                "b2", "map1_0", "map1_1", "bad", "depth"]
+
 # Поля для сравнения. gridnull (натив) == cellnull (порт); pathnull — общий.
 SUM_KEYS = ["iters", "distinct", "reg", "lb", "grid", "pfsc", "gridnull",
             "pfsnull", "pathnull", "f1", "f3", "rep", "mchg", "ovf",
@@ -51,6 +78,7 @@ def parse(path):
     """-> списки записей {поле: int}, каждая = один long-вызов."""
     nat = []
     p1, p2 = {}, {}
+    cost, sums = [], []
     for line in open(path, encoding="utf-8", errors="replace"):
         m = N_RE.search(line)
         if m:
@@ -63,6 +91,17 @@ def parse(path):
         m = P2_RE.search(line)
         if m:
             p2[int(m.group(1))] = dict(zip(P2_KEYS, map(int, m.groups())))
+            continue
+        m = COST_RE.search(line)
+        if m:
+            vals = list(map(int, m.groups()[:len(COST_KEYS)]))
+            rec = dict(zip(COST_KEYS, vals))
+            rec["bad"] = 1 if m.group(len(COST_KEYS) + 1) else 0
+            cost.append(rec)
+            continue
+        m = COSTSUM_RE.search(line)
+        if m:
+            sums.append(dict(zip(COSTSUM_KEYS, map(int, m.groups()))))
     # порт: long-вызов = строка E0DIAG2; поля E0DIAG (cap) подтягиваются по call
     port = []
     for call, a in sorted(p2.items()):
@@ -74,7 +113,7 @@ def parse(path):
                 rec[k] = b[k]
         rec["gridnull"] = rec.get("cellnull", 0)   # тот же гейт: cell==NULL
         port.append(rec)
-    return nat, port
+    return nat, port, cost, sums
 
 
 def agg(calls):
@@ -113,11 +152,61 @@ def fmt_arm(tag, s):
     print("  codes: %s" % (s["codes"],))
 
 
+def cost_split(calls):
+    """µs-взвешенное разложение; us_lb — subset (см. правило выше), доля печатается
+    отдельно и в сумму не входит. Возвращает доли и поузловые средние."""
+    t = sum(c["us_total"] for c in calls)
+    if t == 0:
+        return None
+    scan = sum(c["us_scan"] for c in calls)
+    upd = sum(c["us_update"] for c in calls)
+    path = sum(c["us_path"] for c in calls)
+    lb = sum(c["us_lb"] for c in calls)
+    it = sum(c["iters"] for c in calls)
+    return {"n": len(calls), "us": t,
+            "scan_pct": 100.0 * scan / t,
+            "upd_only_pct": 100.0 * (upd - path) / t,
+            "path_pct": 100.0 * path / t,
+            "other_pct": 100.0 * (t - scan - upd) / t,
+            "lb_pct": 100.0 * lb / t,
+            "nodes_per_iter": sum(c["nodes"] for c in calls) / float(it),
+            "scan_us_per_iter": scan / float(it),
+            "mean_map1_end": sum(c["map1_1"] for c in calls) / len(calls),
+            "mean_live_after": sum(c["live_after"] for c in calls) / len(calls),
+            "bad": sum(c["bad"] for c in calls),
+            "b2": sum(c["b2"] for c in calls)}
+
+
+def fmt_cost(base, calls, sums):
+    """Сводка E0COST/E0COSTSUM одного лога (plan 9.2d)."""
+    print("E0COST %s: строк=%d" % (base, len(calls)))
+    for label, group in (("long code=3", [c for c in calls if c["iters"] > 1000
+                                          and c["code"] == 3]),
+                         ("all E0COST lines", calls)):
+        if not group:
+            continue
+        a = cost_split(group)
+        print("  %-16s n=%d scan=%.1f%% update-minus-path=%.1f%% path=%.1f%% "
+              "other=%.1f%%  lb=%.1f%% of total  nodes/iter=%.2f "
+              "scan_us/iter=%.2f mean_map1=%.1f mean_live_after=%.1f bad=%d b2=%d"
+              % (label, a["n"], a["scan_pct"], a["upd_only_pct"], a["path_pct"],
+                 a["other_pct"], a["lb_pct"], a["nodes_per_iter"],
+                 a["scan_us_per_iter"], a["mean_map1_end"],
+                 a["mean_live_after"], a["bad"], a["b2"]))
+    for s in sums:
+        print("  E0COSTSUM call=%d calls=%d us=%d scan=%d update=%d path=%d lb=%d "
+              "nodes=%d bad=%d depth=%d" %
+              (s["call"], s["calls"], s["us"], s["scan"], s["update"], s["path"],
+               s["lb"], s["nodes"], s["bad"], s["depth"]))
+
+
 def main():
     runs = []
     for path in sys.argv[1:]:
         base = path.replace("\\", "/").split("/")[-1]
-        nat, port = parse(path)
+        nat, port, cost, sums = parse(path)
+        if cost or sums:
+            fmt_cost(base, cost, sums)
         if nat:
             runs.append(("%-21s native" % base, agg(nat)))
         if port:

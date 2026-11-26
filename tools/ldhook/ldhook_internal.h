@@ -170,6 +170,19 @@ int s6_port_enabled(void);
  * target.cpp); дефолт — s6_port_enabled(). */
 int s6_eee0_enabled(void);
 
+/* E0-диаг (LDHOOK_E0_DIAG=1) — кэшированный env-флаг (target.cpp). Читается
+ * горячими точками: native::lower_bound_slots (native.cpp) считает время только
+ * при активном диаге. Аккумуляторы ниже пишутся ТОЛЬКО при активном диаге. */
+int e0_diag_on(void);
+
+/* E0COST (план 9.d2d) — аккумуляторы µs/счётчиков одного вызова e0a0;
+ * определены в battle/target.cpp, пишутся при diag. */
+extern volatile LONGLONG g_e0c_nodes;  /* узлы map1, обошедшие сканы вызова (64-бит:
+                                        * прогон ~5e9, LONG переполняется) */
+extern volatile LONG g_e0c_b2;         /* исполнения тела ветки 2 FUN_0045dd70 */
+extern volatile LONGLONG g_e0c_path_us;/* время внутри s6_path_search (45cb40) */
+extern volatile LONGLONG g_e0c_lb_us;  /* время внутри native::lower_bound_slots */
+
 /* ---------------- 4.2: detour 45eee0 (тик юнит-AI) ---------------- */
 #define S7_ENTRY_SIG   "\x83\xec\x58\x53\x55"   /* sub $0x58,%esp; push ebx; push ebp */
 #define S7_ENTRY_LEN   5
