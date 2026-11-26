@@ -50,9 +50,18 @@ static int __stdcall stub_w3(int a)
     return (int)(size_t)&g_triple[0];
 }
 
+/* cdecl: аргумент снимает ВЫЗЫВАЮЩИЙ (эпилог заглушки — `ret`, не `ret 4`),
+ * как operator_new 0x4cfa11 на сайтах 35/36 листа 0x45e1d0. */
+static int __cdecl stub_cdecl(int a)
+{
+    g_peak_arg = a;
+    return a * 7 - 3;
+}
+
 /* Не дать компоновщику выбросить заглушки: на них ссылается только asm. */
-static volatile void *g_keep[4] = {
-    (void *)&stub_int, (void *)&stub_f32, (void *)&stub_al, (void *)&stub_w3
+static volatile void *g_keep[5] = {
+    (void *)&stub_int, (void *)&stub_f32, (void *)&stub_al, (void *)&stub_w3,
+    (void *)&stub_cdecl
 };
 
 /* --------------------------- вызывающие сайты ---------------------------- *
@@ -93,11 +102,27 @@ static int __declspec(naked) call_w3_site(int arg)
     __asm ret
 }
 
+/* Caller-clean cdecl: `add esp,4` сразу за call — ровно то, что требует
+ * ABI-гейт установщика (`83 C4 04` по site+5). */
+static int __declspec(naked) call_cdecl_site(int arg)
+{
+    __asm mov eax, dword ptr [esp+4]
+    __asm mov ecx, 55550000h
+    __asm push eax
+    __asm call stub_cdecl
+    __asm add esp, 4
+    __asm ret
+}
+
 /* ------------------------- обработчики (как в игре) ---------------------- */
 LS_SITE(901, 0x44C100, 0xDEAD0001, 1, 4, INT, LS_K_INT)
 LS_SITE(902, 0x44C110, 0xDEAD0002, 1, 4, F32, LS_K_F32)
 LS_SITE(903, 0x44C120, 0xDEAD0003, 1, 4, AL,  LS_K_AL)
 LS_SITE(904, 0x44C130, 0xDEAD0004, 1, 4, INT, LS_K_INT_W3_RET)
+/* 905: caller-clean cdecl (ret_n=0 при nargs=1) — синтетика под ABI-гейт
+ * сайтов 35/36 листа 0x45e1d0. SITE — уникальная константа записи (как
+ * 0x44C1xx выше), реальный адрес даёт find_call в call_cdecl_site. */
+LS_SITE(905, 0x44C140, 0xDEAD0005, 1, 0, INT, LS_K_INT)
 
 /* ------------------------------- sink ------------------------------------ */
 typedef struct {
@@ -629,15 +654,57 @@ int main(void)
           last->nw == 3 && last->w[0] == 11 && last->w[1] == 22 &&
           last->w[2] == 33, "");
 
-    /* ---- 5. таблица игры: 32 сайта, ABI ret_n == 4*nargs ---- */
+    /* ---- 4b. caller-clean cdecl (сайты 35/36 листа 0x45e1d0): эпилог цели
+     *      `ret`, аргумент снимает вызывающий — `83 C4 04` сразу за call.
+     *      Установщик принимает такой ABI только при совпадении байтов; здесь
+     *      тот же байт-гейт проверяется на живой памяти синтетического сайта,
+     *      затем — полный цикл хук/оригинал/запись. ---------------------------- */
+    site = find_call((void *)call_cdecl_site, 32);
+    check("cdecl site found (E8)", site != NULL, "");
+    printf("    cdecl continuation bytes: %02X %02X %02X\n",
+           site[5], site[6], site[7]);
+    check("cdecl site: continuation is 83 C4 04 (add esp,4) right after the call",
+          site[5] == 0x83 && site[6] == 0xC4 && site[7] == 0x04, "");
+    check("cdecl site patched (continuation bytes accepted)",
+          leaf_site_patch(site, (void *)stub_cdecl, &g_ls_orig905,
+                          (void *)cap_ls905_hook, why, (int)sizeof(why)),
+          "");
+    r = call_cdecl_site(6);
+    last = &g_rec[g_nrec - 1];
+    check("cdecl: launcher got 6*7-3=39 (caller cleaned its own arg)",
+          r == 39, "");
+    check("cdecl: original stub really ran (arg seen by callee = 6)",
+          g_peak_arg == 6, "");
+    check("cdecl: recorded va=0xDEAD0005", last->va == 0xDEAD0005, "");
+    check("cdecl: recorded ecx=0x55550000",
+          (unsigned)last->ecx == 0x55550000u, "");
+    check("cdecl: recorded args[0]=6 (nargs=1)",
+          last->nargs == 1 && last->args[0] == 6, "");
+    check("cdecl: recorded ret=39 (EAX bits)", last->ret_bits == 39, "");
+    check("cdecl: record not marked trap", last->trap == 0, "");
+
+    /* ---- 5. таблица игры: ABI `ret 4*nargs` либо caller-clean cdecl
+     *      (ret_n==0, nargs==1, цель 0x4cfa11 — operator_new). Байтовую часть
+     *      гейта (`83 C4 04` по site+5) проверяет установщик на живой памяти;
+     *      здесь — форма строки таблицы + сам байт-гейт на синтетике выше. --- */
     for (i = 0; i < leaf_site_count(); i++) {
         const leaf_site_def *d = leaf_site_at(i);
-        if (d == NULL || d->ret_n != 4 * d->nargs || d->handler == NULL) {
+        int abi_ok;
+
+        if (d == NULL || d->handler == NULL) {
+            printf("  [FAIL] table entry %d\n", i + 1);
+            fails++;
+            continue;
+        }
+        abi_ok = d->ret_n == 4 * d->nargs ||
+                 (d->ret_n == 0 && d->nargs == 1 && d->target_va == 0x4cfa11);
+        if (!abi_ok) {
             printf("  [FAIL] table entry %d\n", i + 1);
             fails++;
         }
     }
-    check("game table: 32 sites, all ret_n == 4*nargs", fails == 0, "");
+    check("game table: ret_n == 4*nargs (or caller-clean cdecl 0x4cfa11, 1 arg)",
+          fails == 0, "");
     check("no missing-site markers in selftest", g_missing == 0, "");
 
     nat_emitter_tests();

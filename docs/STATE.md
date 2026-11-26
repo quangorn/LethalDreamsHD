@@ -199,6 +199,9 @@
 - `[P]` capture v16 (25.11.2026): `bdd0_leaf_pre`/`bdd0_leaf_post` только для листа `0x45e1d0` (guard по va) —
   аддитивные ключи `pf`, `rec`/`rec_b64`, `sub`/`sub_b64`, `ctx`/`ctx120`/`ctx134`, `bandrec`/`bandrec_b64` (сбой blob → null, указатели
   всегда) и `maps`{`m1`,`m2`} (обе RB-карты PathFinder, головы +0x6c/+0x78, узлы `a`/`n`/`ps`, кап `CAP_BDD0_MAP_MAX`/карту) — `battle/capture.cpp` `cap_write_leaf_state`.
+- `[P]` capture v17 (26.11.2026): 20 внутренних сайтов листа `0x45e1d0` (номера 35..54,
+  `battle/leaf_sites.cpp`) в поток `bdd0_leaf` + аддитивный `kind:"bdd0_site_pf"` на сайте `0x45e320`
+  (`cap_leaf_sink_exit`); ABI-гейт сайтов: caller-clean cdecl только `0x4cfa11` + байты `83 C4 04` — `battle/capture.cpp`.
 - `[P]` Фаза 5.2 (24.11.2026): портированы `45c370`/`45af50`/`45c6f0`(`b0_read_pos_from_ctx`)/`403e80`
   (`b0_pos3_equal`; в захватах всегда `ret=0`, истинная ветвь — только синтетика)/`456b60`/`457e20`/
   `458050` — `battle/grid.cpp`, сайты 33/34 (`0x458142`/`0x45811a`), `grid.cpp` в харнессе.

@@ -20,8 +20,9 @@
  *   458050 `ret 0x18` 6 арг, EAX=узел якоря (grid_anchor);
  *   45e1d0 `ret 8`  2 арг, EAX=указатель тройки (path_find);
  *   44bbf0 `ret 0x10` 4 арг, EAX=результат (grid_query).
- * У всех 12 листьев ret_n == 4*nargs, поэтому continuation всегда входит с
- * ESP = ESP вызывающего на сайте (стек сбалансирован самим листом).
+ * У всех 12 листьев ret_n == 4*nargs (ESP continuation = ESP вызывающего на
+ * сайте, стек сбалансирован самим листом); исключение — cdecl `4cfa11`
+ * (сайты 35/36, см. ниже), где `ret` + `add esp,4` у вызывающего дают то же ESP.
  *
  * 33-й сайт — 0x458142 ВНУТРИ 0x458050 (grid_anchor, `ret 0x18`:
  *   0x458142  456b60  1 / 4       node          EAX=узел цепочки или 0
@@ -39,6 +40,16 @@
  * ABI сверен с `k_leaf_abi` (checks_builtin.cpp) и с телами: 0x456b60 —
  * `C2 04 00` на обоих выходах, ECX = node, единственный стек-аргумент = world;
  * 0x457e20 — `C2 10 00`, ECX = grid, 4 стек-аргумента.
+ *
+ * Сайты 35..54 (v17) — 20 вызовов ВНУТРИ тела листа 0x45e1d0 (0x45e1e3..0x45e4b1),
+ * которые надо записать, чтобы офлайн-порт листа реплеил их эффекты. Заголовок
+ * `site`/`leaf`/`nargs`/`ret_n` = VA сайта, VA цели `call rel32`, стек-аргументы,
+ * `ret n` цели (все сверены байтами `backup/LETHALDREAMS.EXE.pre4`; RETN снят с
+ * эпилогов целей). Два сайта — cdecl `4cfa11` (operator_new): один стек-аргумент
+ * (size), цель выходит по `ret`, а `add esp,4` делает ВЫЗЫВАЮЩИЙ
+ * (@0x45e1e8/0x45e241 `83 C4 04`) ⇒ `ret_n = 0` при `nargs = 1`; установщик
+ * принимает это как caller-clean ABI (ESP стабами не трогается, continuation
+ * входит ровно на `site+5`, где ESP = ESP вызывающего).
  *
  * Соглашения (все 12 листьев — __thiscall-подобные: ECX = приёмник, стек-
  * аргументы в порядке arg1..argN с [esp+4], возврат EAX, кроме 45b150 (ST(0))
@@ -78,7 +89,7 @@
  *  31  44cff7  45c370     0 / 0        ai            EAX
  *  32  44cffe  45af50     0 / 0        band          EAX
  *
- * 5-байтовая длина проверена дважды: (1) по листингу EXE все 34 сайта — E8 +
+ * 5-байтовая длина проверена дважды: (1) по листингу EXE все 54 сайта — E8 +
  * rel32 (байты совпадают с `game_dis.txt`); (2) при установке leaf_site_patch
  * требует p[0]==0xE8 и site+5+rel32 == адрес ожидаемого листа, а адрес
  * handler'а проверяется на влезание в rel32. Несовпадение → `leaf_missing`.
@@ -238,6 +249,27 @@ LS_SITE(31, 0x44cff7, 0x45c370, 0, 0,  INT, LS_K_INT)           /* 0x44cff7 */
 LS_SITE(32, 0x44cffe, 0x45af50, 0, 0,  INT, LS_K_INT)           /* 0x44cffe */
 LS_SITE(33, 0x458142, 0x456b60, 1, 4,  INT, LS_K_INT)           /* 0x458142 (в 458050) */
 LS_SITE(34, 0x45811a, 0x457e20, 4, 16, INT, LS_K_INT)           /* 0x45811a (в 458050) */
+/* v17: внутренние вызовы листа 0x45e1d0 (порядок = порядок адресов). */
+LS_SITE(35, 0x45e1e3, 0x4cfa11, 1, 0,  INT, LS_K_INT)           /* 0x45e1e3 operator_new 0x1c */
+LS_SITE(36, 0x45e23c, 0x4cfa11, 1, 0,  INT, LS_K_INT)           /* 0x45e23c operator_new 0x10 */
+LS_SITE(37, 0x45e274, 0x45c330, 0, 0,  INT, LS_K_INT)           /* 0x45e274 */
+LS_SITE(38, 0x45e27b, 0x45ca70, 0, 0,  INT, LS_K_INT)           /* 0x45e27b clear_maps */
+LS_SITE(39, 0x45e297, 0x456b20, 1, 4,  INT, LS_K_INT)           /* 0x45e297 grid_scale */
+LS_SITE(40, 0x45e2ab, 0x456b20, 1, 4,  INT, LS_K_INT)           /* 0x45e2ab grid_scale */
+LS_SITE(41, 0x45e316, 0x458050, 6, 24, INT, LS_K_INT)           /* 0x45e316 grid_anchor (EAX) */
+LS_SITE(42, 0x45e320, 0x45c8c0, 0, 0,  INT, LS_K_INT)           /* 0x45e320 search_params */
+LS_SITE(43, 0x45e32e, 0x434bc0, 2, 8,  INT, LS_K_INT)           /* 0x45e32e lower_bound */
+LS_SITE(44, 0x45e340, 0x45c2e0, 0, 0,  INT, LS_K_INT)           /* 0x45e340 PathState ctor */
+LS_SITE(45, 0x45e3a2, 0x45c480, 2, 8,  INT, LS_K_INT)           /* 0x45e3a2 distance2 */
+LS_SITE(46, 0x45e3b4, 0x45c690, 1, 4,  INT, LS_K_INT)           /* 0x45e3b4 heuristic_gate */
+LS_SITE(47, 0x45e3ea, 0x45c4b0, 3, 12, INT, LS_K_INT)           /* 0x45e3ea copy_fields */
+LS_SITE(48, 0x45e3f2, 0x45dd00, 1, 4,  INT, LS_K_INT)           /* 0x45e3f2 register_slot */
+LS_SITE(49, 0x45e443, 0x45ce80, 1, 4,  INT, LS_K_INT)           /* 0x45e443 scan_map */
+LS_SITE(50, 0x45e46b, 0x45dd70, 2, 8,  INT, LS_K_INT)           /* 0x45e46b ai_update */
+LS_SITE(51, 0x45e47e, 0x45c4b0, 3, 12, INT, LS_K_INT)           /* 0x45e47e copy_fields */
+LS_SITE(52, 0x45e487, 0x45ce80, 1, 4,  INT, LS_K_INT)           /* 0x45e487 scan_map */
+LS_SITE(53, 0x45e49b, 0x456b20, 1, 4,  INT, LS_K_INT)           /* 0x45e49b grid_scale */
+LS_SITE(54, 0x45e4b1, 0x456b20, 1, 4,  INT, LS_K_INT)           /* 0x45e4b1 grid_scale */
 
 #define LS_DEF(n, site, va, nargs, retn, kind)                                \
     { site, va, nargs, retn, kind, (void *)cap_ls##n##_hook, &g_ls_orig##n }
@@ -277,6 +309,28 @@ static const leaf_site_def k_leaf_sites[] = {
     LS_DEF(32, 0x44cffe, 0x45af50, 0, 0,  LS_K_INT),
     LS_DEF(33, 0x458142, 0x456b60, 1, 4,  LS_K_INT),
     LS_DEF(34, 0x45811a, 0x457e20, 4, 16, LS_K_INT),
+    /* v17: внутренние вызовы листа 0x45e1d0; 35/36 — cdecl `4cfa11` (ret_n=0
+     * при nargs=1: аргумент снимает вызывающий). */
+    LS_DEF(35, 0x45e1e3, 0x4cfa11, 1, 0,  LS_K_INT),
+    LS_DEF(36, 0x45e23c, 0x4cfa11, 1, 0,  LS_K_INT),
+    LS_DEF(37, 0x45e274, 0x45c330, 0, 0,  LS_K_INT),
+    LS_DEF(38, 0x45e27b, 0x45ca70, 0, 0,  LS_K_INT),
+    LS_DEF(39, 0x45e297, 0x456b20, 1, 4,  LS_K_INT),
+    LS_DEF(40, 0x45e2ab, 0x456b20, 1, 4,  LS_K_INT),
+    LS_DEF(41, 0x45e316, 0x458050, 6, 24, LS_K_INT),
+    LS_DEF(42, 0x45e320, 0x45c8c0, 0, 0,  LS_K_INT),
+    LS_DEF(43, 0x45e32e, 0x434bc0, 2, 8,  LS_K_INT),
+    LS_DEF(44, 0x45e340, 0x45c2e0, 0, 0,  LS_K_INT),
+    LS_DEF(45, 0x45e3a2, 0x45c480, 2, 8,  LS_K_INT),
+    LS_DEF(46, 0x45e3b4, 0x45c690, 1, 4,  LS_K_INT),
+    LS_DEF(47, 0x45e3ea, 0x45c4b0, 3, 12, LS_K_INT),
+    LS_DEF(48, 0x45e3f2, 0x45dd00, 1, 4,  LS_K_INT),
+    LS_DEF(49, 0x45e443, 0x45ce80, 1, 4,  LS_K_INT),
+    LS_DEF(50, 0x45e46b, 0x45dd70, 2, 8,  LS_K_INT),
+    LS_DEF(51, 0x45e47e, 0x45c4b0, 3, 12, LS_K_INT),
+    LS_DEF(52, 0x45e487, 0x45ce80, 1, 4,  LS_K_INT),
+    LS_DEF(53, 0x45e49b, 0x456b20, 1, 4,  LS_K_INT),
+    LS_DEF(54, 0x45e4b1, 0x456b20, 1, 4,  LS_K_INT),
 };
 
 int leaf_site_count(void)
@@ -303,6 +357,22 @@ static int ls_fail(char *why, int cap, const char *fmt, unsigned a, unsigned b)
         _snprintf_s(why, (size_t)cap, _TRUNCATE, fmt, a, b);
     }
     return 0;
+}
+
+/* Caller-clean ABI (cdecl) подтверждается БАЙТАМИ continuation сайта: сразу за
+ * 5-байтовым `call rel32` обязан стоять `83 C4 04` (`add esp,4`). Чтение под
+ * __try: сайт может оказаться нечитаемым. */
+static int ls_caller_clean(void *site)
+{
+    const unsigned char *p = (const unsigned char *)site;
+    int ok = 0;
+
+    __try {
+        ok = (p[5] == 0x83 && p[6] == 0xC4 && p[7] == 0x04);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ok = 0;
+    }
+    return ok;
 }
 
 int leaf_site_patch(void *site, void *target_expected, void **orig_slot,
@@ -369,10 +439,26 @@ int leaf_site_install_all(void *(*resolve)(unsigned va), char *why, int cap)
         void *target = resolve(d->target_va);
 
         sub[0] = '\0';
-        if (d->ret_n != 4 * d->nargs) {
-            ls_fail(sub, sizeof(sub),
-                    "bad ABI table entry (nargs*4=0x%x ret_n=0x%x)",
-                    (unsigned)(4 * d->nargs), (unsigned)d->ret_n);
+        /* ABI: либо лист снимает свои аргументы (`ret 4*nargs`), либо это
+         * caller-clean cdecl. Второе допускается ТОЛЬКО для operator_new
+         * `4cfa11` с одним аргументом (size) — сайты 35 (0x45e1e3) и 36
+         * (0x45e23c) внутри 0x45e1d0 — И только если continuation сайта
+         * реально снимает аргумент: байты `83 C4 04` (`add esp,4`)
+         * @0x45e1e8/0x45e241. Проверка байтами не даёт будущей строке таблицы
+         * молча принять чужой ABI: ESP стабами не меняется, и при отсутствии
+         * `add esp,4` continuation вошёл бы с ESP на 4 ниже (дрейф стека).
+         * Любое другое несовпадение — отказ. */
+        if (d->ret_n != 4 * d->nargs &&
+            !(d->ret_n == 0 && d->nargs == 1 && d->target_va == 0x4cfa11 &&
+              ls_caller_clean(site))) {
+            if (d->ret_n == 0 && d->nargs == 1 && d->target_va == 0x4cfa11) {
+                ls_fail(sub, sizeof(sub), "cdecl site: no add esp,%u at 0x%x",
+                        (unsigned)(4 * d->nargs), (unsigned)(size_t)site);
+            } else {
+                ls_fail(sub, sizeof(sub),
+                        "bad ABI table entry (nargs*4=0x%x ret_n=0x%x)",
+                        (unsigned)(4 * d->nargs), (unsigned)d->ret_n);
+            }
         } else if (!leaf_site_patch(site, target, d->orig_slot, d->handler,
                                     sub, (int)sizeof(sub))) {
             /* молча терять листья нельзя: маркер виден в захвате */

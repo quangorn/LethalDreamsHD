@@ -60,7 +60,10 @@
 /* v12: снапшот входа (kind bdd0_in) и поток логических листьев (bdd0_leaf).
  * Версия только этих двух родов; пара bdd0_cap/res остаётся CAP_BDD0_VER (11),
  * cap/res/grid/eee0_* — CAP_VERSION (10). */
-#define CAP_BDD0_SNAP_VER   16         /* v16: + "band_pos" (геометрия ленты) и grid-запись из bdd0-пути */
+#define CAP_BDD0_SNAP_VER   17         /* v17: + 20 внутренних сайтов листа 0x45e1d0
+                                        * (bdd0_leaf вложенного уровня) и site-pf
+                                        * "bdd0_site_pf" на сайте 0x45e320 (выход
+                                        * 45c8c0); v16: + "band_pos" + grid-запись */
 #define CAP_BDD0_FRAME_SIZE 0x168  /* локалы 0x00..0x15b + param_1/2/3 (0x15c/0x160/0x164) */
 /* unit-блок 0x180: покрывает все чтения unit из tick.cpp (максимум +0x170;
  * +0x138 — встроенный BattleAI, снимается отдельным блоком ниже). 0x180
@@ -2249,7 +2252,9 @@ static void cap_write_leaf_state(FILE *f, int ecx, const int *args, int nargs)
 
 /* v16: bdd0_leaf_pre/bdd0_leaf_post — тот же заголовок, что bdd0_leaf (v, kind,
  * seq, order, site, va, ecx, args) + состояние (cap_write_leaf_state). site/va —
- * hex-строки (как в bdd0_leaf). Один ключевой набор в обоих родах. */
+ * hex-строки (как в bdd0_leaf). Один ключевой набор в обоих родах.
+ * v17: тот же writer пишет аддитивный bdd0_site_pf (сайт 0x45e320, выход 45c8c0)
+ * — новое только имя kind. */
 static void cap_write_bdd0_leaf_state_rec(const char *kind, int seq, int order,
                                           int site, int va, int ecx,
                                           const int *args, int nargs)
@@ -2324,6 +2329,23 @@ static void cap_leaf_sink_exit(int token, int va, int ecx, const int *args,
      * уже проверен выше. Только лист 0x45e1d0 (guard по va). */
     if (va == 0x45e1d0 && !trap) {
         cap_write_bdd0_leaf_state_rec("bdd0_leaf_post", seq, order, site, va,
+                                      ecx, args, nargs);
+    }
+    /* v17: site-pf — состояние, которое лист 0x45e1d0 читает ПОСЛЕ 45c8c0, но
+     * которое офлайн не выводится: 45c8c0 пишет у приёмника-объекта PathFinder
+     * (тот же, что порт листа зовёт `pf`) поля +0x08..+0x27 — радиусы, порог,
+     * RECT (x87 `FPTAN`), — а их читает 45c690 (@0x45e3b4, PtInRect по RECT
+     * +0x18..+0x27). Сайт 0x45e320 — единственный такой (план порта
+     * листа 0x45e1d0, §5); blob тот же, что у pre/post
+     * листа (pf 0x78 + rec/sub/ctx/bandrec + карты). ecx берётся из LIFO на
+     * входе сайта (`e->ecx` в cap_leaf_finish), а это ровно приёмник 45c8c0:
+     * `mov ecx,esi` @0x45e31b перед `call` — тот же объект, что порт листа
+     * зовёт `pf` (карты +0x6c/+0x78, запись rec в +0x00). Остальные 19
+     * внутренних сайтов пишут состояние только через свои callee'ы (например
+     * 45c330 — поля pf+0x04..+0x38, 45ca70 — карты) — его выводит порт из
+     * собственного кода по этим записям, поэтому обычная leaf-запись. */
+    if (site == 0x45e320 && va == 0x45c8c0 && !trap) {
+        cap_write_bdd0_leaf_state_rec("bdd0_site_pf", seq, order, site, va,
                                       ecx, args, nargs);
     }
 }
