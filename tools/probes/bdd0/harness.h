@@ -548,6 +548,10 @@ int bdd0_path_post_match_fail(void);
 /* v18: расхождения вычисленных значений границ листа 0x45e1d0 с записями
  * (порт не подставляет записанное молча — счётчик виден в сводке). */
 int bdd0_path_boundary_mismatch(void);
+/* v18: pf+0x70 (счётчик порта nreg) против записанного размера map1: сколько
+ * тиков совпало / разошлось. */
+int bdd0_path_pf70_eq(void);
+int bdd0_path_pf70_diff(void);
 
 void register_builtin_checks(void);
 /* Политика бюджета (CLI --budget-ms/--budget-calls); домены — в проверке. */
@@ -652,10 +656,6 @@ void bdd0_leaf_begin(int seq, const LeafRec *v, int n);
 void bdd0_nested_set_window(const NestedRec *v, int n);
 /* v18: сколько записей bdd0_cand прочитано (0 — данные до v18). */
 int bdd0_cand_records(void);
-/* v18: счётчики порта листа 0x45e1d0 для сводки/проверки path_post_match:
- * insert_count/at — что порт отдал регистрационной границе dd00 (ключи map1/map2
- * + PathState 0x58), boundary_mismatch — расхождения вычисленных значений границ
- * с записанными. */
 /* v18: что порт отдал регистрационной границе dd00 (для path_post_match).
  * key1_raw — ключ map1 = указатель pos в сыром адресе игры. Ключ map2
  * (Y<<16)|X = (u16 cell[0x10]<<16)|u16 cell[0x0c] (0x45dd32..0x45dd3d) офлайн
@@ -670,6 +670,15 @@ int b0_path_insert_count(void);
 const B0PathInsert *b0_path_insert_at(int i);
 int b0_path_boundary_mismatch(void);
 const char *b0_path_boundary_why(void);
+/* v18: сверка приёмника/аргументов каждой границы листа 0x45e1d0 с записанной
+ * записью окна (проверка `path_boundary_args`): compared — сколько полей
+ * сверено, local — слоты кадра листа (несравнимы, только счёт), mismatch —
+ * расхождения (per-tick, судит проверка) и total (сводка). */
+int b0_path_args_compared(void);
+int b0_path_args_local(void);
+int b0_path_args_mismatch(void);
+int b0_path_args_mismatch_total(void);
+const char *b0_path_args_why(void);
 /* v18: заявки портированных листьев приостановлены — вызов идёт ВНУТРИ тела
  * другого листа (его запись лежит в окне bdd0_nested, а не в потоке тика). */
 void b0_leaf_claim_suspend(int on);

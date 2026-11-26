@@ -999,6 +999,11 @@ int main(int argc, char **argv)
                "path_post_match_fail=%d path_boundary_mismatch=%d\n",
                bdd0_path_recompute_port(), bdd0_path_recompute_replayed(),
                bdd0_path_post_match_fail(), bdd0_path_boundary_mismatch());
+        printf("  path_boundary_args: compared=%d local=%d mismatch=%d "
+               "(sum %d); path_pf70: nreg==post %d, nreg!=post %d\n",
+               b0_path_args_compared(), b0_path_args_local(),
+               b0_path_args_mismatch_total(), bdd0_path_recompute_port(),
+               bdd0_path_pf70_eq(), bdd0_path_pf70_diff());
     }
     if (grid_anchor_replayed > 0) {
         printf("  grid_anchor_replayed=%d (bdd0_leaf 0x458050 replayed: the "

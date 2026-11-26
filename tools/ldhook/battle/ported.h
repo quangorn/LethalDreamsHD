@@ -103,15 +103,16 @@ int bdd0_grid_level_modelled(void);
 int bdd0_band_geometry_modelled(void);
 int bdd0_path_state_modelled(void);
 /* v17: внутренние вызовы листа 0x45e1d0 (bdd0_nested_*). b0_nested_call
- * потребляет следующую запись с VA `va`, возвращает записанный EAX и w;
- * b0_nested_alloc — то же для аллокаций (0x4cfa11/0x45c2e0), привязывает
- * записанный указатель к занулённому блоку арены. b0_path_pf — pf
- * материализованного входа (NULL — входа нет).
+ * потребляет следующую запись с VA `va`, сверяет приёмник ECX и стек-аргументы
+ * с записью, возвращает записанный EAX и w; b0_nested_alloc — то же для
+ * аллокаций (0x4cfa11), привязывает записанный указатель к занулённому блоку
+ * арены. b0_path_pf — pf материализованного входа (NULL — входа нет).
  * v18: has_ret!=0 — записанный EAX сверяется с ret_expect (значение вычислено
- * портом), расхождения считает b0_path_boundary_mismatch(). w — записанные
- * dword'ы out-пара (456b20). */
-int b0_nested_call(unsigned site, unsigned va, const int *args, int nargs,
-                   int *w, int *nw, int has_ret, int ret_expect);
+ * портом), расхождения считает b0_path_boundary_mismatch(); ecx/args — контракт
+ * живого вызова, расхождения аргументов считает b0_path_args_mismatch().
+ * w — записанные dword'ы out-пара (456b20). */
+int b0_nested_call(unsigned site, unsigned va, int ecx, const int *args,
+                   int nargs, int *w, int *nw, int has_ret, int ret_expect);
 void *b0_nested_alloc(unsigned site, unsigned va, unsigned size, int *ok);
 void *b0_path_pf(void);
 /* v18: PathState-кандидат скана (0x58 из bdd0_cand) — материализованный блок
@@ -120,10 +121,6 @@ void *b0_cand_materialise(unsigned site);
 /* v18: регистрационная граница dd00 — порт отдаёт ключ map1 (shadow-указатель
  * pos; в сырой адрес переводит replay-слой) и PathState 0x58. */
 void b0_path_note_insert(unsigned key1_shadow, const void *ps);
-/* v18: dword записанного post-состояния pf (0 — данных нет). Порт берёт оттуда
- * только счётчик карты +0x70: его ведёт родная RB-вставка (dd00), офлайн не
- * выводим. */
-unsigned b0_path_post_u32(unsigned off);
 /* v18: заявки листьев, вызванных ИЗНУТРИ тела другого листа, не выпускаются
  * (их записи — в окне bdd0_nested); b0_nested_expect_ptr сверяет указатель-
  * результат границы с ret последней потреблённой записи окна. */
@@ -284,13 +281,12 @@ void bdd0_leaf_claim_w(unsigned int va, void *ecx, int ret, const int *args,
 #define B0_LEAF_CLAIM_W(va, ecx, ret, args, nargs, w, nw) ((void)0)
 /* Живой билд: replay-слоя нет — границы листа не сверяются, регистрация не
  * докладывается, post-состояния нет. */
-#define b0_nested_call(site, va, args, nargs, w, nw, has_ret, ret_expect) 0
+#define b0_nested_call(site, va, ecx, args, nargs, w, nw, has_ret, ret_expect) 0
 #define b0_nested_alloc(site, va, size, ok) (*(ok) = 0, (void *)0)
 #define b0_cand_materialise(site) ((void *)0)
 #define b0_path_note_insert(key1, ps) ((void)0)
 #define b0_leaf_claim_suspend(on) ((void)0)
 #define b0_nested_expect_ptr(va, p) ((void)0)
-#define b0_path_post_u32(off) 0u
 #define b0_path_out_w() ((const int *)0)
 #define b0_path_apply_site_pf(pf) ((void)0)
 #endif

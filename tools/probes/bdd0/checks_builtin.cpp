@@ -1510,6 +1510,11 @@ static int g_psp_calls = 0;       /* тики, где порт листа исп
 static int g_psp_replayed = 0;    /* тики с вызовом листа, но порт не исполнялся */
 static int g_psp_fail = 0;
 static int g_psp_pass = 0;
+/* v18: pf+0x70 — счётчик порта (nreg) против записанного размера map1: сколько
+ * тиков совпало / разошлось (расхождение объяснимо вставками внутри реплеемого
+ * 45dd70). */
+static int g_psp_pf70_eq = 0;
+static int g_psp_pf70_diff = 0;
 
 static unsigned rd_u32(const void *p)
 {
@@ -1628,6 +1633,19 @@ static CheckResult chk_path_post_match(const TickContext &tc)
             continue;
         }
         pv = rd_u32(pf + off);
+        if (off == 0x70) {
+            /* Размер map1: порт пишет СВОЙ счётчик регистраций (nreg), а родная
+             * RB-вставка растит размер ещё и от вставок ВНУТРИ реплеемого
+             * 45dd70 (dd00 зовётся из его тела, записей этих вставок в окне
+             * листа нет). Сравнение ведётся; расхождение считается (сводка
+             * path_pf70_nreg) и НЕ проходит как сверка значения — но и не
+             * валит тик: это офлайн-невыводимая часть, а не расхождение порта.
+             * Отдельно проверяется, что счётчик порта согласован с потоком:
+             * ровно одна регистрация на запись сайта 0x45e3f2 окна. */
+            if (pv != post->pf[0x70 / 4]) g_psp_pf70_diff++;
+            else g_psp_pf70_eq++;
+            continue;
+        }
         if (off_is_ptr(off)) {
             unsigned raw = arena_raw_of((const void *)(size_t)pv);
             if (pv != 0 && raw == 0) {
@@ -1667,6 +1685,23 @@ static CheckResult chk_path_post_match(const TickContext &tc)
         return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: post node "
                                         "counts differ (m1=%d m2=%d)", r->seq,
                                     post->m1_n, post->m2_n), 0 };
+    }
+    /* pf+0x70 порта (свой счётчик регистраций) обязан совпадать с числом
+     * регистрационных записей окна — независимый от post источник. */
+    {
+        int regs = 0;
+
+        for (i = 0; i < bdd0_nested_count(); i++) {
+            const NestedRec *nr = bdd0_nested_peek(i);
+            if (nr != NULL && nr->site == BDD0_NESTED_SITE_R7_REGISTER) regs++;
+        }
+        if (rd_u32(pf + 0x70) != (unsigned)regs) {
+            g_psp_fail++;
+            return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: pf+0x70 port=%u "
+                                            "but %d registration record(s) in the "
+                                            "window", r->seq, rd_u32(pf + 0x70),
+                                        regs), 0 };
+        }
     }
     if (post->pf[0x70 / 4] != (unsigned)post->m1_n) {
         g_psp_fail++;
@@ -1743,6 +1778,31 @@ static CheckResult chk_path_post_match(const TickContext &tc)
     OK();
 }
 
+/* --------------------------- path_boundary_args ---------------------------- *
+ * v18: контракт живого вызова листа 0x45e1d0. Каждая граница порта
+ * (`recompute.cpp path_boundary`) передаёт приёмник ECX и стек-аргументы сайта;
+ * replay-слой сверяет их с записанной записью окна (`b0_path_args_*`,
+ * native_replay.cpp): указатели — по identity bind-карты, значения — побитово,
+ * слоты кадра листа (&B+0x18, &B+0x74, &шаблона B+0x38…) несравнимы (фрейм
+ * листа офлайн не моделируется) и только считаются. Расхождение — FAIL тика,
+ * не SKIP. */
+static int g_pba_fail = 0;
+
+static CheckResult chk_path_boundary_args(const TickContext &tc)
+{
+    if (tc.rec == NULL) SKIP("no tick record");
+    if (!bdd0_path_state_modelled()) {
+        SKIP("path state not modelled (replay recorded native)");
+    }
+    if (bdd0_nested_count() <= 0) SKIP("no nested window");
+    if (b0_path_args_compared() <= 0) SKIP("no boundary arguments compared");
+    if (b0_path_args_mismatch() > 0) {
+        g_pba_fail++;
+        return CheckResult{ 0, whyf(tc, "%s", b0_path_args_why()), 0 };
+    }
+    OK();
+}
+
 void register_builtin_checks(void)
 {
     register_check({ "no_trap",      chk_no_trap,
@@ -1771,6 +1831,7 @@ void register_builtin_checks(void)
                      NEED_HANDLES });
     register_check({ "path_state_inputs", chk_path_state_inputs, 0 });
     register_check({ "path_post_match", chk_path_post_match, 0 });
+    register_check({ "path_boundary_args", chk_path_boundary_args, 0 });
 }
 
 int bdd0_path_state_calls(void) { return g_ps_calls; }
@@ -1782,3 +1843,6 @@ int bdd0_path_post_match_fail(void) { return g_psp_fail; }
 /* v18: расхождения границ (сумма по прогону) — в сводку; по тику их судит
  * path_post_match. */
 int bdd0_path_boundary_mismatch(void) { return b0_path_boundary_mismatch_total(); }
+/* v18: pf+0x70 — счётчик порта совпал/разошёлся с записанным размером map1. */
+int bdd0_path_pf70_eq(void) { return g_psp_pf70_eq; }
+int bdd0_path_pf70_diff(void) { return g_psp_pf70_diff; }

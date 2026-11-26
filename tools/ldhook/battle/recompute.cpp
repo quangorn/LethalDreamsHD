@@ -8,12 +8,15 @@
  * Разделение (план §0/§4):
  *   считает сам — pf+0x00 (ленивый rec), pf+0x28, pf+0x2c, шаблон PathState
  *   (x87 P7), dist² (s6_distance2), out-тройку, флаг-расход кандидатов
- *   (cand[0x08]=3), сброс 45c330 (s6_ai_reset);
+ *   (cand[0x08]=3), счётчик регистраций pf+0x70 (nreg);
  *   берёт из записей — всё, что касается кучи и RB: out-пара 456b20 (w[0..1]),
  *   состояние после 45c8c0 (site_pf), h гейта 45c690 (его тело зовёт 44bbf0,
  *   которой в окне листа не записано), вставки карт (45dd00/45dd70 — реплей),
- *   счётчик карты pf+0x70 (его ведёт родная RB-вставка), PathState-кандидатов
- *   скана (bdd0_cand, v18).
+ *   сброс 45c330 (его записи вне change-set), PathState-кандидатов скана
+ *   (bdd0_cand, v18).
+ * Граница порта (path_boundary) — (site, va, ECX-приёмник, стек-аргументы):
+ * в replay она сверяет приёмник и аргументы с записанной записью окна
+ * (b0_path_args_*), в живом билде вызывает тот же нативный путь по VA.
  *
  * ЛИСТИНГ (game_dis.txt, 0x45e1d0..0x45e504):
  *   P0 45e1d0 sub esp,0x5c / push ebx,ebp,esi,edi; esi=ecx; eax=[esi]; ebx=0
@@ -81,32 +84,46 @@ static float rdf(const void *p) { float f; memcpy(&f, p, 4); return f; }
 static unsigned fb(float f) { unsigned u; memcpy(&u, &f, 4); return u; }
 
 /* ------------------------- границы (replay / live) ------------------------ *
- * В replay граница потребляет следующую запись bdd0_nested с этим VA, возвращает
- * записанный EAX и w (dword'ы, записанные через указатель). В живой — нативный
- * вызов по VA. has_ret/ret_expect — вычисленное портом значение сверяется с
- * записью (расхождение считает b0_path_boundary_mismatch, тихой подстановки нет). */
-static int path_boundary(unsigned site, unsigned va, const int *args, int nargs,
+ * В replay граница потребляет следующую запись bdd0_nested с этим VA и сверяет
+ * приёмник/аргументы с записью (b0_path_args_*), возвращает записанный EAX и w
+ * (dword'ы, записанные через указатель). В живой — нативный вызов по VA.
+ * ecx — приёмник (__thiscall; для cdecl `4cfa11` не используется, там NULL).
+ * args/nargs — СТЕК-аргументы сайта в порядке нативного вызова: у 434bc0 это
+ * {out, key} при ECX = &pf+0x68, у 458050 — {x, y_metric, y_coord, node, &flag,
+ * world} при ECX = tree (16-байтный by-value блок — первые четыре).
+ * has_ret/ret_expect — вычисленное портом значение сверяется с записью
+ * (расхождение считает b0_path_boundary_mismatch, тихой подстановки нет). */
+static int path_boundary(unsigned site, unsigned va, const void *ecx,
+                         const int *args, int nargs,
                          int *w3, int has_ret, int ret_expect)
 {
     int wv[3] = { 0, 0, 0 }, nwv = 0, ret = 0;
 
 #if PATH_REPLAY
-    ret = b0_nested_call(site, va, args, nargs, wv, &nwv, has_ret, ret_expect);
+    ret = b0_nested_call(site, va, (int)(size_t)ecx, args, nargs, wv, &nwv,
+                         has_ret, ret_expect);
 #else
-    (void)site; (void)has_ret; (void)ret_expect;
+    (void)site; (void)nargs; (void)has_ret; (void)ret_expect;
     switch (va) {
     case 0x4cfa11u: ret = (int)(size_t)native::operator_new((unsigned)args[0]); break;
-    case 0x45c330u: ret = 0; break;                 /* зовётся напрямую ниже */
-    case 0x45ca70u: native::clear_maps((void *)(size_t)args[0]); ret = 0; break;
-    case 0x45c8c0u: native::search_params_update((void *)(size_t)args[0]); ret = 0; break;
+    case 0x45c330u: s6_ai_reset((BattleAI *)ecx); ret = 0; break;
+    case 0x45ca70u: native::clear_maps((void *)ecx); ret = 0; break;
+    case 0x45c8c0u: native::search_params_update((void *)ecx); ret = 0; break;
+    case 0x456b20u: ret = (int)(size_t)s6_grid_scale_compute((LDPos *)ecx,
+                                        (float *)(size_t)args[0]); break;
     case 0x45c480u: ret = s6_distance2((void *)(size_t)args[0], (void *)(size_t)args[1]); break;
-    case 0x45c690u: ret = s6_heuristic_gate((void *)(size_t)args[0], (int *)(size_t)args[1]); break;
+    case 0x45c690u: ret = s6_heuristic_gate((void *)ecx, (int *)(size_t)args[0]); break;
     case 0x45c4b0u: s6_copy_fields(args[1], args[0], (unsigned)args[2]); ret = 0; break;
-    case 0x45dd00u: native::register_occupied_slot((void *)(size_t)args[0], (LDObject *)(size_t)args[1]); ret = 0; break;
-    case 0x45ce80u: ret = (int)(size_t)s6_scan_map((void *)(size_t)args[0], args[1]); break;
-    case 0x45dd70u: ret = s6_ai_update((void *)(size_t)args[0], (void *)(size_t)args[1], args[2]); break;
-    case 0x434bc0u: ret = (int)(size_t)native::lower_bound_slots((void *)(size_t)args[0], (int *)(size_t)args[1], (int *)(size_t)args[2]); break;
-    case 0x458050u: ret = (int)(size_t)native::grid_anchor((void *)(size_t)args[0], args[1], args[2], args[3], args[4], (int *)(size_t)args[5], (void *)(size_t)args[6]); break;
+    case 0x45dd00u: native::register_occupied_slot((void *)ecx, (LDObject *)(size_t)args[0]); ret = 0; break;
+    case 0x45ce80u: ret = (int)(size_t)s6_scan_map((void *)ecx, args[0]); break;
+    case 0x45dd70u: ret = s6_ai_update((void *)ecx, (void *)(size_t)args[0], args[1]); break;
+    case 0x434bc0u: ret = (int)(size_t)native::lower_bound_slots((void *)ecx,
+                                        (int *)(size_t)args[0],
+                                        (int *)(size_t)args[1]); break;
+    case 0x458050u: ret = (int)(size_t)native::grid_anchor((void *)ecx, args[0],
+                                        args[1], args[2], args[3],
+                                        (int *)(size_t)args[4],
+                                        (void *)(size_t)args[5]); break;
     default: break;
     }
 #endif
@@ -201,12 +218,13 @@ static void *path_grid_anchor(unsigned char *tree, const void *block,
                                     rdf(blk + 0x04), rdf(blk + 0x08),
                                     (void *)(size_t)(unsigned)av[3], flag, world);
         b0_leaf_claim_suspend(0);
-        path_boundary(0x45e316u, 0x458050u, av, 6, NULL, 0, 0);
+        path_boundary(0x45e316u, 0x458050u, tree, av, 6, NULL, 0, 0);
         b0_nested_expect_ptr(0x458050u, res);
         return res;
     }
 #endif
-    return (void *)(size_t)path_boundary(0x45e316u, 0x458050u, av, 6, NULL, 0, 0);
+    return (void *)(size_t)path_boundary(0x45e316u, 0x458050u, tree, av, 6,
+                                         NULL, 0, 0);
 }
 
 /* ------------------------------ тело листа -------------------------------- */
@@ -256,25 +274,36 @@ int s6_grid_recompute(void *pf_raw, void *arg1, void *arg2)
     /* ---- P3 (45e274/45e27b): сброс AI + очистка карт ---- */
     /* 45c330 (s6_ai_reset, move.cpp) пишет pf+0x04,0x0c,0x08,0x10,0x14,RECT
      * +0x18..0x27, +0x28/+0x2c (их тут же перезаписывают P4/P5), байт +0x30 и
-     * +0x34=0x0098967f. Все они вне change-set и в записанном post равны pre
-     * (проверяет path_post_match), а +0x28/+0x2c перекрываются ниже — поэтому
-     * вызов реплеится, тело не дублируется (харнесс не линкует move.cpp). */
-    path_boundary(0x45e274u, 0x45c330u, NULL, 0, NULL, 0, 0);
-    path_boundary(0x45e27bu, 0x45ca70u, NULL, 0, NULL, 0, 0);
+     * +0x34=0x0098967f — все вне change-set. В replay вызов реплеится (запись
+     * окна расходуется, тело не дублируется), в живом билде граница зовёт
+     * s6_ai_reset(ecx). */
+    path_boundary(0x45e274u, 0x45c330u, pf, NULL, 0, NULL, 0, 0);
+    path_boundary(0x45e27bu, 0x45ca70u, pf, NULL, 0, NULL, 0, 0);
 
     /* ---- P4 (45e280..45e2dd): grid-scale ×2 (out-пара из записей) + опора ---- */
     {
         int wa[3] = { 0, 0, 0 }, wb[3] = { 0, 0, 0 };
         int av[1];
+        int b18[2] = { 0, 0 }, b20[2] = { 0, 0 };   /* out-слоты B+0x18 / B+0x20 */
+        void *recv;
         unsigned ctx120 = (ctx != NULL) ? rd32(ctx + 0x120) : 0;
 
-        av[0] = (int)rd32(rec + 0x10);          /* приёмник = anchor (GridCell) */
-        path_boundary(0x45e297u, 0x456b20u, av, 1, wa, 0, 0);
-        path_boundary(0x45e2abu, 0x456b20u, av, 1, wb, 0, 0);
-        /* [B+0x2c] = out2[0], [B+0x30] = ctx120, [B+0x34] = out1[1] (45e2b0..) */
+        recv = (void *)(size_t)rd32(rec + 0x10);    /* ECX = [edi+0x10] (anchor) */
+        av[0] = (int)(size_t)b18;
+        path_boundary(0x45e297u, 0x456b20u, recv, av, 1, wa, 0, 0);
+        av[0] = (int)(size_t)b20;
+        path_boundary(0x45e2abu, 0x456b20u, recv, av, 1, wb, 0, 0);
+        /* [B+0x2c] = out2[0], [B+0x30] = ctx120, [B+0x34] = out1[1] (45e2b0..).
+         * В replay значения приходят записанными (w), в живом билде — из
+         * out-слотов, которые заполнил сам вызов. */
+#if PATH_REPLAY
         out0 = wb[0];
-        out1 = (int)ctx120;
         out2 = wa[1];
+#else
+        out0 = b20[0];
+        out2 = b18[1];
+#endif
+        out1 = (int)ctx120;
 
         cell = (void *)(size_t)rd32(rec + 0x10);
         if (rd32(rec + 0x10) == 0 && ctx != NULL)
@@ -285,11 +314,11 @@ int s6_grid_recompute(void *pf_raw, void *arg1, void *arg2)
     /* ---- P5 (45e2df..45e323): anchor lookup + search_params ---- */
     {
         unsigned char flag = 0;
+        unsigned char *tree = (unsigned char *)(size_t)rd32(rec + 0x08);
 
-        anchor = path_grid_anchor((unsigned char *)(size_t)rd32(rec + 0x08),
-                                  sub, &flag, ctx);
+        anchor = path_grid_anchor(tree, sub, &flag, ctx);   /* ECX = [rec+8] */
         wr32(pf + 0x2c, (unsigned)(size_t)anchor);          /* @0x45e31d */
-        path_boundary(0x45e320u, 0x45c8c0u, NULL, 0, NULL, 0, 0);
+        path_boundary(0x45e320u, 0x45c8c0u, pf, NULL, 0, NULL, 0, 0);
 #if PATH_REPLAY
         /* выход 45c8c0 (pf+0x08..0x27) офлайн не выводим — он в bdd0_site_pf */
         b0_path_apply_site_pf(pf);
@@ -299,10 +328,11 @@ int s6_grid_recompute(void *pf_raw, void *arg1, void *arg2)
     /* ---- P6 (45e325..45e339): lower_bound(map1, &pf+0x28) ---- */
     {
         int av[2];
+        int lbout = 0;                          /* out-слот B+0x74 */
 
-        av[0] = (int)(size_t)(pf + 0x68);       /* this  = &pf+0x68 */
-        av[1] = (int)(size_t)(pf + 0x28);       /* key   = &pf+0x28 */
-        path_boundary(0x45e32eu, 0x434bc0u, av, 2, NULL, 0, 0);
+        av[0] = (int)(size_t)&lbout;            /* arg1 = out */
+        av[1] = (int)(size_t)(pf + 0x28);       /* arg2 = key */
+        path_boundary(0x45e32eu, 0x434bc0u, pf + 0x68, av, 2, NULL, 0, 0);
         /* `jne 45e3f7` — P7 пропускается, если итератор не голова карты. */
         if (!path_map1_at_end(pf)) goto l_p8;
     }
@@ -311,7 +341,14 @@ int s6_grid_recompute(void *pf_raw, void *arg1, void *arg2)
     {
         int av[2], w0, w1, h, dist2;
 
+#if PATH_REPLAY
+        /* ctor 45c2e0: граница отдаёт записанный адрес, привязанный к арене */
         pfs = (unsigned char *)path_alloc(0x45e340u, 0x45c2e0u, 0x58, &ok);
+#else
+        /* живой билд: тело ctor'а — тот же путь, что у натива (нули + сентинелы
+         * + nbr[9], native::operator_new(0x58)) */
+        pfs = (unsigned char *)s6_pfs_ctor();
+#endif
         if (pfs == NULL) return 0;
 
         tpl = tpl_buf;
@@ -329,11 +366,11 @@ int s6_grid_recompute(void *pf_raw, void *arg1, void *arg2)
         /* dist² считается портом (та же формула, что FUN_0045c480) и сверяется с
          * записью границы: расхождение — не тихая подстановка, а провал тика. */
         dist2 = path_dist2(cell, anchor);
-        path_boundary(0x45e3a2u, 0x45c480u, av, 2, NULL, 1, dist2);
+        path_boundary(0x45e3a2u, 0x45c480u, pf, av, 2, NULL, 1, dist2);
         wr32(tpl + 0x1c, (unsigned)dist2);
 
         av[0] = (int)(size_t)tpl;
-        h = path_boundary(0x45e3b4u, 0x45c690u, av, 1, NULL, 0, 0);
+        h = path_boundary(0x45e3b4u, 0x45c690u, pf, av, 1, NULL, 0, 0);
         w0 = h * 0x2710;                                    /* imul eax,0x2710 */
         wr32(tpl + 0x20, (unsigned)w0);
         w1 = dist2 + w0;                                    /* add edi,eax */
@@ -347,7 +384,7 @@ int s6_grid_recompute(void *pf_raw, void *arg1, void *arg2)
         {
             int av3[3];
             av3[0] = av[0]; av3[1] = av[1]; av3[2] = 0x1fff;
-            path_boundary(0x45e3eau, 0x45c4b0u, av3, 3, NULL, 0, 0);
+            path_boundary(0x45e3eau, 0x45c4b0u, pf, av3, 3, NULL, 0, 0);
         }
         memcpy(pfs, tpl, 0x34);                             /* mask 0x1fff */
 #if PATH_REPLAY
@@ -356,7 +393,7 @@ int s6_grid_recompute(void *pf_raw, void *arg1, void *arg2)
         b0_path_note_insert(rd32(pfs + 0x00), pfs);
 #endif
         av[0] = (int)(size_t)pfs;
-        path_boundary(0x45e3f2u, 0x45dd00u, av, 1, NULL, 0, 0);
+        path_boundary(0x45e3f2u, 0x45dd00u, pf, av, 1, NULL, 0, 0);
         nreg = 1;
     }
 
@@ -372,7 +409,7 @@ l_p8:
         wr32(tpl + 0x2c, 0x4b18967fu);
 
         av[0] = 1;                                          /* filter */
-        path_boundary(0x45e443u, 0x45ce80u, av, 1, NULL, 0, 0);
+        path_boundary(0x45e443u, 0x45ce80u, pf, av, 1, NULL, 0, 0);
         cand = path_cand_take(0x45e443u);
         if (cand == NULL) goto l_p11;
 
@@ -386,15 +423,15 @@ l_p8:
                 if (rd32(c + 0x20) == 0) break;             /* → P10 */
                 av2[0] = (int)(size_t)cand;
                 av2[1] = (ctx != NULL) ? (int)rd32(ctx + 0x134) : 0;
-                path_boundary(0x45e46bu, 0x45dd70u, av2, 2, NULL, 0, 0);
+                path_boundary(0x45e46bu, 0x45dd70u, pf, av2, 2, NULL, 0, 0);
                 av2[0] = (int)(size_t)tpl;
                 av2[1] = (int)(size_t)cand;
                 av2[2] = 4;
-                path_boundary(0x45e47eu, 0x45c4b0u, av2, 3, NULL, 0, 0);
+                path_boundary(0x45e47eu, 0x45c4b0u, pf, av2, 3, NULL, 0, 0);
                 wr32(tpl + 0x08, 3u);                       /* [B+0x40]=ebp=3 */
                 wr32((unsigned char *)cand + 0x08, 3u);     /* mask 4 → +0x08 */
                 av2[0] = 1;
-                path_boundary(0x45e487u, 0x45ce80u, av2, 1, NULL, 0, 0);
+                path_boundary(0x45e487u, 0x45ce80u, pf, av2, 1, NULL, 0, 0);
                 cand = path_cand_take(0x45e487u);
                 if (++guard > 100000) break;
             }
@@ -403,13 +440,23 @@ l_p8:
             if (cand != NULL) {
                 unsigned char *c = (unsigned char *)cand;
                 int wa[3] = { 0, 0, 0 }, wb[3] = { 0, 0, 0 }, av1[1];
+                int b20[2] = { 0, 0 }, b18[2] = { 0, 0 };   /* outC / outD */
                 float y, x;
 
-                av1[0] = (int)rd32(c + 0x00);               /* ECX = cand->pos */
-                path_boundary(0x45e49bu, 0x456b20u, av1, 1, wa, 0, 0);
-                path_boundary(0x45e4b1u, 0x456b20u, av1, 1, wb, 0, 0);
+                av1[0] = (int)(size_t)b20;                  /* arg1 = outC */
+                path_boundary(0x45e49bu, 0x456b20u,
+                              (void *)(size_t)rd32(c + 0x00), av1, 1, wa, 0, 0);
+                av1[0] = (int)(size_t)b18;                  /* arg1 = outD */
+                path_boundary(0x45e4b1u, 0x456b20u,
+                              (void *)(size_t)rd32(c + 0x00), av1, 1, wb, 0, 0);
+#if PATH_REPLAY
                 y = rdf((unsigned char *)c + 0x14) + rdf(&wa[1]);
                 x = rdf((unsigned char *)c + 0x0c) + rdf(&wb[0]);
+#else
+                /* живой билд: out-пара лежит в out-слотах, заполненных вызовом */
+                y = rdf((unsigned char *)c + 0x14) + rdf(&b20[1]);
+                x = rdf((unsigned char *)c + 0x0c) + rdf(&b18[0]);
+#endif
                 out0 = (int)fb(x);
                 out1 = 0;
                 out2 = (int)fb(y);
@@ -423,13 +470,12 @@ l_p11:
     wr32((unsigned char *)arg1 + 0x4, (unsigned)out1);
     wr32((unsigned char *)arg1 + 0x8, (unsigned)out2);
 
-#if PATH_REPLAY
-    /* pf+0x70 (размер map1) ведёт родная RB-вставка (dd00/dd70) — офлайн не
-     * выводим: берём из записанного post-состояния (план §4). */
-    wr32(pf + 0x70, b0_path_post_u32(0x70));
-#else
+    /* pf+0x70 — размер map1. Порт пишет СВОЙ счётчик успешных регистраций
+     * (nreg: столько раз он подал PathState в 45dd00). Родная RB-вставка растит
+     * размер ещё и от вставок ВНУТРИ реплеемого 45dd70 (dd00 зовётся из его
+     * тела, в окне листа их нет) — расхождение с записанным post на таких
+     * вызовах считает path_post_match, а не копирование post. */
     wr32(pf + 0x70, (unsigned)nreg);
-#endif
 
 #if PATH_REPLAY
     {
@@ -441,6 +487,5 @@ l_p11:
                         w3, 3);
     }
 #endif
-    (void)nreg;
     return 0;
 }

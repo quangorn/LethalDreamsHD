@@ -51,6 +51,11 @@ static void viol(const char *fmt, ...);
 static int g_path_boundary_mismatch;          /* тик: судит path_post_match */
 static int g_path_boundary_mismatch_total;    /* прогон: сводка харнесса */
 static char g_path_boundary_why[160];
+static int g_path_args_cmp;                   /* тик: сверенных полей границ */
+static int g_path_args_local;                 /* тик: слоты кадра листа (LOCAL) */
+static int g_path_args_mismatch;              /* тик: расхождений */
+static int g_path_args_mismatch_total;        /* прогон: сводка */
+static char g_path_args_why[200];
 static int g_path_ins_n;
 static int g_claim_suspended;                 /* тик: заявки вложенных листьев */
 
@@ -169,6 +174,10 @@ void bdd0_leaf_begin(int seq, const LeafRec *v, int n)
     g_path_ins_n = 0;
     g_path_boundary_mismatch = 0;
     g_path_boundary_why[0] = '\0';
+    g_path_args_cmp = 0;
+    g_path_args_local = 0;
+    g_path_args_mismatch = 0;
+    g_path_args_why[0] = '\0';
     g_claim_suspended = 0;
 }
 
@@ -216,17 +225,83 @@ int bdd0_nested_consumed(void) { return g_nest_i; }
 void bdd0_nested_reset(void) { g_nest_i = 0; }
 
 /* ------------------------- v17: границы листа 0x45e1d0 -------------------- *
- * Тело порта (recompute.cpp) зовёт границу по (site, va); слой потребляет
- * следующую запись окна и возвращает записанный EAX / w. Несовпадение VA или
- * исчерпание — нарушение потока (leaf_seq). v18: has_ret!=0 — записанный EAX
- * сверяется с вычисленным портом (ret_expect); расхождение НЕ двигает поток
- * иначе, но считается: суммарный счётчик виден в сводке, а path_post_match
- * валит тик (тихая подстановка запрещена). */
-int b0_nested_call(unsigned site, unsigned va, const int *args, int nargs,
-                   int *w, int *nw, int has_ret, int ret_expect)
+ * Тело порта (recompute.cpp) зовёт границу по (site, va) и передаёт приёмник
+ * (ECX) и стек-аргументы сайта — это контракт живого билда. Слой потребляет
+ * следующую запись окна, СВЕРЯЕТ приёмник/аргументы с записью и возвращает
+ * записанный EAX / w. Несовпадение VA или исчерпание — нарушение потока
+ * (leaf_seq). v18: has_ret!=0 — записанный EAX сверяется с вычисленным портом
+ * (ret_expect); расхождение не двигает поток иначе, но считается: счётчики
+ * видны в сводке, а path_post_match / path_boundary_args валят тик (тихая
+ * подстановка запрещена).
+ *
+ * Сверка аргументов (v18, `path_boundary_args`): ecx и args[i] сравниваются по
+ * классу поля — PTR (указатель: равны, если совпали биты или shadow→raw по
+ * bind-карте), VAL (значение: побитово), LOCAL (слот кадра ЛИСТА: &B+0x18,
+ * &B+0x74, &шаблона B+0x38… — офлайн фрейм листа не моделируется, поле
+ * несравнимо и только считается). Классы — по листингу (leaf_sites.cpp №35..54). */
+enum { NF_VAL = 0, NF_PTR = 1, NF_LOCAL = 2 };
+
+struct NestedAbi {
+    unsigned site, va;
+    int ecx_ptr;            /* 1 — ECX приёмник (thiscall), 0 — cdecl */
+    int nargs;
+    int kind[6];
+};
+
+/* ecx: 45c330/45ca70/45c8c0/45c2e0/45c480/45c690/45c4b0/45dd00/45ce80/45dd70 —
+ * pf (сам PathFinder), у 456b20 — [edi+0x10] (grid-cell), у 458050 — [rec+8]
+ * (tree/уровень), у 434bc0 — &pf+0x68 (объект map1), у 4cfa11 — cdecl. */
+static const NestedAbi k_nested_abi[] = {
+    { 0x45e1e3, 0x4cfa11, 0, 1, { NF_VAL } },                        /* size 0x1c */
+    { 0x45e23c, 0x4cfa11, 0, 1, { NF_VAL } },                        /* size 0x10 */
+    { 0x45e274, 0x45c330, 1, 0, { NF_VAL } },
+    { 0x45e27b, 0x45ca70, 1, 0, { NF_VAL } },
+    { 0x45e297, 0x456b20, 1, 1, { NF_LOCAL } },                      /* out B+0x18 */
+    { 0x45e2ab, 0x456b20, 1, 1, { NF_LOCAL } },                      /* out B+0x20 */
+    { 0x45e316, 0x458050, 1, 6, { NF_VAL, NF_VAL, NF_VAL, NF_VAL,
+                                  NF_LOCAL, NF_PTR } },              /* &flag, world */
+    { 0x45e320, 0x45c8c0, 1, 0, { NF_VAL } },
+    { 0x45e32e, 0x434bc0, 1, 2, { NF_LOCAL, NF_PTR } },              /* out, &pf+0x28 */
+    { 0x45e340, 0x45c2e0, 1, 0, { NF_VAL } },
+    { 0x45e3a2, 0x45c480, 1, 2, { NF_PTR, NF_PTR } },
+    { 0x45e3b4, 0x45c690, 1, 1, { NF_LOCAL } },                      /* &шаблон */
+    { 0x45e3ea, 0x45c4b0, 1, 3, { NF_LOCAL, NF_PTR, NF_VAL } },
+    { 0x45e3f2, 0x45dd00, 1, 1, { NF_PTR } },
+    { 0x45e443, 0x45ce80, 1, 1, { NF_VAL } },                        /* filter */
+    { 0x45e46b, 0x45dd70, 1, 2, { NF_PTR, NF_PTR } },                /* cand, ctx134 */
+    { 0x45e47e, 0x45c4b0, 1, 3, { NF_LOCAL, NF_PTR, NF_VAL } },
+    { 0x45e487, 0x45ce80, 1, 1, { NF_VAL } },
+    { 0x45e49b, 0x456b20, 1, 1, { NF_LOCAL } },                      /* out B+0x20 */
+    { 0x45e4b1, 0x456b20, 1, 1, { NF_LOCAL } }                       /* out B+0x18 */
+};
+
+static const NestedAbi *nested_abi_find(unsigned site)
+{
+    for (int i = 0; i < (int)(sizeof(k_nested_abi) / sizeof(k_nested_abi[0])); i++) {
+        if (k_nested_abi[i].site == site) return &k_nested_abi[i];
+    }
+    return NULL;
+}
+
+/* Указатели: биты (raw→raw: значение, прочитанное из снимка) или identity по
+ * bind-карте (shadow арены → сырой адрес записи). */
+static int nested_ptr_same(unsigned pv, unsigned nv)
+{
+    unsigned t;
+
+    if (pv == nv) return 1;
+    if (pv == 0 || nv == 0) return 0;
+    t = arena_raw_of((const void *)(size_t)pv);
+    if (t != 0 && t == nv) return 1;
+    t = arena_raw_of((const void *)(size_t)nv);
+    if (t != 0 && t == pv) return 1;
+    return 0;
+}
+
+int b0_nested_call(unsigned site, unsigned va, int ecx, const int *args,
+                   int nargs, int *w, int *nw, int has_ret, int ret_expect)
 {
     const NestedRec *r = bdd0_nested_next();
-    (void)site; (void)args; (void)nargs;
     if (r == NULL) {
         viol("path boundary #%d: nested stream exhausted, requested va=0x%x "
              "(seq %d)", g_nest_i, va, g_seq);
@@ -246,6 +321,46 @@ int b0_nested_call(unsigned site, unsigned va, const int *args, int nargs,
         }
         g_path_boundary_mismatch++;
         g_path_boundary_mismatch_total++;
+    }
+    /* сверка приёмника и аргументов с записью (v18, path_boundary_args) */
+    {
+        const NestedAbi *abi = nested_abi_find((unsigned)site);
+
+        if (abi != NULL && abi->va == va) {
+            if (abi->ecx_ptr) {
+                g_path_args_cmp++;
+                if (!nested_ptr_same((unsigned)ecx, (unsigned)r->ecx)) {
+                    g_path_args_mismatch++;
+                    g_path_args_mismatch_total++;
+                    if (g_path_args_why[0] == '\0') {
+                        _snprintf_s(g_path_args_why, sizeof(g_path_args_why),
+                                    _TRUNCATE, "site 0x%x va=0x%x ecx port="
+                                    "0x%08x recorded=0x%08x (seq %d)", site, va,
+                                    (unsigned)ecx, (unsigned)r->ecx, g_seq);
+                    }
+                }
+            }
+            for (int k = 0; k < abi->nargs; k++) {
+                unsigned pv = (args != NULL) ? (unsigned)args[k] : 0u;
+                unsigned nv = (unsigned)r->args[k];
+                int same;
+
+                if (abi->kind[k] == NF_LOCAL) { g_path_args_local++; continue; }
+                g_path_args_cmp++;
+                same = (abi->kind[k] == NF_PTR) ? nested_ptr_same(pv, nv)
+                                                : (pv == nv);
+                if (!same) {
+                    g_path_args_mismatch++;
+                    g_path_args_mismatch_total++;
+                    if (g_path_args_why[0] == '\0') {
+                        _snprintf_s(g_path_args_why, sizeof(g_path_args_why),
+                                    _TRUNCATE, "site 0x%x va=0x%x arg[%d] port="
+                                    "0x%08x recorded=0x%08x (seq %d)", site, va,
+                                    k, pv, nv, g_seq);
+                    }
+                }
+            }
+        }
     }
     if (w != NULL) { w[0] = r->w[0]; w[1] = r->w[1]; w[2] = r->w[2]; }
     if (nw != NULL) *nw = r->nw;
@@ -305,16 +420,21 @@ void b0_nested_expect_ptr(unsigned va, const void *p)
 /* v18: PathState-кандидат скана 45ce80 — последняя потреблённая запись окна
  * несёт bdd0_cand (ps 0x58). Блок материализуется в арене и привязывается к
  * записанному адресу: порт читает cand[0x20]/cand[0x00] и пишет cand[0x08]=3.
- * Один блок на тик (переиспользуется итерациями P9: объекты разные, но живой
- * нужен только текущий). NULL — запись не скан или снимка нет. */
+ * Идентичность КАЖДОГО кандидата сохраняется (свой блок арены на адрес): её
+ * требует карта занятых слотов (ключ — указатель pos) и сверка аргументов
+ * границы 45dd70 (path_boundary_args). NULL — запись не скан или снимка нет. */
 void *b0_cand_materialise(unsigned site)
 {
     const NestedRec *r = bdd0_nested_peek(g_nest_i - 1);
+    char name[24];
     void *p;
+    unsigned raw;
 
     (void)site;
     if (r == NULL || r->va != (int)BDD0_VA_SCAN_MAP || !r->cand_ok) return NULL;
-    p = arena_bind_reuse("path_cand", r->cand, BDD0_PS_LEN);
+    raw = r->cand;
+    _snprintf_s(name, sizeof(name), _TRUNCATE, "path_cand_%x", raw);
+    p = arena_bind_reuse(name, raw, BDD0_PS_LEN);
     if (p == NULL) return NULL;
     memcpy(p, (const void *)r->cand_ps, BDD0_PS_LEN);
     return p;
@@ -348,6 +468,13 @@ int b0_path_boundary_mismatch(void) { return g_path_boundary_mismatch; }
 int b0_path_boundary_mismatch_total(void) { return g_path_boundary_mismatch_total; }
 const char *b0_path_boundary_why(void) { return g_path_boundary_why; }
 
+/* v18: сверка приёмников/аргументов границ (path_boundary_args). */
+int b0_path_args_compared(void) { return g_path_args_cmp; }
+int b0_path_args_local(void) { return g_path_args_local; }
+int b0_path_args_mismatch(void) { return g_path_args_mismatch; }
+int b0_path_args_mismatch_total(void) { return g_path_args_mismatch_total; }
+const char *b0_path_args_why(void) { return g_path_args_why; }
+
 /* v17: out-тройка (w[3]) следующей записи листа 0x45e1d0 (граница P11). */
 const int *b0_path_out_w(void)
 {
@@ -376,20 +503,6 @@ void b0_path_apply_site_pf(void *pf)
     if (spf->site != 0x45e320 || spf->va != 0x45c8c0) return;
     if (pre->ecx != 0 && spf->ecx != pre->ecx) return;   /* другой объект */
     memcpy((unsigned char *)pf + 0x08, (const unsigned char *)spf->pf + 0x08, 0x20);
-}
-
-/* v18: dword записанного post-состояния pf того же вызова листа. */
-unsigned b0_path_post_u32(unsigned off)
-{
-    const TickRecord *tr = arena_record(arena_current());
-    const LeafStateRec *pre, *post;
-
-    if (tr == NULL || tr->leaf_pre_idx < 0 || off + 4 > BDD0_LEAFPF_LEN) return 0;
-    pre = bdd0_leaf_pre_at(tr->leaf_pre_idx);
-    if (pre == NULL) return 0;
-    post = bdd0_leaf_state_post(tr->seq, pre->order);
-    if (post == NULL || !post->ok) return 0;
-    return post->pf[off / 4];
 }
 
 void *b0_path_pf(void)
