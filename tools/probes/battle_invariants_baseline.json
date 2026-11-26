@@ -68,6 +68,42 @@
    ]
   },
   {
+   "name": "latency",
+   "pass": 1125,
+   "skip": 0,
+   "fail": 6,
+   "fail_keys": [
+    "unit:10:latency",
+    "unit:12:latency",
+    "unit:4:latency"
+   ],
+   "details": [
+    "tick=201 unit=10 us=68610 vis=4522 i1=4503 i2=-1 code=3 limit=20000",
+    "tick=203 unit=10 us=71187 vis=4645 i1=4626 i2=-1 code=3 limit=20000",
+    "tick=692 unit=12 us=70665 vis=4562 i1=4558 i2=-1 code=3 limit=20000",
+    "tick=694 unit=4 us=72383 vis=4515 i1=4512 i2=-1 code=3 limit=20000",
+    "tick=701 unit=12 us=71431 vis=4536 i1=4532 i2=-1 code=3 limit=20000"
+   ]
+  },
+  {
+   "name": "spin",
+   "pass": 1125,
+   "skip": 0,
+   "fail": 6,
+   "fail_keys": [
+    "unit:10:spin",
+    "unit:12:spin",
+    "unit:4:spin"
+   ],
+   "details": [
+    "tick=201 unit=10 code=3 vis=4522 i1=4503 (spin to timeout 45c5a0)",
+    "tick=203 unit=10 code=3 vis=4645 i1=4626 (spin to timeout 45c5a0)",
+    "tick=692 unit=12 code=3 vis=4562 i1=4558 (spin to timeout 45c5a0)",
+    "tick=694 unit=4 code=3 vis=4515 i1=4512 (spin to timeout 45c5a0)",
+    "tick=701 unit=12 code=3 vis=4536 i1=4532 (spin to timeout 45c5a0)"
+   ]
+  },
+  {
    "name": "stall",
    "pass": 5,
    "skip": 4,

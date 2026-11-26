@@ -20,10 +20,17 @@ runaway у юнитов 4/10/12, залипание у 4/5/6): принимае�
 прогонами плывут (таймаут `c5a0` — wall-clock), tick-bound ключи давали бы
 ложные NEW FAIL на том же дефекте. Пересъёмка эталона — тот же прогон +
 `--json tools/probes/battle_invariants_baseline.json`.
+
+Профиль (`--profile`, план 9.d2): лаг = **спин до wall-clock таймаута** `45c5a0`
+(`code=3`) — ~4500 итераций × полный скан `map1`, выход только потому, что
+время кончилось. `vis` (входы `45dd70`) — прямая метрика работы тика, `us`
+(QPC) — его длительность. `latency` ловит симптом (длинный тик), `spin` —
+механизм (отказ по таймауту после ≥1000 визитов): спин бьёт лаг и на быстрой
+машине, поэтому он отдельная проверка.
 """
 import json
 import sys
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 
 BATTLE_FIELDS = [
     "tick", "unit", "code", "u170", "al", "out",
@@ -43,13 +50,16 @@ NO_PATH_CODE = 0                      # 45eee0: anchor == NULL
 DETAIL_LIMIT = 5
 
 USAGE = ("usage: battle_invariants.py <log.txt> [<log2.txt> ...] "
-         "[--json out.json] [--baseline ref.json] [--min-ticks N] "
-         "[--min-units N] [--min-moving N] [--max-iterations N] "
+         "[--json out.json] [--baseline ref.json] [--profile] [--top N] "
+         "[--min-ticks N] [--min-units N] [--min-moving N] "
+         "[--max-iterations N] [--max-tick-us N] [--spin-vis N] "
          "[--unit-ticks K] [--stall-ticks N] [--allow-idle]")
 
 NUMOPTS = {"--min-ticks": "min_ticks", "--min-units": "min_units",
            "--min-moving": "min_moving", "--max-iterations": "max_iter",
-           "--unit-ticks": "unit_ticks", "--stall-ticks": "stall_ticks"}
+           "--unit-ticks": "unit_ticks", "--stall-ticks": "stall_ticks",
+           "--max-tick-us": "max_tick_us", "--spin-vis": "spin_vis",
+           "--top": "top"}
 
 
 def to_int(s):
@@ -270,6 +280,50 @@ def check_runaway(battle, opts):
     return c
 
 
+def check_latency(battle, opts):
+    """Симптом лага: тик длиннее `--max-tick-us` µs (QPC). Ключ юнит-привязанный."""
+    c = Check("latency")
+    vals = [to_int(r.get("us")) for r in battle]
+    if all(v is None or v < 0 for v in vals):
+        c.skip("no us field (trace without QPC)")
+        return c
+    for r, v in zip(battle, vals):
+        t, u = r.get("tick"), r.get("unit")
+        if v is None or v < 0:
+            c.skip("tick=%s unit=%s us missing/sentinel" % (t, u))
+            continue
+        if v > opts["max_tick_us"]:
+            c.fail("tick=%s unit=%s us=%d vis=%s i1=%s i2=%s code=%s limit=%d"
+                   % (t, u, v, r.get("vis"), r.get("i1"), r.get("i2"),
+                      r.get("code"), opts["max_tick_us"]),
+                   "unit:%s:latency" % u)
+        else:
+            c.p()
+    return c
+
+
+def check_spin(battle, opts):
+    """Механизм лага: code=3 (таймаут `45c5a0`) после >= `--spin-vis` визитов.
+
+    Это и есть генератор лага: спин по ~4500 итерациям × полный скан `map1`.
+    Отдельная проверка, потому что на быстрой машине `us` может уложиться в
+    порог, а спин (число визитов) остаётся тем же дефектом.
+    """
+    c = Check("spin")
+    for r in battle:
+        t, u = r.get("tick"), r.get("unit")
+        vis = to_int(r.get("vis"))
+        code = to_int(r.get("code"))
+        if vis is None:
+            c.skip("tick=%s unit=%s vis missing" % (t, u))
+        elif code == 3 and vis >= opts["spin_vis"]:
+            c.fail("tick=%s unit=%s code=3 vis=%d i1=%s (spin to timeout 45c5a0)"
+                   % (t, u, vis, r.get("i1")), "unit:%s:spin" % u)
+        else:
+            c.p()
+    return c
+
+
 def check_stall(per, opts, summary):
     """Залипание: longest run тиков, где точка движения не изменилась.
 
@@ -362,6 +416,70 @@ def check_engagement(per, opts, notes):
     return c
 
 
+def profile_block(battle, per, opts):
+    """Профиль (план 9.d2): таблица по `us`/`vis`, top-N тиков, доля верхнего 1%.
+
+    `vis` — число входов `45dd70` за тик (прямая метрика работы тика),
+    `us` — QPC-длительность; `us/vis` = µs на визит. На rc не влияет.
+    """
+    def num(r, k):
+        v = to_int(r.get(k))
+        return v if v is not None and v >= 0 else 0
+
+    rows = []
+    for u, rs in per.items():
+        us = [num(r, "us") for r in rs]
+        vis = [num(r, "vis") for r in rs]
+        codes = Counter(to_int(r.get("code")) for r in rs)
+        rows.append({"unit": u, "ticks": len(rs),
+                     "active": sum(1 for r in rs if to_int(r.get("code")) != -1),
+                     "us_sum": sum(us), "us_mean": round(sum(us) / len(us), 1),
+                     "us_max": max(us), "vis_sum": sum(vis),
+                     "vis_mean": round(sum(vis) / len(vis), 1),
+                     "vis_max": max(vis),
+                     "codes": {c: codes[c] for c in sorted(codes)},
+                     "max_i1": max((to_int(r.get("i1")) for r in rs),
+                                   default=-1)})
+    rows.sort(key=lambda r: -r["us_sum"])
+    top = sorted(battle, key=lambda r: -num(r, "us"))[:max(1, opts["top"])]
+    total = sum(num(r, "us") for r in battle)
+    n1 = max(1, len(battle) // 100)
+    top1 = sorted((num(r, "us") for r in battle), reverse=True)[:n1]
+    ratios = sorted(num(r, "us") / max(1, num(r, "vis")) for r in battle)
+    med = ratios[len(ratios) // 2] if ratios else 0.0
+    tsum, tvis = sum(num(r, "us") for r in top), sum(num(r, "vis") for r in top)
+    pct = round(100.0 * sum(top1) / total, 1) if total else 0.0
+    note = ("top 1%% of ticks (%d) = %.1f%% of total us %d; top-%d ticks "
+            "%.1f us/visit vs median-all %.1f"
+            % (n1, pct, total, len(top),
+               (tsum / tvis) if tvis else 0.0, med))
+    return {"units": rows,
+            "top": [{"tick": r.get("tick"), "unit": r.get("unit"),
+                     "us": num(r, "us"), "vis": num(r, "vis"),
+                     "i1": to_int(r.get("i1")), "i2": to_int(r.get("i2")),
+                     "code": to_int(r.get("code"))} for r in top],
+            "top_pct_us": pct, "top_ticks": n1, "total_us": total,
+            "note": note}
+
+
+def print_profile(prof):
+    hdr = "  %4s %5s %6s %8s %8s %7s %8s %8s %7s %15s %6s"
+    row = "  %4s %5d %6d %8d %8s %7d %8d %8s %7d %15s %6d"
+    print("profile:")
+    print(hdr % ("unit", "ticks", "active", "us_sum", "us_mean", "us_max",
+                 "vis_sum", "vis_mean", "vis_max", "codes", "max_i1"))
+    for r in prof["units"]:
+        codes = ",".join("%s:%d" % (c, n) for c, n in r["codes"].items())
+        print(row % (r["unit"], r["ticks"], r["active"], r["us_sum"],
+                     r["us_mean"], r["us_max"], r["vis_sum"], r["vis_mean"],
+                     r["vis_max"], codes, r["max_i1"]))
+    print("top %d ticks by us:" % len(prof["top"]))
+    for t in prof["top"]:
+        print("  tick=%s unit=%s us=%d vis=%d i1=%s i2=%s code=%s"
+              % (t["tick"], t["unit"], t["us"], t["vis"], t["i1"], t["i2"], t["code"]))
+    print("note: %s" % prof["note"])
+
+
 def check_exit(battle):
     """Хвост трассы цел: последняя BATTLE-строка полная, её тик = максимум."""
     c = Check("exit")
@@ -382,7 +500,9 @@ def parse_args(argv):
     files = []
     opts = {"min_ticks": 100, "min_units": 2, "min_moving": 1,
             "max_iter": 200, "unit_ticks": 20, "stall_ticks": 60,
-            "allow_idle": False, "json": None, "baseline": None}
+            "max_tick_us": 20000, "spin_vis": 1000, "top": 10,
+            "allow_idle": False, "profile": False,
+            "json": None, "baseline": None}
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -391,8 +511,8 @@ def parse_args(argv):
             i += 1
             continue
         name, val = (a.split("=", 1) + [None])[:2] if "=" in a else (a, None)
-        if name == "--allow-idle":
-            opts["allow_idle"] = True
+        if name in ("--allow-idle", "--profile"):
+            opts[name[2:]] = True
             i += 1
             continue
         if name in ("--json", "--baseline") or name in NUMOPTS:
@@ -419,6 +539,14 @@ def parse_args(argv):
         print(USAGE)
         return None
     return files, opts
+
+
+def print_section(header, items, fmt):
+    print(header)
+    if not items:
+        print("  none")
+    for it in items:
+        print(fmt % it)
 
 
 def load_baseline(path):
@@ -459,6 +587,8 @@ def main(argv):
     checks.append(check_no_path(per, opts, summary))
     checks.append(check_movement(per, opts, summary))
     checks.append(check_runaway(battle, opts))
+    checks.append(check_latency(battle, opts))
+    checks.append(check_spin(battle, opts))
     checks.append(check_stall(per, opts, summary))
     c, fp_note = check_statefp(statefp)
     checks.append(c)
@@ -495,35 +625,24 @@ def main(argv):
     for note in ([fp_note] if fp_note else []) + notes:
         print("note: %s" % note)
 
+    prof = profile_block(battle, per, opts) if opts["profile"] else None
+    if prof:
+        print_profile(prof)
+
     reasons = OrderedDict()
     for c in checks:
         for r, n in c.reasons.items():
             reasons[r] = reasons.get(r, 0) + n
-    print("skips:")
-    if not reasons:
-        print("  none")
-    for r, n in reasons.items():
-        print("  %s x%d" % (r, n))
-
-    print("fails:")
-    if not fails:
-        print("  none")
-    for c in checks:
-        for d in c.details:
-            print("  %s: %s" % (c.name, d))
+    print_section("skips:", list(reasons.items()), "  %s x%d")
+    print_section("fails:", [(c.name, d) for c in checks for d in c.details],
+                  "  %s: %s")
 
     if base is not None:
         print("baseline: %s" % opts["baseline"])
-        print("new fails:")
-        if not new:
-            print("  none")
-        for name, k in new[:DETAIL_LIMIT * 4]:
-            print("  NEW FAIL %s %s" % (name, k))
-        print("fixed:")
-        if not fixed:
-            print("  none")
-        for name, k in fixed[:DETAIL_LIMIT * 4]:
-            print("  FIXED %s %s" % (name, k))
+        print_section("new fails:", [(n, k) for n, k in new[:DETAIL_LIMIT * 4]],
+                      "  NEW FAIL %s %s")
+        print_section("fixed:", [(n, k) for n, k in fixed[:DETAIL_LIMIT * 4]],
+                      "  FIXED %s %s")
 
     print("rc=%d (%s)" % (rc, {0: "invariants hold", 1: "fail present",
                                2: "unreadable/no lines/bad args",
@@ -536,6 +655,8 @@ def main(argv):
                                "fail_keys": sorted(set(c.fail_keys)),
                                "details": c.details} for c in checks],
                    "units": summary, "run": run}
+        if prof is not None:
+            payload["profile"] = prof
         try:
             with open(opts["json"], "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=1)
