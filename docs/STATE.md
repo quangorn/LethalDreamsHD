@@ -12,6 +12,10 @@
   установкой `release/patches/ui_cursor.patch`; копия v6 `4a8eb4bab413…` — в
   `scratch_dir('battle_baseline')/cursor_installed_v6.pyc`). `check_state --quick` rc 0.
   Разбор и команда применения: `docs/VERIFY.md`.
+- `ldhook.pyd` в установке + `ui/ui.pyc` с блоком загрузчика (`31dd9064…` против эталона
+  `ae59f601…`) — dev-состояние для живых прогонов боевого AI; ставится
+  `python3 tools/ldhook/patch_ui.py --install`, откат `--restore` (после отката rc 0).
+  Грабли: `docs/PITFALLS.md`.
 - Реестр:
   `HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\App Compat Flags\LETHALDREAMS.EXE` =
   строковый `~ HIGHDPIAWARE` (флаг совместимости, отключает системное масштабирование exe).
@@ -215,6 +219,9 @@
   сверки — `path_post_match` (pf/карты) и `path_boundary_args` (приёмник/аргументы против записи), `bdd0/checks_builtin.cpp`.
 - `[P]` Фаза 6 закрыта (26.11.2026): `docs/OBSERVATIONS_BATTLE_AI.md` — автомат тика R1..R23 и выходы,
   поиск цели/скан, поля A* и маски, метрика и выбор цели, граф вызовов, бюджет на тик, формат trace, открытые семантики.
+- `[P]` Живой гейт пройден на установке (26.11.2026): `ldhook.pyd` + блок загрузчика в `ui/ui.pyc`,
+  `battle_169.ps1` → 587 тиков, 386 вызовов `45e1d0`, на снимке ≥4 саммона; запись `cap_live_gate.jsonl`
+  реплеится офлайн без расхождений (`path_post_match`/`path_boundary_args` 386/386, `fail=0`).
 - `[P]` Офлайн-гейт `458050`: `bdd0_grid_level_modelled()` (сетки в v12..v15 нет) — сводка
   `grid_anchor_replayed`, включение — `docs/PITFALLS.md`. Out-writes сверяет `B0_LEAF_CLAIM_W` (`ported.h`).
 - `[P]` Офлайн-гейт `45b150`/`45b3e0` (`battle/tick.cpp`): порты `s6_band_interp_gate`/`s6_band_target_moved`
