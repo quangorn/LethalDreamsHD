@@ -222,6 +222,8 @@
 - `[P]` Живой гейт пройден на установке (26.11.2026): `ldhook.pyd` + блок загрузчика в `ui/ui.pyc`,
   `battle_169.ps1` → 587 тиков, 386 вызовов `45e1d0`, на снимке ≥4 саммона; запись `cap_live_gate.jsonl`
   реплеится офлайн без расхождений (`path_post_match`/`path_boundary_args` 386/386, `fail=0`).
+- `[P]` Поставка (26.11.2026): `check_sites` installable, `smoke_api` OK, `probe_exitcode` — без событий
+  Application/WER; два прогона A/B расходятся только адресами и временем (`docs/PITFALLS.md`, 22.11.2026).
 - `[P]` Офлайн-гейт `458050`: `bdd0_grid_level_modelled()` (сетки в v12..v15 нет) — сводка
   `grid_anchor_replayed`, включение — `docs/PITFALLS.md`. Out-writes сверяет `B0_LEAF_CLAIM_W` (`ported.h`).
 - `[P]` Офлайн-гейт `45b150`/`45b3e0` (`battle/tick.cpp`): порты `s6_band_interp_gate`/`s6_band_target_moved`
