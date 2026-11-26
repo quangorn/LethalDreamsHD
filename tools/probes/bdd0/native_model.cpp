@@ -98,6 +98,23 @@ void bdd0_calllog_reset(void) {}
 /* Доступ проверки leaf_args к сопоставленной записи: в генераторе потока
  * записей нет (он их создаёт), поэтому «нечего сверять». */
 const LeafRec *bdd0_leaf_record_at(int i) { (void)i; return NULL; }
+/* v17: генератор не несёт state-записей листа 0x45e1d0 — заглушки. */
+const LeafRec *bdd0_tick_leaf_at(int i) { (void)i; return NULL; }
+void bdd0_nested_set_window(const NestedRec *v, int n) { (void)v; (void)n; }
+int bdd0_nested_count(void) { return 0; }
+const NestedRec *bdd0_nested_peek(int i) { (void)i; return NULL; }
+const NestedRec *bdd0_nested_next(void) { return NULL; }
+int bdd0_nested_consumed(void) { return 0; }
+void bdd0_nested_reset(void) {}
+const LeafStateRec *bdd0_leaf_state_pre(int seq, int order)
+{ (void)seq; (void)order; return NULL; }
+const LeafStateRec *bdd0_leaf_state_post(int seq, int order)
+{ (void)seq; (void)order; return NULL; }
+const LeafStateRec *bdd0_leaf_state_site_pf(int seq, int order)
+{ (void)seq; (void)order; return NULL; }
+int bdd0_leaf_state_records(void) { return 0; }
+int bdd0_site_pf_records(void) { return 0; }
+const LeafStateRec *bdd0_leaf_pre_at(int idx) { (void)idx; return NULL; }
 int bdd0_leaf_applied_w(int i, int *w3) { (void)i; (void)w3; return 0; }
 int bdd0_leaf_consumed(void) { return 0; }
 const LeafRec *bdd0_leaf_pending(void) { return NULL; }

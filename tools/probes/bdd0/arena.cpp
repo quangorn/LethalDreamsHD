@@ -130,6 +130,7 @@ struct Arena {
                              * реплеит 458050, fail-closed, без trap */
     int leaf_nodes;
     int leaf_identity;      /* leaf rets bound by identity (см. k_identity_rets) */
+    PathCall path;          /* v17: материализованный вход листа 0x45e1d0 */
 };
 
 static Arena *g_cur = NULL;
@@ -277,6 +278,12 @@ void arena_set_out_slot(Arena *a, int value)
 int arena_leaf_nodes(const Arena *a)
 {
     return (a == NULL) ? 0 : a->leaf_nodes;
+}
+
+const PathCall *arena_path_call(const Arena *a)
+{
+    if (a == NULL || !a->path.ok) return NULL;
+    return &a->path;
 }
 
 int arena_leaf_identity(const Arena *a)
@@ -665,6 +672,151 @@ static void materialize_models(Arena *a)
     }
 }
 
+/* v17: регион для сырого адреса записи. Сначала reg_add_fixed по записанному
+ * адресу (правило grid_node); при коллизии — shadow-регион + bind_add(raw→shadow):
+ * identity указателя сохраняется (arena_resolve_ptr_at/cmp_ptr работают по
+ * bind-карте), а порт получает читаемый объект. NULL — не удалось ни то, ни
+ * другое (fail-closed: ok=0 у вызывающего). */
+static unsigned char *path_alloc(Arena *a, const char *name, unsigned raw,
+                                 unsigned len)
+{
+    unsigned char *p;
+    if (raw == 0) return NULL;
+    if (reg_add_fixed(a, name, raw, len)) {
+        p = arena_region_w(a, name);
+        bind_add(a, raw, p, len);
+        return p;
+    }
+    if (!reg_add(a, name, len)) return NULL;
+    p = arena_region_w(a, name);
+    bind_add(a, raw, p, len);
+    return p;
+}
+
+/* v17: материализация входа листа 0x45e1d0 из bdd0_leaf_pre (+ ctx120/ctx134 из
+ * bdd0_site_pf, identity-check по ecx). Регионы — по записанным сырым адресам
+ * (path_alloc: reg_add_fixed, при коллизии shadow+bind), всё резервируется ДО
+ * OS-chosen областей (arena_build). При неудаче path.ok=0 (fail-closed, тело
+ * порт не исполняет). pf+0x6c/+0x78 — головы карт: сентинели (0x18) и узлы
+ * (pre пуст: n=0) материализуются по записанным адресам. rec/sub/ctx в pre NULL
+ * (ленивая аллокация внутри листа — сайты 35/36/44): порт берёт их из
+ * bdd0_nested, ctx120/ctx134 — из site_pf. */
+static void materialize_path_call(Arena *a)
+{
+    const TickRecord *rec = a->rec;
+    PathCall &pc = a->path;
+    if (rec == NULL || rec->leaf_pre_idx < 0) return;
+    /* order записи листа = order pre-записи (leaf_pre_idx указывает на неё в
+     * Scenario::leaf_pre). Поток bdd0_leaf ещё не загружен (arena_build идёт
+     * до bdd0_leaf_begin), поэтому order берём отсюда, а не из bdd0_tick_leaf_at. */
+    const LeafStateRec *pre = bdd0_leaf_pre_at(rec->leaf_pre_idx);
+    if (pre == NULL) return;
+    int order = pre->order;
+    const LeafStateRec *stp = bdd0_leaf_state_pre(rec->seq, order);
+    if (stp == NULL || !stp->ok || stp->ecx == 0) return;
+    const LeafStateRec &st = *stp;
+
+    /* v17: site_pf (0x45e320) несёт ctx120/ctx134; identity — по ecx */
+    {
+        const LeafStateRec *spf = bdd0_leaf_state_site_pf(rec->seq, order);
+        if (spf != NULL && spf->ok && spf->site == 0x45e320 &&
+            spf->va == 0x45c8c0 && spf->ecx == st.ecx) {
+            pc.ctx120 = spf->ctx120;
+            pc.ctx134 = spf->ctx134;
+        }
+    }
+
+    pc.ecx_raw = st.ecx;
+    pc.nargs = st.nargs;
+    for (int i = 0; i < 6; i++) pc.args[i] = st.args[i];
+    pc.pf_head1 = st.h1.head;
+    pc.pf_head2 = st.h2.head;
+    pc.m1_n = st.m1_n;
+    pc.m2_n = st.m2_n;
+    for (int i = 0; i < st.m1_n; i++) pc.m1[i] = st.m1[i];
+    for (int i = 0; i < st.m2_n; i++) pc.m2[i] = st.m2[i];
+
+    /* pf: 0x78-байт блоб + головы карт на +0x6c/+0x78 (0x7c всего) */
+    const unsigned pf_len = BDD0_LEAFPF_LEN + 4;
+    unsigned char *pf = path_alloc(a, "path_pf", st.ecx, pf_len);
+    if (pf == NULL) return;
+    memset(pf, 0, pf_len);
+    memcpy(pf, st.pf, BDD0_LEAFPF_LEN);
+    pc.pf = pf;
+
+    /* пред-карты: сентинели (0x18) по записанным адресам + узлы (pre пуст) */
+    write_u32(pf + 0x6c, 0);
+    write_u32(pf + 0x78, 0);
+    if (st.h1.head != 0) {
+        unsigned char *h = path_alloc(a, "path_m1_head", st.h1.head, 0x18);
+        if (h == NULL) return;
+        memset(h, 0, 0x18);
+        write_u32(pf + 0x6c, (unsigned)(size_t)h);
+    }
+    if (st.h2.head != 0) {
+        unsigned char *h = path_alloc(a, "path_m2_head", st.h2.head, 0x18);
+        if (h == NULL) return;
+        memset(h, 0, 0x18);
+        write_u32(pf + 0x78, (unsigned)(size_t)h);
+    }
+    for (int i = 0; i < st.m1_n; i++) {
+        const MapNodeRec &nd = st.m1[i];
+        char nm[24];
+        if (nd.addr == 0 || !nd.has_node) continue;
+        _snprintf_s(nm, sizeof(nm), _TRUNCATE, "path_m1n%d", i);
+        unsigned char *nb = path_alloc(a, nm, nd.addr, 0x18);
+        if (nb == NULL) return;
+        memcpy(nb, nd.node, 0x18);
+    }
+    for (int i = 0; i < st.m2_n; i++) {
+        const MapNodeRec &nd = st.m2[i];
+        char nm[24];
+        if (nd.addr == 0 || !nd.has_node) continue;
+        _snprintf_s(nm, sizeof(nm), _TRUNCATE, "path_m2n%d", i);
+        unsigned char *nb = path_alloc(a, nm, nd.addr, 0x18);
+        if (nb == NULL) return;
+        memcpy(nb, nd.node, 0x18);
+    }
+
+    /* rec 0x1c по [pf+0x00] — в pre NULL (аллоцирует сайт 0x45e1e3) */
+    if (st.rec != 0) {
+        unsigned char *rc = path_alloc(a, "path_rec", st.rec, BDD0_LEAFREC_LEN);
+        if (rc == NULL) return;
+        if (st.has_rec) memcpy(rc, st.recb, BDD0_LEAFREC_LEN);
+        write_u32(pf + 0x00, (unsigned)(size_t)rc);
+        pc.rec = rc;
+        /* sub 0x10 по [rec+0x0c] — в pre NULL (аллоцирует сайт 0x45e23c) */
+        if (st.sub != 0) {
+            unsigned char *sb = path_alloc(a, "path_sub", st.sub,
+                                           BDD0_LEAFSUB_LEN);
+            if (sb == NULL) return;
+            if (st.has_sub) memcpy(sb, st.subb, BDD0_LEAFSUB_LEN);
+            write_u32(rc + 0x0c, (unsigned)(size_t)sb);
+            pc.sub = sb;
+        }
+        /* ctx ≥0x138 по [rec+0x04] — в pre NULL (аллоцирует сайт 0x45e340) */
+        if (st.ctx != 0) {
+            unsigned char *cx = path_alloc(a, "path_ctx", st.ctx,
+                                           BDD0_LEAFCTX_LEN);
+            if (cx == NULL) return;
+            memset(cx, 0, BDD0_LEAFCTX_LEN);
+            write_u32(cx + 0x120, pc.ctx120);
+            write_u32(cx + 0x134, pc.ctx134);
+            write_u32(rc + 0x04, (unsigned)(size_t)cx);
+            pc.ctx = cx;
+        }
+    }
+    /* bandrec 0x24 по args[1] */
+    if (pc.nargs > 1 && pc.args[1] != 0) {
+        unsigned char *bb = path_alloc(a, "path_band", (unsigned)pc.args[1],
+                                       BDD0_LEAFBAND_LEN);
+        if (bb == NULL) return;
+        if (st.has_band) memcpy(bb, st.bandb, BDD0_LEAFBAND_LEN);
+        pc.bandrec = bb;
+    }
+    pc.ok = 1;
+}
+
 Arena *arena_build(const TickRecord *rec)
 {
     Arena *a = new Arena;
@@ -703,6 +855,12 @@ Arena *arena_build(const TickRecord *rec)
             /* a4n == 0 → узел NULL (ветка node==NULL), grid_node_ok=1 */
         }
     }
+
+    /* v17: вход листа 0x45e1d0 (PathFinder/record/sub/ctx/bandrec) — резервируем
+     * ДО OS-chosen областей (id_pool/grid_cells), иначе 8-МБ grid_cells займёт
+     * фикс. страницу блока (heap-адреса игры 0x06xxxxxx) и reg_add_fixed
+     * провалится. Порядок: grid_node → path-блоки → прочие области. */
+    materialize_path_call(a);
 
     /* 1. области: unit-блок 0x1b8 — объявленная область unit 0x180 плюс
      *    встроенный BattleAI (unit+0x138..+0x1b7, отдельная view "ai"). */
@@ -865,6 +1023,8 @@ Arena *arena_build(const TickRecord *rec)
      * чтобы pre-state нёс материализованную модель. */
     materialize_models(a);
 
+    /* v17: вход листа 0x45e1d0 материализован выше (до OS-chosen областей). */
+
     /* 5. views + копия входа (pre-state) */
     /* out-слот стартует с сентинела, чтобы «не писано» отличалось от «= 0» */
     arena_set_out_slot(a, (int)0x7fffffffu);
@@ -988,7 +1148,7 @@ int arena_addr_ok(const void *p, unsigned len)
  * вернул якорь). Поэтому 0: тик B82 реплеит записанный натив, а сводка печатает
  * `grid_anchor_replayed`. Захват с сеткой (v16) обязан снять ВСЁ СРАЗУ:
  *   (а) эту заглушку → 1,
- *   (б) оба nested-сайта из k_nested_sites (scenario.cpp), иначе заявки
+ *   (б) оба nested-сайта из k_grid_nested_sites (scenario.cpp), иначе заявки
  *       0x456b60/0x457e20 не сопоставятся с вынесенными из окна записями;
  *   (в) 0x458050 — в b0_ported_leaf_va (battle/ported.h) с claim из тела порта.
  * Без (в) запись потока bdd0_leaf va=0x458050 не потребляет никто, и leaf_seq

@@ -639,6 +639,10 @@ int main(int argc, char **argv)
 
         LeafRec *lv = (rec.leaf_n > 0) ? &sc->leaves[rec.leaf_first] : NULL;
         bdd0_leaf_begin(rec.seq, lv, rec.leaf_n);
+        /* v17: окно внутренних вызовов листа 0x45e1d0 для этого seq */
+        NestedRec *nx = (rec.nested_n > 0)
+                        ? &sc->nested[rec.nested_first] : NULL;
+        bdd0_nested_set_window(nx, rec.nested_n);
         NativeRec *nv = (rec.native_n > 0) ? &sc->natives[rec.native_first] : NULL;
         bdd0_native_begin(rec.seq, nv, rec.native_n, &rec);
 
@@ -983,6 +987,12 @@ int main(int argc, char **argv)
         printf("  nested_leaf=%d (bdd0_leaf from a site INSIDE a leaf the port "
                "replays wholesale, e.g. 0x458142 in 0x458050: kept out of the "
                "tick window, not compared)\n", sc->nested_leaf_n);
+    }
+    if (bdd0_path_state_calls() > 0 || bdd0_path_state_inputs_fail() > 0) {
+        printf("  path_state_calls=%d path_state_p9_iterations_total=%d "
+               "path_state_inputs_fail=%d\n",
+               bdd0_path_state_calls(), bdd0_path_state_p9_total(),
+               bdd0_path_state_inputs_fail());
     }
     if (grid_anchor_replayed > 0) {
         printf("  grid_anchor_replayed=%d (bdd0_leaf 0x458050 replayed: the "

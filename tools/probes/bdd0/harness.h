@@ -45,7 +45,125 @@
 #define BDD0_NESTED_SITE_GRID_ANCHOR 0x458142
 #define BDD0_NESTED_SITE_GRID_KEY    0x45811a
 
-/* Один вызов логического листа из потока bdd0_leaf.
+/* v17: внутренние сайты листа 0x45e1d0 (20 вызовов внутри его тела,
+ * leaf_sites.cpp №35..54, VA сайта → VA callee). Как и 33/34, их записи
+ * bdd0_leaf выносятся из окна тика (иначе leaf_seq видел бы «лишнюю»), но,
+ * в отличие от 33/34, они сохраняются ПО seq в порядке исполнения и
+ * предъявляются будущему телу порта (recompute.cpp) через bdd0_nested_*.
+ * Порядок = порядок адресов = порядок фаз тела (§1 плана порта):
+ *   P1 45e1e3 4cfa11 new(0x1c)   P2 45e23c 4cfa11 new(0x10)
+ *   P3 45e274 45c330 reset       P3 45e27b 45ca70 clear_maps
+ *   P4 45e297 456b20 scale       P4 45e2ab 456b20 scale
+ *   P5 45e316 458050 anchor      P5 45e320 45c8c0 search_params
+ *   P6 45e32e 434bc0 lower_bound P7 45e340 45c2e0 PathState ctor
+ *   P7 45e3a2 45c480 distance2   P7 45e3b4 45c690 heuristic_gate
+ *   P7 45e3ea 45c4b0 copy_fields P7 45e3f2 45dd00 register_slot
+ *   P8 45e443 45ce80 scan_map
+ *   P9 45e46b 45dd70 ai_update / 45e47e 45c4b0 copy / 45e487 45ce80 scan
+ *   P10 45e49b 456b20 scale      P10 45e4b1 456b20 scale */
+#define BDD0_NESTED_SITE_R1_NEW_REC   0x45e1e3
+#define BDD0_NESTED_SITE_R2_NEW_SUB   0x45e23c
+#define BDD0_NESTED_SITE_R3_RESET     0x45e274
+#define BDD0_NESTED_SITE_R3_CLEAR     0x45e27b
+#define BDD0_NESTED_SITE_R4_SCALE_A   0x45e297
+#define BDD0_NESTED_SITE_R4_SCALE_B   0x45e2ab
+#define BDD0_NESTED_SITE_R5_ANCHOR    0x45e316
+#define BDD0_NESTED_SITE_R5_PARAMS    0x45e320
+#define BDD0_NESTED_SITE_R6_LOWER     0x45e32e
+#define BDD0_NESTED_SITE_R7_CTOR      0x45e340
+#define BDD0_NESTED_SITE_R7_DIST2     0x45e3a2
+#define BDD0_NESTED_SITE_R7_HEUR      0x45e3b4
+#define BDD0_NESTED_SITE_R7_COPY      0x45e3ea
+#define BDD0_NESTED_SITE_R7_REGISTER  0x45e3f2
+#define BDD0_NESTED_SITE_R8_SCAN      0x45e443
+#define BDD0_NESTED_SITE_R9_UPDATE    0x45e46b
+#define BDD0_NESTED_SITE_R9_COPY      0x45e47e
+#define BDD0_NESTED_SITE_R9_SCAN      0x45e487
+#define BDD0_NESTED_SITE_R10_SCALE_C  0x45e49b
+#define BDD0_NESTED_SITE_R10_SCALE_D  0x45e4b1
+
+/* v17: внутренний вызов листа 0x45e1d0 (сайт из BDD0_NESTED_SITE_R*, тело
+ * leaf_sites.cpp №35..54). Записи bdd0_leaf этих сайтов выносятся из окна
+ * тика (см. BDD0_NESTED_SITE_R1_NEW_REC) и хранятся по seq В ПОРЯДКЕ
+ * ИСПОЛНЕНИЯ — будущее тело порта (recompute.cpp) потребляет их по одному
+ * (bdd0_nested_next/peek/consume). Поля — как у LeafRec (ecX/args/ret — сырые
+ * адреса игры, переводятся ареной через k_fixups); w/nw/trap — как в записи.
+ * order — порядок сайта в потоке тика (общий с bdd0_leaf/native). */
+struct NestedRec {
+    int order, site, va, ecx, nargs, args[6], ret, w[3], nw, trap;
+    NestedRec()
+        : order(0), site(0), va(0), ecx(0), nargs(0), ret(0), nw(0), trap(0)
+    {
+        for (int i = 0; i < 6; i++) args[i] = 0;
+        for (int i = 0; i < 3; i++) w[i] = 0;
+    }
+};
+
+/* v17: состояние листа 0x45e1d0 (PathFinder/record/sub/ctx/bandrec + обе
+ * RB-карты) из bdd0_leaf_pre / bdd0_leaf_post / bdd0_site_pf. Индексируется
+ * по (seq, order) — один вызов листа на seq в v17. has_* — какие блоки
+ * присутствуют; ok — запись полна и пригодна (fail-closed: отсутствующий
+ * усечённый блок → ok=0, порт этот вызов не использует, check считает).
+ * pf 0x78, rec 0x1c, sub 0x10, bandrec 0x24; ctx в pre НЕ записан (rec/sub/ctx
+ * лениво аллоцируются внутри листа — сайты 35/36/44), известны только два
+ * dword'а ctx120/ctx134 (их несёт bdd0_site_pf, identity-check по ecx). maps —
+ * head/n/trunc/trap + узлы (адрес, сырой 0x18 RB-узел, PathState 0x58):
+ * в pre карты пусты (n=0), в post несут вставки. */
+#define BDD0_LEAFPF_LEN   0x78
+#define BDD0_LEAFREC_LEN  0x1c
+#define BDD0_LEAFSUB_LEN  0x10
+#define BDD0_LEAFCTX_LEN  0x138
+#define BDD0_LEAFBAND_LEN 0x24
+#define BDD0_MAPNODE_MAX  64      /* потолок узлов карты на одно состояние */
+#define BDD0_PS_LEN       0x58    /* PathState узла карты (потребители +08/+20/+24) */
+struct MapNodeRec {
+    unsigned addr;                /* a — адрес узла в куче игры (identity) */
+    unsigned key, value;          /* TreeNode +0x0c / +0x10 */
+    int colour, is_nil;           /* TreeNode +0x14 / +0x15 */
+    int has_node;                 /* сырой 0x18-байт узел прочитан */
+    int has_ps;                   /* PathState 0x58 прочитан (ps != null) */
+    unsigned char node[0x18];     /* сырой RB-узел (для reg_add_fixed+bind_add) */
+    unsigned ps[BDD0_PS_LEN / 4]; /* PathState: +0x08 filter, +0x20/+0x24 min-ключ */
+};
+struct MapHeadRec {
+    unsigned head;                /* голова списка (pf+0x6c / pf+0x78) */
+    int n;                        /* узлов в захвате */
+    int trunc, trap;              /* флаги писателя (усечение/сбой) */
+};
+struct LeafStateRec {
+    int seq, order;
+    int has, ok;                  /* запись присутствует / полна */
+    int has_pf, has_rec, has_sub, has_ctx, has_band, has_maps;
+    int site, va;                 /* заголовок: VA сайта / VA callee */
+    unsigned ecx;
+    int nargs, args[6];
+    unsigned pf[BDD0_LEAFPF_LEN / 4];
+    unsigned rec, sub, ctx, bandrec;
+    unsigned ctx120, ctx134;      /* известны только эти два поля ctx */
+    unsigned recb[BDD0_LEAFREC_LEN / 4];
+    unsigned subb[BDD0_LEAFSUB_LEN / 4];
+    unsigned bandb[BDD0_LEAFBAND_LEN / 4];
+    MapHeadRec h1, h2;            /* maps.m1 / maps.m2 */
+    int m1_n, m2_n;
+    MapNodeRec m1[BDD0_MAPNODE_MAX], m2[BDD0_MAPNODE_MAX];
+    LeafStateRec()
+        : seq(0), order(0), has(0), ok(0), has_pf(0), has_rec(0), has_sub(0),
+          has_ctx(0), has_band(0), has_maps(0), site(0), va(0), ecx(0),
+          nargs(0), rec(0), sub(0), ctx(0), bandrec(0), ctx120(0), ctx134(0),
+          m1_n(0), m2_n(0)
+    {
+        for (int i = 0; i < 6; i++) args[i] = 0;
+        for (int i = 0; i < BDD0_LEAFPF_LEN / 4; i++) pf[i] = 0;
+        for (int i = 0; i < BDD0_LEAFREC_LEN / 4; i++) recb[i] = 0;
+        for (int i = 0; i < BDD0_LEAFSUB_LEN / 4; i++) subb[i] = 0;
+        for (int i = 0; i < BDD0_LEAFBAND_LEN / 4; i++) bandb[i] = 0;
+        h1.head = h2.head = 0;
+        h1.n = h2.n = 0;
+        h1.trunc = h1.trap = h2.trunc = h2.trap = 0;
+    }
+};
+
+/* v12: один вызов логического листа из потока bdd0_leaf.
  * w/nw — dword'ы, которые лист записал ЧЕРЕЗ указатель (45c6f0 out-тройка,
  * 45e1d0 возврат-тройка); в захвате это необязательный ключ `w`.
  * trap — захват записал запись после сбоя/рассинхрона LIFO (`"trap":1`):
@@ -139,6 +257,11 @@ struct TickRecord {
     int leaf_first, leaf_n;
     /* окно bdd0_native этого seq (индексы в Scenario::natives) */
     int native_first, native_n;
+    /* v17: окно внутренних вызовов листа 0x45e1d0 этого seq (индексы в
+     * Scenario::nested) и state-записи (индексы в Scenario::leaf_pre/post/
+     * site_pf). -1 — нет данных (старые захваты). */
+    int nested_first, nested_n;
+    int leaf_pre_idx, leaf_post_idx, site_pf_idx;
     int native_eee0_no_ww;     /* 45eee0 record without post-state writes */
     int incomplete_tail;       /* seq is the last in the capture and has no res */
     int res_missing_nontail;   /* no res below the last seq: capture anomaly */
@@ -153,6 +276,8 @@ struct TickRecord {
           has_band_pos(0), band_pos_n(0),
           has_res(0), res_trap(0), res_al(0), res_out(0), res_u170(0),
           leaf_first(0), leaf_n(0), native_first(0), native_n(0),
+          nested_first(-1), nested_n(0),
+          leaf_pre_idx(-1), leaf_post_idx(-1), site_pf_idx(-1),
           native_eee0_no_ww(0), incomplete_tail(0), res_missing_nontail(0)
     {
         for (int i = 0; i < BDD0_FRAME_LEN; i++) frame[i] = 0;
@@ -200,6 +325,32 @@ struct GridModel {
                   rows_game(0) {}
 };
 
+/* v17: материализованный вход для тела порта листа 0x45e1d0 (arena.cpp).
+ * Адреса — shadow-указатели арены (pf/rec/sub/ctx/bandrec), arg-значения —
+ * сырые из записи. ok=0 — материализация не удалась (fail-closed, тело порт
+ * не исполняет, check считает). m1/m2 — пред-карты: head (pf+0x6c/pf+0x78)
+ * и узлы, материализованные по записанным адресам; в pre n=0 (карты пусты),
+ * поэтому m1_n/m2_n = 0, а head — сырые адреса сентинелей.
+ * rec/sub/ctx в pre NULL: их аллоцируют сами сайты листа (35/36/44) — порт
+ * берёт адреса из bdd0_nested, а не отсюда. ctx120/ctx134 — из site_pf. */
+struct PathCall {
+    int ok;
+    unsigned ecx_raw;
+    void *pf, *rec, *sub, *ctx, *bandrec;
+    unsigned pf_head1, pf_head2;   /* maps m1/m2: сырые головы (pf+0x6c/+0x78) */
+    unsigned ctx120, ctx134;       /* из bdd0_site_pf (identity по ecx) */
+    int nargs, args[6];
+    int m1_n, m2_n;
+    MapNodeRec m1[BDD0_MAPNODE_MAX], m2[BDD0_MAPNODE_MAX];
+    PathCall()
+        : ok(0), ecx_raw(0), pf(NULL), rec(NULL), sub(NULL), ctx(NULL),
+          bandrec(NULL), pf_head1(0), pf_head2(0), ctx120(0), ctx134(0),
+          nargs(0), m1_n(0), m2_n(0)
+    {
+        for (int i = 0; i < 6; i++) args[i] = 0;
+    }
+};
+
 struct Scenario {
     std::string name;
     std::vector<TickRecord> ticks;
@@ -218,9 +369,16 @@ struct Scenario {
     std::string native_missing_why;
     int nested_leaf_n;         /* записи bdd0_leaf из сайтов ВНУТРИ 0x458050
                                   (0x458142 → 0x456b60 и 0x45811a → 0x457e20,
-                                  k_nested_sites в scenario.cpp): в окно тика
-                                  не входят, см. BDD0_NESTED_SITE_GRID_ANCHOR /
+                                  k_grid_nested_sites в scenario.cpp): в окно
+                                  тика не входят, см. BDD0_NESTED_SITE_GRID_ANCHOR /
                                   _GRID_KEY */
+    /* v17: внутренние сайты листа 0x45e1d0 — по seq в порядке исполнения. */
+    std::vector<NestedRec> nested;
+    /* v17: bdd0_leaf_pre/post/site_pf — по (seq,order). */
+    std::vector<LeafStateRec> leaf_pre;
+    std::vector<LeafStateRec> leaf_post;
+    std::vector<LeafStateRec> site_pf;
+    int leaf_state_records;    /* сколько state-записей прочитано (pre+post+pf) */
     int input_trap;            /* bdd0_in с trap=1 (снимок недостоверен) */
     int outcome_trap;          /* bdd0_res с trap=1 (исход недостоверен) */
     int incomplete_tail;       /* тиков, у которых seq без res и он последний */
@@ -229,7 +387,7 @@ struct Scenario {
                  truncated(0), records(0), leaf_missing_n(0),
                  native_missing_n(0), nested_leaf_n(0), input_trap(0),
                  outcome_trap(0), incomplete_tail(0), res_missing_nontail(0),
-                 has_grid(0) {}
+                 has_grid(0), leaf_state_records(0) {}
 };
 
 /* Загрузчик (scenario.cpp). Ошибка формата → std::runtime_error (rc 2). */
@@ -370,6 +528,10 @@ int field_count(void);
 
 /* Встроенные проверки (checks_builtin.cpp): no_trap, bounds, budget,
  * contract_min + механические leaf_seq и handles. */
+int bdd0_path_state_calls(void);
+int bdd0_path_state_p9_total(void);
+int bdd0_path_state_inputs_fail(void);
+
 void register_builtin_checks(void);
 /* Политика бюджета (CLI --budget-ms/--budget-calls); домены — в проверке. */
 void bdd0_budget_set(int ms, int calls);
@@ -418,6 +580,8 @@ int arena_region_n(const Arena *a);
 int bdd0_grid_level_modelled(void);
 /* Запись, из которой собрана арена (ctx_pos и т.п. — источники захвата). */
 const TickRecord *arena_record(const Arena *a);
+/* v17: материализованный вход листа 0x45e1d0 (NULL — данных нет / не ok). */
+const PathCall *arena_path_call(const Arena *a);
 const RegionView *arena_views(const Arena *a);
 const RegionView *arena_pre_views(const Arena *a);
 unsigned char *arena_region_w(Arena *a, const char *name);
@@ -457,6 +621,9 @@ int field_write(Arena *a, const char *name, unsigned value);
 /* Нативный слой (native_replay.cpp) для replay-режима:
  * поток листьев текущего seq + журнал вызовов. */
 void bdd0_leaf_begin(int seq, const LeafRec *v, int n);
+/* v17: окно внутренних вызовов листа 0x45e1d0 для этого seq (массив + длина);
+ * NULL/0 — данных нет. Ставится ядром сразу за bdd0_leaf_begin. */
+void bdd0_nested_set_window(const NestedRec *v, int n);
 int bdd0_leaf_calls(void);
 int bdd0_leaf_violations(void);
 const char *bdd0_leaf_violation_why(void);
@@ -477,6 +644,27 @@ int bdd0_band_gate_port(void);
 int bdd0_band_target_port(void);
 int bdd0_grid_anchor_port(void);
 const LeafRec *bdd0_leaf_record_at(int i);
+
+/* v17: внутренние вызовы листа 0x45e1d0 (scenario.cpp хранит, native_replay
+ * потребляет). Окно текущего тика ставит bdd0_nested_set_window (ядро, сразу
+ * за bdd0_leaf_begin); тела порта (recompute.cpp) читают по одному в порядке
+ * исполнения. Возврат NULL — записей нет / поток исчерпан. */
+int bdd0_nested_count(void);                    /* записей в окне тика */
+const NestedRec *bdd0_nested_peek(int i);       /* i-я запись окна (0-based) */
+const NestedRec *bdd0_nested_next(void);        /* следующая, курсор +1 */
+int bdd0_nested_consumed(void);                 /* сколько выдано next() */
+void bdd0_nested_reset(void);                   /* курсор в 0 (per tick) */
+const LeafRec *bdd0_tick_leaf_at(int i);        /* запись потока bdd0_leaf тика */
+
+/* v17: состояние листа 0x45e1d0 (pre/post/site_pf) — доступ по (seq,order).
+ * Возврат NULL — записи нет (старый захват / другой вызов). ok=0 — запись
+ * неполна, порт её не использует (fail-closed). */
+const LeafStateRec *bdd0_leaf_state_pre(int seq, int order);
+const LeafStateRec *bdd0_leaf_state_post(int seq, int order);
+const LeafStateRec *bdd0_leaf_state_site_pf(int seq, int order);
+int bdd0_leaf_state_records(void);   /* v17: сколько state-записей в файле */
+int bdd0_site_pf_records(void);      /* v17: сколько bdd0_site_pf (только v17) */
+const LeafStateRec *bdd0_leaf_pre_at(int idx);  /* v17: pre-запись по индексу */
 
 /* v12: заявки портированных листьев (battle/ported.h) текущего тика. */
 int bdd0_leaf_claims(void);

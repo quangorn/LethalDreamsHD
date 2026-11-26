@@ -439,7 +439,35 @@ static const LeafAbi k_leaf_abi[] = {
      * сайта в старых захватах не появлялась (хука не было) — загрузчик
      * выносит её из окна тика (BDD0_NESTED_SITE_GRID_KEY), как и 0x458142. */
     { 0x457e20, 4, { 0, 0, 0, 0, 0, 0 }, 1 },
-    { 0x456b60, 1, { 1, 0, 0, 0, 0, 0 }, 1 }
+    { 0x456b60, 1, { 1, 0, 0, 0, 0, 0 }, 1 },
+    /* v17: callee'ы листа 0x45e1d0 (сайты 35..54). ptr[] — какие аргументы
+     * callee РЕАЛЬНО разыменовывает (из листинга _callees.txt); ecx всегда
+     * this-указатель. ret_ptr — EAX указатель (символьно) или int/float-биты.
+     *  4cfa11 operator_new(size): size — dword, EAX=ptr → {0},1.
+     *  45c330 reset: this, 0 арг, EAX не используется → 0/0.
+     *  45ca70 clear_maps: this, 0 арг → 0/0.
+     *  456b20 grid_scale(out): out разыменуется (запись 2 dword) → {1},1.
+     *  45c8c0 search_params: this, 0 арг → 0/0.
+     *  45c2e0 PathState ctor: this, 0 арг, EAX=ptr → 0/0.
+     *  45c480 distance2(a,b): [a+0xc/0x10],[b+0xc/0x10] → {1,1},0 (EAX=dist²).
+     *  45c690 heuristic_gate(cand): [cand] разыменуется → {1},0 (EAX=h).
+     *  45c4b0 copy_fields(src,dst,mask): src/dst разыменуются, mask dword →
+     *    {1,1,0},0 (EAX=AL 0/1).
+     *  45dd00 register_slot(ps): [ps] разыменуется (key/value) → {1},1.
+     *  45ce80 scan_map(filter): filter dword, EAX=cand/0 → {0},1.
+     *  45dd70 ai_update(cand,ctx): [cand],[ctx] разыменуются → {1,1},0. */
+    { 0x4cfa11, 1, { 0, 0, 0, 0, 0, 0 }, 1 },   /* operator_new: size */
+    { 0x45c330, 0, { 0, 0, 0, 0, 0, 0 }, 0 },   /* reset */
+    { 0x45ca70, 0, { 0, 0, 0, 0, 0, 0 }, 0 },   /* clear_maps */
+    { 0x456b20, 1, { 1, 0, 0, 0, 0, 0 }, 1 },   /* grid_scale: out */
+    { 0x45c8c0, 0, { 0, 0, 0, 0, 0, 0 }, 0 },   /* search_params */
+    { 0x45c2e0, 0, { 0, 0, 0, 0, 0, 0 }, 0 },   /* PathState ctor */
+    { 0x45c480, 2, { 1, 1, 0, 0, 0, 0 }, 0 },   /* distance2: a,b */
+    { 0x45c690, 1, { 1, 0, 0, 0, 0, 0 }, 0 },   /* heuristic_gate: cand */
+    { 0x45c4b0, 3, { 1, 1, 0, 0, 0, 0 }, 0 },   /* copy_fields: src,dst,mask */
+    { 0x45dd00, 1, { 1, 0, 0, 0, 0, 0 }, 1 },   /* register_slot: ps */
+    { 0x45ce80, 1, { 0, 0, 0, 0, 0, 0 }, 1 },   /* scan_map: filter */
+    { 0x45dd70, 2, { 1, 1, 0, 0, 0, 0 }, 0 }    /* ai_update: cand,ctx */
 };
 
 static const LeafAbi *leaf_abi_find(int va)
@@ -1291,6 +1319,162 @@ static CheckResult chk_native_args(const TickContext &tc)
     OK();
 }
 
+/* --------------------------- path_state_inputs ---------------------------- *
+ * v17: структурный гейт данных для порта листа 0x45e1d0 (план §3/§7). На
+ * каждом bdd0_leaf-записи va=0x45e1d0: pre/post state присутствуют и ok,
+ * site_pf (45e320) присутствует, а список nested-записей seq — правдоподобная
+ * последовательность фаз тела (§1): 15 фиксированных сайтов по порядку,
+ * затем k≥0 троек P9 (45e46b/45e47e/45e487), затем (опц.) терминальная пара
+ * P10 (45e49b/45e4b1). На v12..v16 данных нет → SKIP (не PASS).
+ * Дополнительно сверяется структурное утверждение плана: pre-карты пусты,
+ * post-число узлов m1==m2, pf[0x70]==post n1. Это гейт ДАННЫХ, не порта. */
+static int g_ps_calls = 0;        /* bdd0_leaf 0x45e1d0 с полными данными */
+static int g_ps_p9_total = 0;     /* Σ итераций P9 по всем вызовам */
+static int g_ps_fail = 0;         /* вызовов, не прошедших структурный гейт */
+
+static const int k_recompute_prefix[15] = {
+    0x45e1e3, 0x45e23c, 0x45e274, 0x45e27b, 0x45e297, 0x45e2ab, 0x45e316,
+    0x45e320, 0x45e32e, 0x45e340, 0x45e3a2, 0x45e3b4, 0x45e3ea, 0x45e3f2,
+    0x45e443
+};
+
+static CheckResult chk_path_state_inputs(const TickContext &tc)
+{
+    const TickRecord *r = tc.rec;
+    if (r == NULL) SKIP("no tick record");
+    /* v17-only: site_pf (bdd0_site_pf) пишется ТОЛЬКО в v17 (v16 несёт
+     * pre/post, но не site_pf). Нет site_pf-записей — данных нет (v12..v16),
+     * гейт обязан SKIP, а не PASS/FAIL. */
+    if (bdd0_site_pf_records() == 0) {
+        SKIP("no v17 leaf-state data (capture predates bdd0_site_pf)");
+    }
+    /* все записи листа 0x45e1d0 в окне тика (не только первая) */
+    int calls = 0;
+    for (int i = 0; i < r->leaf_n; i++) {
+        const LeafRec *l = bdd0_tick_leaf_at(i);
+        if (l == NULL || l->va != 0x45e1d0) continue;
+        calls++;
+        int order = l->order;
+        const LeafStateRec *pre = bdd0_leaf_state_pre(r->seq, order);
+        const LeafStateRec *post = bdd0_leaf_state_post(r->seq, order);
+        const LeafStateRec *spf = bdd0_leaf_state_site_pf(r->seq, order);
+        if (pre == NULL || post == NULL || spf == NULL) {
+            g_ps_fail++;
+            return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d order %d: "
+                                            "missing state (pre=%p post=%p "
+                                            "site_pf=%p)", r->seq, order,
+                                        (void *)pre, (void *)post,
+                                        (void *)spf), 0 };
+        }
+        if (!pre->ok || !post->ok || !spf->ok) {
+            g_ps_fail++;
+            return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d order %d: "
+                                            "state not ok (pre=%d post=%d "
+                                            "site_pf=%d)", r->seq, order,
+                                        pre->ok, post->ok, spf->ok), 0 };
+        }
+        /* maps-блок обязателен: без него данные неполны (не vacuous pass) */
+        if (!pre->has_maps || !post->has_maps) {
+            g_ps_fail++;
+            return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d order %d: "
+                                            "maps block absent (pre=%d post=%d)",
+                                        r->seq, order, pre->has_maps,
+                                        post->has_maps), 0 };
+        }
+        /* site_pf принадлежит этому вызову: сайт 0x45e320, callee 0x45c8c0,
+         * получатель = ecx листа */
+        if (spf->site != 0x45e320 || spf->va != 0x45c8c0 ||
+            spf->ecx != pre->ecx) {
+            g_ps_fail++;
+            return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d order %d: "
+                                            "site_pf mismatch (site=0x%x va=0x%x "
+                                            "ecx=0x%x, pre ecx=0x%x)", r->seq,
+                                        order, spf->site, spf->va, spf->ecx,
+                                        pre->ecx), 0 };
+        }
+        /* структурное утверждение плана: pre-карты пусты */
+        if (pre->m1_n != 0 || pre->m2_n != 0) {
+            g_ps_fail++;
+            return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: pre-maps not "
+                                            "empty (m1=%d m2=%d)", r->seq,
+                                        pre->m1_n, pre->m2_n), 0 };
+        }
+        /* post-число узлов m1==m2 */
+        if (post->m1_n != post->m2_n) {
+            g_ps_fail++;
+            return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: post node "
+                                            "counts differ (m1=%d m2=%d)",
+                                        r->seq, post->m1_n, post->m2_n), 0 };
+        }
+        /* pf[0x70] == post n1 (счётчик узлов map1) */
+        unsigned pf70 = post->pf[0x70 / 4];
+        if ((int)pf70 != post->m1_n) {
+            g_ps_fail++;
+            return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: pf[0x70]=%u "
+                                            "!= post m1 nodes=%d", r->seq, pf70,
+                                        post->m1_n), 0 };
+        }
+        g_ps_calls++;
+    }
+    if (calls == 0) {
+        /* нет вызова листа в этом тике — гейт не про этот тик */
+        SKIP("no leaf call (no 0x45e1d0 record in this tick)");
+    }
+
+    /* последовательность nested-сайтов (на seq): 15 фикс + k троек P9 + опц.
+     * пара P10; после неё не должно остаться записей. */
+    {
+        int n = r->nested_n;
+        int idx = 0;
+        for (int p = 0; p < 15; p++, idx++) {
+            const NestedRec *e = bdd0_nested_peek(idx);
+            if (e == NULL || e->site != k_recompute_prefix[p]) {
+                g_ps_fail++;
+                return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: "
+                                                "nested[%d] site=0x%x, expected "
+                                                "prefix 0x%x", r->seq, idx,
+                                            (e != NULL) ? e->site : 0u,
+                                            (unsigned)k_recompute_prefix[p]),
+                                    0 };
+            }
+        }
+        int p9 = 0;
+        for (;;) {
+            const NestedRec *a = bdd0_nested_peek(idx);
+            const NestedRec *b = bdd0_nested_peek(idx + 1);
+            const NestedRec *c = bdd0_nested_peek(idx + 2);
+            if (a == NULL || b == NULL || c == NULL) break;
+            if (a->site != 0x45e46b || b->site != 0x45e47e ||
+                c->site != 0x45e487) break;
+            p9++;
+            idx += 3;
+        }
+        /* терминальная пара P10 — опциональна (null-выход без неё) */
+        {
+            const NestedRec *a = bdd0_nested_peek(idx);
+            const NestedRec *b = bdd0_nested_peek(idx + 1);
+            if (a != NULL && b != NULL && a->site == 0x45e49b &&
+                b->site == 0x45e4b1) {
+                idx += 2;
+            }
+        }
+        const NestedRec *e = bdd0_nested_peek(idx);
+        if (e != NULL) {
+            g_ps_fail++;
+            return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: %d trailing "
+                                            "nested record(s) (site 0x%x)",
+                                        r->seq, n - idx, e->site), 0 };
+        }
+        g_ps_p9_total += p9;
+    }
+    OK();
+}
+
+/* v17: счётчики path_state_inputs для сводки харнесса (см. chk_path_state_inputs). */
+int bdd0_path_state_calls(void) { return g_ps_calls; }
+int bdd0_path_state_p9_total(void) { return g_ps_p9_total; }
+int bdd0_path_state_inputs_fail(void) { return g_ps_fail; }
+
 void register_builtin_checks(void)
 {
     register_check({ "no_trap",      chk_no_trap,
@@ -1317,4 +1501,5 @@ void register_builtin_checks(void)
                      NEED_POST_STATE | NEED_BODY });
     register_check({ "handles",      chk_handles,
                      NEED_HANDLES });
+    register_check({ "path_state_inputs", chk_path_state_inputs, 0 });
 }

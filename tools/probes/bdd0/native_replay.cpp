@@ -155,7 +155,51 @@ void bdd0_leaf_begin(int seq, const LeafRec *v, int n)
      * нужна и была бы тавтологией. */
     g_ctx_pos_captured = (tr != NULL && tr->has_ctx_pos) ? 1 : 0;
     ctx_pos_from_stream();
+    bdd0_nested_reset();
 }
+
+/* ------------------------- v17: nested-сайты листа ----------------------- *
+ * Внутренние вызовы листа 0x45e1d0 (scenario.cpp k_recompute_sites, сайты
+ * 35..54). Окно ставит ядро (bdd0_nested_set_window) сразу за bdd0_leaf_begin;
+ * тело порта (recompute.cpp) читает по одному в порядке исполнения. Курсор
+ * сбрасывается на каждом тике. */
+static const NestedRec *g_nest_v = NULL;
+static int g_nest_n = 0;
+static int g_nest_i = 0;
+
+void bdd0_nested_set_window(const NestedRec *v, int n)
+{
+    g_nest_v = v;
+    g_nest_n = (n > 0) ? n : 0;
+    g_nest_i = 0;
+}
+
+int bdd0_nested_count(void) { return g_nest_n; }
+
+/* v17: запись потока bdd0_leaf окна тика по индексу (0-based) — для проверок,
+ * которым нужен заголовок вызова (order) без журнала вызовов порта. NULL —
+ * индекс вне окна. */
+const LeafRec *bdd0_tick_leaf_at(int i)
+{
+    if (i < 0 || i >= g_n || g_v == NULL) return NULL;
+    return &g_v[i];
+}
+
+const NestedRec *bdd0_nested_peek(int i)
+{
+    if (i < 0 || i >= g_nest_n || g_nest_v == NULL) return NULL;
+    return &g_nest_v[i];
+}
+
+const NestedRec *bdd0_nested_next(void)
+{
+    if (g_nest_i >= g_nest_n || g_nest_v == NULL) return NULL;
+    return &g_nest_v[g_nest_i++];
+}
+
+int bdd0_nested_consumed(void) { return g_nest_i; }
+
+void bdd0_nested_reset(void) { g_nest_i = 0; }
 
 int bdd0_leaf_calls(void) { return g_log_n; }
 int bdd0_leaf_violations(void) { return g_viol; }
