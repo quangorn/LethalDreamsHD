@@ -71,6 +71,7 @@ Python-патчи (`hd_scale.py`, `tex_hook_*.py`), поэтому `probe_exitco
 | `LDHOOK_LOG=1` (дефолт) | диагностика: загрузка, установка сайтов, guard identity, первый вызов хука |
 | `LDHOOK_LOG=2` (`debug`) | + числовая трассировка масштабирующего пути (троттлинг: site1 4+1024, site2 4+1024, site3 3+300) |
 | `LDHOOK_BATTLE_TRACE=1` | трассировка боевого тика (`battle/trace.cpp`, формат — `battle/trace.h`): одна строка `BATTLE …` на вызов `FUN_0044bdd0`; хуки H1/H2/H3/H7 ставятся только при включённом флаге (H5/H6 читаются из трамплинов site5 либо из порта site6) |
+| `LDHOOK_E0_DIAG=1` | диагностика faithful-цикла портованного `FUN_0045e0a0` (`LDHOOK_SITE6=1`): сводка визитов кандидатов на вызовы с `iters > 100` — формат и кап см. «site6»; дефолт выкл, поведение побайтно прежнее |
 | `LDHOOK_SEED=<uint32>` | пиннинг RNG для A/B: `push <константа>` на R1..R3 (`0x49ebcf`, `0x4a7677`, `0x4ae87f`) + `whrandom.seed(7,11,13)` из загрузчика `.pyd`; decimal или `0x`-hex. Не задан — seed-хуки не ставятся |
 
 `ldhook.set_level(n)` из игрового скрипта перекрывает env на лету (возвращает
@@ -170,6 +171,18 @@ allowlist, `ui/ui.pyc`, исключение runtime-логов, гейт) — `
 **site6** (`LDHOOK_SITE6=1`) — полный detour `FUN_0045e0a0`: faithful-цикл на
 C++ (`battle/target.cpp`), callees портированы. Счётчики цикла отдаёт
 `ldhook.stats()` (см. «Логгер»).
+
+**`LDHOOK_E0_DIAG=1`** (только вместе с `LDHOOK_SITE6=1`) — диагностика faithful-
+цикла: на каждом кандидате, ДО `s6_ai_update` и ДО разметки `filter=3`, снимается
+`[cand+0x08]`/`[cand+0x24]`; визиты складываются в фиксированную стек-таблицу
+(open-addressing, 1024 слота, без аллокаций). Вызов с `iters > 100` печатает одну
+строку в `ld_info`: `E0DIAG call=… iters=… distinct=… rep=… null_returns=… code=…
+map1=A->B f3=… f1=… mchg=… msame=… ovf=… reg=…` (f3 — скан выбрал уже помеченного;
+mchg/msame — метрика того же кандидата при повторе изменилась/нет; ovf — визиты,
+не учтённые таблицей; reg — дельта `register_occupied_slot` за вызов), плюс top-3
+повторяющихся кандидатов `E0DIAG  rep=k cand=… visits=… metric A->B filter A->B`.
+Кап 120 строк на прогон, затем `E0DIAG … capped`. Дефолт (флаг не задан) — ветки
+диагностики не выполняются, поведение побайтно прежнее.
 
 **Два гейта.** `LDHOOK_SITE6` — мастер порта `e0a0` (site6/site5, диспетчер
 `e0a0`, trace H5/H6). `LDHOOK_SITE6_EEE0` — отдельный гейт detour'а `45eee0`

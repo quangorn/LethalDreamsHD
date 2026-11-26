@@ -27,6 +27,16 @@
 
 #include "../ldhook/battle/battle.h"
 #include "../ldhook/battle/native.h"
+#include "../ldhook/ldhook_internal.h"
+
+/* Краш-диагностика (9.c1) — no-op в реплее: этот драйвер не линкует
+ * ldhook.cpp, где живут глобалы, поэтому определяем их здесь с нулями.
+ * bdd0_harness вместо этого линкует tick.cpp со своими определениями
+ * (там же), дублирования между бинарями нет. */
+volatile LONG g_crash_on = 0;
+volatile LONG g_depth = 0;
+volatile unsigned char g_stage = 0;
+unsigned char g_stage_stack[LD_CRASH_MAX_STK];
 
 /* --------------------------- минимальный JSON --------------------------- */
 

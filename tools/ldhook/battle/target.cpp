@@ -473,6 +473,140 @@ unsigned long s6_time_ms(void)
     return (fn != NULL) ? fn() : 0UL;
 }
 
+/* ------------------------------------------------------------------ */
+/* E0-диагностика faithful-цикла (env LDHOOK_E0_DIAG=1, дефолт выкл).    */
+/*                                                                      */
+/* Вопрос: почему порт делает больше итераций, чем натив на том же        */
+/* сценарии (9.m1: e0a0 +57 % µs). Пара «уникальных кандидатов / всего   */
+/* визитов» + динамика метрики одного кандидата между визитами отвечает:  */
+/*   повтор + метрика изменилась   → state divergence в s6_ai_update;     */
+/*   повтор + метрика та же        → скан/разметка (filter=3 не работает);*/
+/*   distinct == iters, map1 растёт → порт создаёт больше кандидатов.     */
+/* Кандидат помечается filter=3 ПОСЛЕ ai_update (0x45e132), поэтому визит */
+/* снимается ДО ai_update: фильтр/метрика в момент, когда скан его выбрал. */
+/* Строка печатается только при iters > E0_DIAG_ITERS; кап строк на прогон*/
+/* (процесс) — кап объявляется одной строкой. Счётчики не пишут игровую   */
+/* память: чтение [cand+0x08]/[cand+0x24] под SEH, логика цикла не тронута*/
+/* ------------------------------------------------------------------ */
+
+#define E0_DIAG_ENV   "LDHOOK_E0_DIAG"
+#define E0_DIAG_TABLE 1024   /* фиксированный стек: точный счёт уникальных */
+#define E0_DIAG_PROBE 8      /* линейный пробой на визит */
+#define E0_DIAG_ITERS 100    /* ниже этого вызов не печатается */
+#define E0_DIAG_LINES 120    /* кап строк на прогон */
+
+typedef struct {
+    void *ptr;               /* PathState* (кандидат скана) */
+    LONG  count;             /* визиты за вызов (0 = слот пуст) */
+    int   metric_first, metric_last;   /* [cand+0x24] */
+    int   filter_first, filter_last;   /* [cand+0x08] */
+} E0DiagSlot;
+
+static volatile LONG g_e0_lines = 0;    /* строк напечатано (этот процесс) */
+static volatile LONG g_e0_capped = 0;   /* 1 = кап объявлен */
+
+static int e0_diag_on(void)
+{
+    static int on = -1;
+
+    if (on < 0) {
+        on = ld_env_flag(E0_DIAG_ENV, 0);
+    }
+    return on;
+}
+
+/* Один визит: open-addressing по указателю (без аллокаций), distinct — точный.
+ * f3/f1 — фильтр кандидата в момент выбора сканом (3 = уже помечен).
+ * mchg/msame — метрика того же кандидата при повторе изменилась / нет.
+ * ovf — визиты, не учтённые таблицей (пробой исчерпан или таблица полна). */
+static void e0_diag_visit(E0DiagSlot *tbl, LONG *distinct, LONG *ovf,
+                          LONG *rep, LONG *mchg, LONG *msame,
+                          LONG *f3, LONG *f1,
+                          void *cand, int metric, int filter)
+{
+    LONG j, i, k;
+
+    if (filter == 3) {
+        (*f3)++;
+    } else if (filter == 1) {
+        (*f1)++;
+    }
+    j = (LONG)(((UINT_PTR)cand >> 4) * 2654435761u) & (E0_DIAG_TABLE - 1);
+    for (k = 0; k < E0_DIAG_PROBE; k++) {
+        i = (j + k) & (E0_DIAG_TABLE - 1);
+        if (tbl[i].count == 0) {
+            if (*distinct >= E0_DIAG_TABLE) {
+                (*ovf)++;
+                return;
+            }
+            tbl[i].ptr = cand;
+            tbl[i].count = 1;
+            tbl[i].metric_first = metric;
+            tbl[i].metric_last = metric;
+            tbl[i].filter_first = filter;
+            tbl[i].filter_last = filter;
+            (*distinct)++;
+            return;
+        }
+        if (tbl[i].ptr == cand) {
+            tbl[i].count++;
+            (*rep)++;
+            if (tbl[i].metric_last == metric) {
+                (*msame)++;
+            } else {
+                (*mchg)++;
+            }
+            tbl[i].metric_last = metric;
+            tbl[i].filter_last = filter;
+            return;
+        }
+    }
+    (*ovf)++;
+}
+
+/* Сводка вызова: одна строка + top-3 повторяющихся кандидата (по визитам).
+ * count=0 снимается после выдачи, поэтому выбор идёт по убыванию. */
+static void e0_diag_emit(long call, long iters, long distinct, long ovf,
+                         long rep, long mchg, long msame,
+                         long f3, long f1,
+                         long nulls, int code, int map1_before, int map1_after,
+                         long reg_delta, E0DiagSlot *tbl)
+{
+    LONG i;
+    int k, top;
+
+    if (g_e0_capped != 0) {
+        return;
+    }
+    ld_info("E0DIAG call=%ld iters=%ld distinct=%ld rep=%ld null_returns=%ld "
+            "code=%d map1=%d->%d f3=%ld f1=%ld mchg=%ld msame=%ld ovf=%ld reg=%ld",
+            call, iters, distinct, rep, nulls, code, map1_before, map1_after,
+            f3, f1, mchg, msame, ovf, reg_delta);
+    g_e0_lines++;
+    for (k = 0; k < 3; k++) {
+        top = -1;
+        for (i = 0; i < E0_DIAG_TABLE; i++) {
+            if (tbl[i].count > 0 && (top < 0 || tbl[i].count > tbl[top].count)) {
+                top = (int)i;
+            }
+        }
+        if (top < 0) {
+            break;
+        }
+        ld_info("E0DIAG  rep=%d cand=%p visits=%ld metric %d->%d filter %d->%d",
+                k + 1, tbl[top].ptr, (long)tbl[top].count,
+                tbl[top].metric_first, tbl[top].metric_last,
+                tbl[top].filter_first, tbl[top].filter_last);
+        g_e0_lines++;
+        tbl[top].count = 0;
+    }
+    if (g_e0_lines >= E0_DIAG_LINES) {
+        ld_info("E0DIAG %ld lines (limit %d), capped for this run",
+                (long)g_e0_lines, E0_DIAG_LINES);
+        g_e0_capped = 1;
+    }
+}
+
 /* Диагностикa скана/регистрации (FUN_0045ce80 / FUN_0045dd00 / FUN_0045dd70)
  * — только LDHOOK_LOG=2; счётники пишутся всегда (InterlockedIncrement нейтрален),
  * лог троттлит первые 4 + каждый 128-й. Кандидатная карта map1 растёт только
@@ -1314,6 +1448,17 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
     int map1_before = 0;
     LONG d_cells, d_cellnull, d_pathnull, d_pfsnull, d_reg, d_degen;
     long ps0[7], ps1[7];
+    /* LDHOOK_E0_DIAG: снимок визитов цикла (нет аллокаций — фиксированный стек;
+     * diag==0 → все ветки пропущены, поведение побайтно прежнее). */
+    const int diag = e0_diag_on();
+    E0DiagSlot e0sl[E0_DIAG_TABLE];
+    LONG e0n = 0, e0ovf = 0, e0nulls = 0, e0rep = 0;
+    LONG e0mchg = 0, e0msame = 0, e0f3 = 0, e0f1 = 0;
+    long e0reg0 = (long)g_reg_calls;
+
+    if (diag) {
+        memset(e0sl, 0, sizeof(e0sl));   /* count==0 = слот пуст */
+    }
 
     ld_crash_enter(2);          /* LDHOOK_CRASHLOG: stage 2, depth++ (no-op off) */
 
@@ -1338,6 +1483,9 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
      * c5a0 → code=3. Rescan после каждого не-сработавшего кандидата; пустой
      * скан → выход без кода, return NULL. */
     cur = s6_scan_map(this_, filter);      /* @0x45e103 */
+    if (diag && cur == NULL) {
+        e0nulls++;                          /* скан пуст: цикл не начнётся */
+    }
     if (ld_rate(&g_site6_dbg, 4, 64)) {
         ld_debug("site6: call %ld scan -> %p (filter=%d cmp=%p)",
                  (long)n, (void *)cur, filter, cmp_val);
@@ -1364,6 +1512,17 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
     map1_before = ((BattleAI *)this_)->reserved_70;
     while (cur != NULL) {                  /* @0x45e10a / @0x45e165 */
         iters++;
+        if (diag) {
+            /* Снимок ДО ai_update и разметки: фильтр/метрика в момент, когда
+             * скан выбрал кандидата (разметка filter=3 идёт @0x45e132). */
+            int m = -2, f = -2;
+            __try {
+                m = cur->metric;
+                f = cur->filter;
+            } __except (EXCEPTION_EXECUTE_HANDLER) { m = -2; f = -2; }
+            e0_diag_visit(e0sl, &e0n, &e0ovf, &e0rep, &e0mchg, &e0msame,
+                          &e0f3, &e0f1, (void *)cur, m, f);
+        }
         if (n <= 2 && iters <= 40) {
             LDPos *p = NULL;
             int px = -1, py = -1;
@@ -1422,6 +1581,9 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
             break;
         }
         cur = s6_scan_map(this_, filter);                  /* @0x45e15e: rescan */
+        if (diag && cur == NULL) {
+            e0nulls++;                                     /* пустой скан → выход */
+        }
         battle_trace_e0a0_latch(cur);                      /* H6: EAX @0x45e163 */
 #ifdef BATTLE_REPLAY
         replay_note_rescan(cur);                           /* iter_seq порта (v5) */
@@ -1441,6 +1603,16 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
 #ifdef BATTLE_REPLAY
     replay_note_exit(result, code, (int)iters);            /* результат порта (v5) */
 #endif
+
+    /* LDHOOK_E0_DIAG: сводка вызова с итерациями выше порога (runaway-класс). */
+    if (diag && iters > E0_DIAG_ITERS) {
+        e0_diag_emit((long)n, (long)iters, (long)e0n, (long)e0ovf,
+                     (long)e0rep, (long)e0mchg, (long)e0msame,
+                     (long)e0f3, (long)e0f1,
+                     (long)e0nulls, code, map1_before,
+                     ((BattleAI *)this_)->reserved_70,
+                     (long)g_reg_calls - e0reg0, e0sl);
+    }
 
     /* Статистика (счётчики п. 3.4): итерации, распределение кодов 1/3/4
      * (code==0 — пустой скан), ротации считаются на rescan. */

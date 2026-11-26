@@ -42,6 +42,9 @@
  *                        (SITE6=1 ставит оба); SITE6=1 + SITE6_EEE0=0 = порт
  *                        e0a0, 45eee0 нативный. Источник истины — s6_eee0_enabled().
  *   LDHOOK_CRASHLOG=1  — VEH-запись AV/стек-оверфлоу (стадия+глубина+RIP).
+ *   LDHOOK_E0_DIAG=1   — сводка визитов faithful-цикла на вызовы с iters>100
+ *                        (формат строки — «site6» в README; дефолт выкл,
+ *                        ветки диагностики не выполняются).
  *   LDHOOK_BATTLE_TRACE / LDHOOK_BATTLE_CAPTURE / LDHOOK_SITE5 / LDHOOK_SEED.
  *
  * Логика 1:1 с tools/exe/caves/fixall.s; guard'ы (k==1 / 4h==3w) сохранены.

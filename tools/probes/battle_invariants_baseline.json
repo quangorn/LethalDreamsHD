@@ -3,7 +3,7 @@
  "checks": [
   {
    "name": "ticks",
-   "pass": 1131,
+   "pass": 1016,
    "skip": 0,
    "fail": 0,
    "fail_keys": [],
@@ -19,7 +19,7 @@
   },
   {
    "name": "domains",
-   "pass": 1131,
+   "pass": 1016,
    "skip": 0,
    "fail": 0,
    "fail_keys": [],
@@ -27,16 +27,16 @@
   },
   {
    "name": "target_selected",
-   "pass": 8,
-   "skip": 4,
+   "pass": 9,
+   "skip": 3,
    "fail": 0,
    "fail_keys": [],
    "details": []
   },
   {
    "name": "no_path",
-   "pass": 8,
-   "skip": 4,
+   "pass": 9,
+   "skip": 3,
    "fail": 0,
    "fail_keys": [],
    "details": []
@@ -44,84 +44,93 @@
   {
    "name": "movement",
    "pass": 8,
-   "skip": 4,
-   "fail": 0,
-   "fail_keys": [],
-   "details": []
+   "skip": 3,
+   "fail": 1,
+   "fail_keys": [
+    "unit:9:points"
+   ],
+   "details": [
+    "unit=9 active ticks=37 distinct target points=1 (need 2)"
+   ]
   },
   {
    "name": "runaway",
-   "pass": 1125,
+   "pass": 965,
    "skip": 0,
-   "fail": 6,
+   "fail": 51,
    "fail_keys": [
     "unit:10:i1",
+    "unit:11:i1",
     "unit:12:i1",
-    "unit:4:i1"
+    "unit:6:i1",
+    "unit:8:i1"
    ],
    "details": [
-    "tick=201 unit=10 i1=4503 limit=200",
-    "tick=203 unit=10 i1=4626 limit=200",
-    "tick=692 unit=12 i1=4558 limit=200",
-    "tick=694 unit=4 i1=4512 limit=200",
-    "tick=701 unit=12 i1=4532 limit=200"
+    "tick=116 unit=8 i1=4449 limit=200",
+    "tick=117 unit=8 i1=4739 limit=200",
+    "tick=195 unit=10 i1=4225 limit=200",
+    "tick=196 unit=8 i1=4782 limit=200",
+    "tick=198 unit=8 i1=4621 limit=200"
    ]
   },
   {
    "name": "latency",
-   "pass": 1125,
+   "pass": 964,
    "skip": 0,
-   "fail": 6,
+   "fail": 52,
    "fail_keys": [
     "unit:10:latency",
+    "unit:11:latency",
     "unit:12:latency",
-    "unit:4:latency"
+    "unit:4:latency",
+    "unit:6:latency",
+    "unit:8:latency"
    ],
    "details": [
-    "tick=201 unit=10 us=68610 vis=4522 i1=4503 i2=-1 code=3 limit=20000",
-    "tick=203 unit=10 us=71187 vis=4645 i1=4626 i2=-1 code=3 limit=20000",
-    "tick=692 unit=12 us=70665 vis=4562 i1=4558 i2=-1 code=3 limit=20000",
-    "tick=694 unit=4 us=72383 vis=4515 i1=4512 i2=-1 code=3 limit=20000",
-    "tick=701 unit=12 us=71431 vis=4536 i1=4532 i2=-1 code=3 limit=20000"
+    "tick=116 unit=8 us=67279 vis=4456 i1=4449 i2=-1 code=3 limit=20000",
+    "tick=117 unit=8 us=75152 vis=4746 i1=4739 i2=-1 code=3 limit=20000",
+    "tick=195 unit=10 us=62048 vis=4232 i1=4225 i2=-1 code=3 limit=20000",
+    "tick=196 unit=8 us=74210 vis=4789 i1=4782 i2=-1 code=3 limit=20000",
+    "tick=198 unit=8 us=72324 vis=4630 i1=4621 i2=-1 code=3 limit=20000"
    ]
   },
   {
    "name": "spin",
-   "pass": 1125,
+   "pass": 965,
    "skip": 0,
-   "fail": 6,
+   "fail": 51,
    "fail_keys": [
     "unit:10:spin",
+    "unit:11:spin",
     "unit:12:spin",
-    "unit:4:spin"
+    "unit:6:spin",
+    "unit:8:spin"
    ],
    "details": [
-    "tick=201 unit=10 code=3 vis=4522 i1=4503 (spin to timeout 45c5a0)",
-    "tick=203 unit=10 code=3 vis=4645 i1=4626 (spin to timeout 45c5a0)",
-    "tick=692 unit=12 code=3 vis=4562 i1=4558 (spin to timeout 45c5a0)",
-    "tick=694 unit=4 code=3 vis=4515 i1=4512 (spin to timeout 45c5a0)",
-    "tick=701 unit=12 code=3 vis=4536 i1=4532 (spin to timeout 45c5a0)"
+    "tick=116 unit=8 code=3 vis=4456 i1=4449 (spin to timeout 45c5a0)",
+    "tick=117 unit=8 code=3 vis=4746 i1=4739 (spin to timeout 45c5a0)",
+    "tick=195 unit=10 code=3 vis=4232 i1=4225 (spin to timeout 45c5a0)",
+    "tick=196 unit=8 code=3 vis=4789 i1=4782 (spin to timeout 45c5a0)",
+    "tick=198 unit=8 code=3 vis=4630 i1=4621 (spin to timeout 45c5a0)"
    ]
   },
   {
    "name": "stall",
-   "pass": 5,
-   "skip": 4,
-   "fail": 3,
+   "pass": 7,
+   "skip": 3,
+   "fail": 2,
    "fail_keys": [
-    "unit:4:stall",
-    "unit:5:stall",
-    "unit:6:stall"
+    "unit:3:stall",
+    "unit:4:stall"
    ],
    "details": [
-    "unit=4 longest non-moving run=95 active ticks > stall-ticks=60",
-    "unit=5 longest non-moving run=189 active ticks > stall-ticks=60",
-    "unit=6 longest non-moving run=163 active ticks > stall-ticks=60"
+    "unit=3 longest non-moving run=120 active ticks > stall-ticks=60",
+    "unit=4 longest non-moving run=165 active ticks > stall-ticks=60"
    ]
   },
   {
    "name": "statefp",
-   "pass": 764,
+   "pass": 872,
    "skip": 0,
    "fail": 0,
    "fail_keys": [],
@@ -154,14 +163,32 @@
    "stall_max": 0
   },
   "2": {
-   "ticks": 1,
-   "active": 0,
-   "points": 0,
-   "selected": false,
-   "moving": false,
+   "ticks": 4,
+   "active": 3,
+   "points": 2,
+   "selected": true,
+   "moving": true,
    "stall_max": 0
   },
   "3": {
+   "ticks": 122,
+   "active": 122,
+   "points": 2,
+   "selected": true,
+   "moving": true,
+   "stall_max": 120,
+   "no_path": false
+  },
+  "4": {
+   "ticks": 167,
+   "active": 167,
+   "points": 2,
+   "selected": true,
+   "moving": true,
+   "stall_max": 165,
+   "no_path": false
+  },
+  "5": {
    "ticks": 1,
    "active": 1,
    "points": 1,
@@ -169,90 +196,73 @@
    "moving": false,
    "stall_max": 0
   },
-  "4": {
-   "ticks": 105,
-   "active": 100,
-   "points": 3,
-   "selected": true,
-   "moving": true,
-   "stall_max": 95,
-   "no_path": false
-  },
-  "5": {
-   "ticks": 191,
-   "active": 191,
-   "points": 2,
-   "selected": true,
-   "moving": true,
-   "stall_max": 189,
-   "no_path": false
-  },
   "6": {
-   "ticks": 165,
-   "active": 165,
-   "points": 2,
+   "ticks": 194,
+   "active": 146,
+   "points": 23,
    "selected": true,
    "moving": true,
-   "stall_max": 163,
+   "stall_max": 50,
    "no_path": false
   },
   "7": {
-   "ticks": 27,
-   "active": 24,
-   "points": 10,
-   "selected": true,
-   "moving": true,
-   "stall_max": 11,
-   "no_path": false
-  },
-  "8": {
-   "ticks": 316,
-   "active": 18,
+   "ticks": 33,
+   "active": 23,
    "points": 2,
    "selected": true,
    "moving": true,
-   "stall_max": 0
+   "stall_max": 21,
+   "no_path": false
   },
-  "9": {
-   "ticks": 205,
-   "active": 163,
-   "points": 45,
+  "8": {
+   "ticks": 69,
+   "active": 69,
+   "points": 7,
    "selected": true,
    "moving": true,
-   "stall_max": 18,
+   "stall_max": 20,
+   "no_path": false
+  },
+  "9": {
+   "ticks": 117,
+   "active": 37,
+   "points": 1,
+   "selected": true,
+   "moving": false,
+   "stall_max": 36,
    "no_path": false
   },
   "10": {
-   "ticks": 26,
-   "active": 26,
-   "points": 4,
+   "ticks": 82,
+   "active": 82,
+   "points": 14,
    "selected": true,
    "moving": true,
    "stall_max": 20,
    "no_path": false
   },
   "11": {
-   "ticks": 43,
-   "active": 28,
-   "points": 5,
+   "ticks": 65,
+   "active": 65,
+   "points": 6,
    "selected": true,
    "moving": true,
-   "stall_max": 6,
+   "stall_max": 19,
    "no_path": false
   },
   "12": {
-   "ticks": 50,
-   "active": 48,
-   "points": 11,
+   "ticks": 161,
+   "active": 156,
+   "points": 56,
    "selected": true,
    "moving": true,
-   "stall_max": 13,
+   "stall_max": 8,
    "no_path": false
   }
  },
  "run": {
   "first_tick": 1,
-  "last_tick": 1131,
-  "lines": 1131
+  "last_tick": 1016,
+  "lines": 1016
  }
 }
