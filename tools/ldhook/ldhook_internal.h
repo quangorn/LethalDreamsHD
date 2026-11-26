@@ -97,6 +97,8 @@ struct LdCrashScope {
 /* ---------------- Общие утилиты установки (определяются в ldhook.cpp) -------- */
 /* E9 rel32 от site до трамплина должен влезать в знаковый диапазон. */
 int rel32_fits(void *site, void *dest);
+/* Безопасная запись E9 rel32 по адресу target (total = длина патча). */
+int write_jmp(void *target, void *dest, int total);
 
 /* ---------------- site1/2/3 (sites_hd.cpp) ---------------- */
 /* Сигнатуры сайтов — только для установки хуков (ldhook.cpp). */
@@ -138,6 +140,15 @@ extern void *g_site5_nat;
 void s5_entry_hook(void);       /* __declspec(naked) — battle/target.cpp */
 void s5_tail_hook(void);
 void s5_epi_hook(void);
+
+/* NATIVE E0-диаг (LDHOOK_E0_DIAG=1, LDHOOK_SITE6=0): хук входа FUN_0045dd00
+ * (8 Б пролога) + CALL-сайты ветки 1 FUN_0045dd70. Ставится из initldhook
+ * после site5; рег-хук и трамплин — battle/target.cpp. */
+void e0n_reg_hook(void);      /* __declspec(naked) */
+void e0n_reg_tramp(void);     /* __declspec(naked) */
+extern void *g_e0n_reg_cont;  /* продолжение 0x45dd08 */
+extern void *g_e0n_reg_tramp;   /* трамплин e0n_reg_tramp */
+int  e0_native_install(void);
 
 /* ---------------- site6 (полный detour e0a0) ---------------- */
 #define S6_ENTRY_SIG   "\x8b\x44\x24\x10\x83\xec\x34"   /* mov eax,[esp+0x10]; sub esp,0x34 */

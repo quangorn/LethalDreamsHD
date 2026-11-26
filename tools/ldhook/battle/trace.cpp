@@ -293,6 +293,12 @@ void __cdecl battle_trace_tick_begin(void *unit)
     trace_slot_reset(&g_slot[1]);
 }
 
+/* Текущий номер тика (H1). Диаг E0 (LDHOOK_E0_DIAG) считает регистрации за тик. */
+long battle_trace_tick_count(void)
+{
+    return (long)g_tick_no;
+}
+
 /* Строка пишется ДО воспроизведения украденных байт эпилога.
  * unit берётся из g_tick_unit (сохранён H1), esp — из кадра для [esp+0x164]. */
 void __cdecl battle_trace_tick_end(int al, void *esp)

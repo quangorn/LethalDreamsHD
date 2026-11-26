@@ -62,6 +62,9 @@ int  battle_trace_enabled(void);
  * отметка времени начала тика. */
 void battle_trace_tick_begin(void *unit);
 
+/* Текущий номер тика (счётчик H1). */
+long battle_trace_tick_count(void);
+
 /* H2 (0x44d074): AL, esp кадра (для [esp+0x164] = param_3) —
  * читает поля через g_tick_unit и пишет строку; вызывается ДО воспроизведения
  * украденных байт. */

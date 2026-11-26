@@ -57,6 +57,14 @@ SITES = (
     # R1..R3: пиннинг seed'а (LDHOOK_SEED); R2-сигнатура встречается дважды.
     ("r1", bytes.fromhex("ff157cc24e0050"), (0x49EBCF,), 1),
     ("r2", bytes.fromhex("ff15b0c04e0050"), (0x4A7677, 0x4AE87F), 2),
+    # E0-diag (LDHOOK_E0_DIAG=1): 5 CALL-сайтов ветки 1 FUN_0045dd70
+    # (leaf_sites diag=1) + пролог FUN_0045dd00 (пролог не уникален в .text).
+    ("e0n_lb", bytes.fromhex("e8f06cfdff"), (0x45DECB,), 1),
+    ("e0n_grid", bytes.fromhex("e8d68fffff"), (0x45DEF5,), 1),
+    ("e0n_path", bytes.fromhex("e824ecffff"), (0x45DF17,), 1),
+    ("e0n_pfs", bytes.fromhex("e8afe3ffff"), (0x45DF2C,), 1),
+    ("e0n_reg", bytes.fromhex("e855fdffff"), (0x45DFA6, 0x464976, 0x4E1E77), 3),
+    ("e0n_reg_prolog", bytes.fromhex("83ec18568b742420"), (0x4399D0, 0x45DD00), 2),
 )
 
 MD5_BASELINE = "45e93d46aad6ceb3dfc17e86d04e4f82"

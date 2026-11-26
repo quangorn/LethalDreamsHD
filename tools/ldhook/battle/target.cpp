@@ -12,6 +12,7 @@
 #include "../ldhook_internal.h"
 #include "battle.h"
 #include "capture.h"
+#include "leaf_sites.h"
 #include "native.h"
 #include "trace.h"
 
@@ -74,6 +75,13 @@ void *g_site5_cont = NULL;
 void *g_site5_top = NULL;
 void *g_site5_nat = NULL;
 
+/* NATIVE E0-диаг (LDHOOK_E0_DIAG=1, LDHOOK_SITE6=0) — определения ниже,
+ * после e0_diag_emit. Точки снятия снимка — трамплины site5. */
+static int  e0n_diag_on(void);
+static void e0n_snapshot(int depth, BattleAI *self);
+static void e0n_visit(int depth, void *cand);
+static void e0n_exit(int depth, BattleAI *self, int code);
+
 /* Вход: фиксирует статистику прошлого вызова, сбрасывает счётчик. */
 static void __cdecl s5_entry_impl(void *this_, void *arg0, void *arg1,
                                    void *arg2, void *arg3)
@@ -102,6 +110,9 @@ static void __cdecl s5_entry_impl(void *this_, void *arg0, void *arg1,
         LONG d = InterlockedIncrement(&g_s5_depth);
         if (d >= 1 && d <= 16) {
             g_s5_t0[d - 1] = ld_now_us();
+        }
+        if (e0n_diag_on()) {
+            e0n_snapshot((int)g_s5_depth, self);   /* окно diag-счётчиков вызова */
         }
     }
 
@@ -181,6 +192,14 @@ static void __cdecl s5_tail_impl(void *this_, void *candidate)
     battle_trace_e0a0_latch(candidate);
     battle_capture_latch(candidate);
 
+    /* NATIVE E0-диаг: визит кандидата ДО ai_update (EAX хвоста 0x45e163) —
+     * тот же снимок, что порт делает на cur перед s6_ai_update. Счётчик
+     * итераций по глубине (g_site5_iter общий и сбрасывается вложенным
+     * вызовом). */
+    if (e0n_diag_on()) {
+        e0n_visit((int)g_s5_depth, candidate);
+    }
+
     iter = InterlockedIncrement(&g_site5_iter);
 
     /* Первые 4 итерации — всегда (info); далее — троттлинг (debug). */
@@ -242,10 +261,22 @@ static void __cdecl s5_tail_impl(void *this_, void *candidate)
 /* Хвост цикла (выход): замер времени вызова — pop t0, сумма/максимум µs,
  * window-сводка (окно 5 с). Вызывается только при выходе из цикла
  * (cmp esi,ebp == equal), candidate = ebp (sentinel). */
-static void __cdecl s5_exit_impl(void *candidate)
+static void __cdecl s5_exit_impl(int *param_4, void *candidate, void *this_)
 {
-    LONG d = InterlockedDecrement(&g_s5_depth);
+    LONG d = g_s5_depth;
     LONGLONG us = 0;
+
+    /* NATIVE E0-диаг: код выхода читается из param_4 (его пишут эпилоги
+     * 0x45e17d/0x45e197/0x45e1af); сводка вызова — до спуска глубины. */
+    if (e0n_diag_on()) {
+        int code = 0;
+        if (param_4 != NULL) {
+            __try { code = *param_4; }
+            __except (EXCEPTION_EXECUTE_HANDLER) { code = -1; }
+        }
+        e0n_exit((int)g_s5_depth, (BattleAI *)this_, code);
+    }
+    d = InterlockedDecrement(&g_s5_depth);
 
     /* H5: выход e0a0 (все эпилоги add esp,0x34; ret 10h) — EAX = узел-возврат
      * (NULL при пустом скане); поля узла и [this+0x38] → trace-слот вызова. */
@@ -289,16 +320,22 @@ static void __cdecl s5_exit_impl(void *candidate)
  * Хук: s5_exit_impl(candidate); затем повторяет эпилог. */
 __declspec(naked) void s5_epi_hook(void)
 {
+    /* Сайт = `add esp,0x34; ret 0x10`: при входе esp = E-0x34 (E — esp после
+     * push retaddr вызывающим), pop ebx/edi/esi/ebp уже сняли сохранения,
+     * EDI = this, EAX = узел-возврат; param_4 (arg4) лежит на E+0x10.
+     * Стек аргументов cdecl: param_4, candidate, this. */
     __asm {
-        push eax
-        push ecx
-        push edx
-        push eax
-        call s5_exit_impl
-        add esp, 4
+        push eax                     /* esp = E-0x38 */
+        push ecx                     /* esp = E-0x3C */
+        push edx                     /* esp = E-0x40 */
+        push edi                     /* esp = E-0x44 */
+        push eax                     /* esp = E-0x48 */
+        push dword ptr [esp + 0x58]  /* param_4 = E+0x10 при esp = E-0x48 */
+        call s5_exit_impl            /* cdecl (param_4, candidate, this) */
+        add esp, 12                  /* сняли 3 аргумента; edi снят с arg3-слота */
         pop edx
         pop ecx
-        pop eax
+        pop eax                      /* esp = E-0x34 — состояние сайта */
         add esp, 0x34
         ret 0x10
     }
@@ -607,6 +644,303 @@ static void e0_diag_emit(long call, long iters, long distinct, long ovf,
     }
 }
 
+/* ------------------------------------------------------------------ */
+/* NATIVE E0-диаг (LDHOOK_E0_DIAG=1 + LDHOOK_SITE6=0): тот же снимок       */
+/* вызова e0a0, что печатает порт, но на нативном цикле.                  */
+/*                                                                        */
+/* Источник итераций — хвост цикла site5 (0x45e163 `mov esi,eax`): EAX =   */
+/* кандидат следующей итерации ДО ai_update — тот же снимок, что порт      */
+/* снимает на cur перед s6_ai_update. Счётчик итераций — по глубине         */
+/* вложенности (g_site5_iter общий и сбрасывается вложенным вызовом).      */
+/* Гейты ветки 1 FUN_0045dd70: CALL-сайты 55..59 leaf_sites (diag=1) —     */
+/* lower_bound @0x45decb, grid @0x45def5, path @0x45df17, ctor @0x45df2c,   */
+/* register @0x45dfa6. Регистрации считаются и на ВХОДЕ FUN_0045dd00:      */
+/* адрес возврата хука классифицирует caller (ветка 1 dd70 vs лист         */
+/* 0x45e1d0). Строка печатается при iters > E0_DIAG_ITERS; кап строк —      */
+/* отдельный счётчик. env не задан → ветки diag не выполняются.            */
+/* ------------------------------------------------------------------ */
+
+#define E0N_DEPTH     16            /* та же глубина, что у стека t0 site5 */
+#define E0N_LINES     400           /* кап строк native-диага на процесс */
+#define E0N_SUM_CALLS 2000          /* период строки E0DIAGSUM */
+#define E0N_VA_REG    0x45dd00u
+#define E0N_REG_SIG   "\x83\xec\x18\x56\x8b\x74\x24\x20"
+#define E0N_REG_LEN   8             /* sub esp,0x18; push esi; mov esi,[esp+0x20] */
+
+static int e0n_on = -1;
+
+static int e0n_diag_on(void)
+{
+    if (e0n_on < 0) {
+        e0n_on = (e0_diag_on() && !s6_port_enabled()) ? 1 : 0;
+    }
+    return e0n_on;
+}
+
+/* Глобальные счётчики (interlocked): пишутся из leaf-сайтов и из хука
+ * 0x45dd00. Окно вызова — дельты по глубине. */
+static volatile LONG g_e0n_lb, g_e0n_grid, g_e0n_grid_null;
+static volatile LONG g_e0n_path, g_e0n_path_null, g_e0n_pfs, g_e0n_pfs_null;
+static volatile LONG g_e0n_reg_all, g_e0n_reg_dd70, g_e0n_reg_leaf, g_e0n_reg_other;
+static volatile LONG g_e0n_lines = 0, g_e0n_capped = 0;
+static volatile LONG g_e0n_calls_all = 0, g_e0n_calls_long = 0;
+static volatile LONG g_e0n_iter_all = 0, g_e0n_dist_all = 0;
+
+/* Окно вызова по глубине (индекс = g_s5_depth-1, как у стека t0). */
+static E0DiagSlot e0n_tbl[E0N_DEPTH][E0_DIAG_TABLE];
+static LONG e0n_iter[E0N_DEPTH], e0n_dist[E0N_DEPTH], e0n_ovf[E0N_DEPTH];
+static LONG e0n_rep[E0N_DEPTH], e0n_mchg[E0N_DEPTH], e0n_msame[E0N_DEPTH];
+static LONG e0n_f3[E0N_DEPTH], e0n_f1[E0N_DEPTH];
+static LONG e0n_call[E0N_DEPTH];
+static LONG e0n_reg0[E0N_DEPTH], e0n_lb0[E0N_DEPTH], e0n_grid0[E0N_DEPTH];
+static LONG e0n_gridn0[E0N_DEPTH], e0n_path0[E0N_DEPTH], e0n_pathn0[E0N_DEPTH];
+static LONG e0n_pfs0[E0N_DEPTH], e0n_pfsn0[E0N_DEPTH];
+static int  e0n_map1_0[E0N_DEPTH];
+
+void *g_e0n_reg_cont = NULL;        /* продолжение 0x45dd00 после украденных байт */
+void *g_e0n_reg_tramp = NULL;       /* трамплин e0n_reg_tramp (заполняет установщик) */
+
+static void e0n_snapshot(int depth, BattleAI *self)
+{
+    LONG d = depth;
+    int i;
+
+    if (d < 1 || d > E0N_DEPTH) {
+        return;
+    }
+    d--;
+    for (i = 0; i < E0_DIAG_TABLE; i++) {
+        e0n_tbl[d][i].count = 0;
+    }
+    e0n_iter[d] = 0;   e0n_dist[d] = 0; e0n_ovf[d] = 0;
+    e0n_rep[d] = 0;    e0n_mchg[d] = 0; e0n_msame[d] = 0;
+    e0n_f3[d] = 0;     e0n_f1[d] = 0;
+    e0n_call[d] = (LONG)g_site5_calls;
+    e0n_reg0[d]    = g_e0n_reg_all;
+    e0n_lb0[d]     = g_e0n_lb;
+    e0n_grid0[d]   = g_e0n_grid;      e0n_gridn0[d] = g_e0n_grid_null;
+    e0n_path0[d]   = g_e0n_path;      e0n_pathn0[d]  = g_e0n_path_null;
+    e0n_pfs0[d]    = g_e0n_pfs;       e0n_pfsn0[d]   = g_e0n_pfs_null;
+    __try {
+        e0n_map1_0[d] = self->reserved_70;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        e0n_map1_0[d] = -1;
+    }
+    InterlockedIncrement(&g_e0n_calls_all);
+}
+
+static void e0n_visit(int depth, void *cand)
+{
+    LONG d = depth;
+    int m = -2, f = -2;
+
+    if (d < 1 || d > E0N_DEPTH) {
+        return;
+    }
+    d--;
+    e0n_iter[d]++;
+    if (cand != NULL) {
+        __try {
+            m = ((Candidate *)cand)->metric;
+            f = ((Candidate *)cand)->filter;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            m = -2; f = -2;
+        }
+    }
+    e0_diag_visit(e0n_tbl[d], &e0n_dist[d], &e0n_ovf[d], &e0n_rep[d],
+                  &e0n_mchg[d], &e0n_msame[d], &e0n_f3[d], &e0n_f1[d],
+                  cand, m, f);
+}
+
+static void e0n_exit(int depth, BattleAI *self, int code)
+{
+    LONG d = depth;
+    long reg_d, lb_d, grid_d, gridn_d, path_d, pathn_d, pfs_d, pfsn_d;
+    int map1_now = -1;
+
+    if (d < 1 || d > E0N_DEPTH) {
+        return;
+    }
+    d--;
+    reg_d   = g_e0n_reg_all  - e0n_reg0[d];
+    lb_d    = g_e0n_lb       - e0n_lb0[d];
+    grid_d  = g_e0n_grid     - e0n_grid0[d];
+    gridn_d = g_e0n_grid_null - e0n_gridn0[d];
+    path_d  = g_e0n_path     - e0n_path0[d];
+    pathn_d = g_e0n_path_null - e0n_pathn0[d];
+    pfs_d   = g_e0n_pfs      - e0n_pfs0[d];
+    pfsn_d  = g_e0n_pfs_null - e0n_pfsn0[d];
+    if (e0n_map1_0[d] >= 0) {
+        __try { map1_now = self->reserved_70; }
+        __except (EXCEPTION_EXECUTE_HANDLER) { map1_now = -1; }
+    }
+    InterlockedAdd(&g_e0n_iter_all, e0n_iter[d]);
+    InterlockedAdd(&g_e0n_dist_all, e0n_dist[d]);
+    if (e0n_iter[d] > E0_DIAG_ITERS) {
+        InterlockedIncrement(&g_e0n_calls_long);
+        if (g_e0n_capped == 0 && g_e0n_lines < E0N_LINES) {
+            ld_info("E0DIAG call=%ld iters=%ld distinct=%ld null_returns=%ld "
+                    "code=%d map1=%d->%d reg=%ld lb=%ld grid=%ld gridnull=%ld "
+                    "pfsc=%ld pfsnull=%ld rep=%ld ovf=%ld f3=%ld f1=%ld mchg=%ld "
+                    "tick=%ld arm=native",
+                    e0n_call[d], e0n_iter[d], e0n_dist[d], pathn_d, code,
+                    e0n_map1_0[d], map1_now, reg_d, lb_d, grid_d, gridn_d,
+                    pfs_d, pfsn_d, e0n_rep[d], e0n_ovf[d], e0n_f3[d], e0n_f1[d],
+                    e0n_mchg[d], battle_trace_tick_count());
+            g_e0n_lines++;
+            if (g_e0n_lines >= E0N_LINES) {
+                ld_info("E0DIAG %ld native lines (limit %d), capped for this run",
+                        (long)g_e0n_lines, E0N_LINES);
+                g_e0n_capped = 1;
+            }
+        }
+    }
+    if ((g_e0n_calls_all % E0N_SUM_CALLS) == 0) {
+        ld_info("E0DIAGSUM arm=native calls=%ld long_calls=%ld iter_sum=%ld dist_sum=%ld "
+                "reg_all=%ld reg_dd70=%ld reg_leaf=%ld reg_other=%ld lb=%ld "
+                "grid=%ld gridnull=%ld path=%ld pathnull=%ld pfs=%ld pfsnull=%ld "
+                "tick=%ld",
+                (long)g_e0n_calls_all, (long)g_e0n_calls_long,
+                (long)g_e0n_iter_all, (long)g_e0n_dist_all,
+                (long)g_e0n_reg_all, (long)g_e0n_reg_dd70, (long)g_e0n_reg_leaf,
+                (long)g_e0n_reg_other, (long)g_e0n_lb, (long)g_e0n_grid,
+                (long)g_e0n_grid_null, (long)g_e0n_path, (long)g_e0n_path_null,
+                (long)g_e0n_pfs, (long)g_e0n_pfs_null,
+                battle_trace_tick_count());
+    }
+}
+
+/* sink leaf-сайтов ветки 1: счётчик вызовов на входе сайта, NULL-возврат —
+ * на выходе (ret_bits == 0). enter всегда даёт token: exit обязана случиться. */
+static int e0n_sink_enter(int site, int va, int ecx, const int *args, int nargs)
+{
+    (void)va; (void)ecx; (void)args; (void)nargs;
+    if (site == 0x45decb)      InterlockedIncrement(&g_e0n_lb);
+    else if (site == 0x45def5) InterlockedIncrement(&g_e0n_grid);
+    else if (site == 0x45df17) InterlockedIncrement(&g_e0n_path);
+    else if (site == 0x45df2c) InterlockedIncrement(&g_e0n_pfs);
+    return 1;
+}
+
+static void e0n_sink_exit(int token, int va, int ecx, const int *args, int nargs,
+                          int ret_bits, const int *w, int nw, int trap)
+{
+    (void)token; (void)ecx; (void)args; (void)nargs;
+    (void)w; (void)nw; (void)trap;
+    if (ret_bits == 0) {
+        if (va == 0x456ed0)      InterlockedIncrement(&g_e0n_grid_null);
+        else if (va == 0x45cb40) InterlockedIncrement(&g_e0n_path_null);
+        else if (va == 0x45c2e0) InterlockedIncrement(&g_e0n_pfs_null);
+    }
+}
+
+static void e0n_sink_missing(int site, int target, const char *why)
+{
+    ld_info("E0DIAG call-site 0x%x->0x%x NOT installed: %s",
+            (unsigned)site, (unsigned)target, (why != NULL) ? why : "");
+}
+
+static const leaf_sink g_e0n_sink = { e0n_sink_enter, e0n_sink_exit, e0n_sink_missing };
+
+/* Хук ВХОДА FUN_0045dd00: счётчик регистраций, классификация caller'а по
+ * адресу возврата. Ставится ТОЛЬКО при LDHOOK_E0_DIAG=1 и LDHOOK_SITE6=0. */
+static void __cdecl e0n_reg_impl(int this_, int arg1, int retaddr)
+{
+    unsigned char *base = native::base();
+    unsigned long off;
+
+    (void)this_; (void)arg1;
+    InterlockedIncrement(&g_e0n_reg_all);
+    off = (base != NULL)
+          ? (unsigned long)((unsigned)(size_t)retaddr - (unsigned)(size_t)base)
+          : 0u;
+    if (off == 0x45dfabu)      InterlockedIncrement(&g_e0n_reg_dd70);   /* CALL @0x45dfa6 */
+    else if (off == 0x45e3f7u) InterlockedIncrement(&g_e0n_reg_leaf);   /* CALL @0x45e3f2 */
+    else                       InterlockedIncrement(&g_e0n_reg_other);
+}
+
+__declspec(naked) void e0n_reg_hook(void)
+{
+    __asm {
+        push eax
+        push ecx
+        push edx
+        push dword ptr [esp + 12]    /* retaddr (E) при esp = E-12 */
+        push dword ptr [esp + 20]    /* arg1 (E+4) при esp = E-16 */
+        push ecx                     /* this: ECX на входе оригинала */
+        call e0n_reg_impl
+        add esp, 12                  /* сняли 3 аргумента: esp = E-12 */
+        pop edx
+        pop ecx
+        pop eax                      /* esp = E — состояние входа оригинала */
+        jmp dword ptr [g_e0n_reg_tramp]  /* трамплин играет пролог и даёт cont */
+    }
+}
+
+/* Трамплин: воспроизводит украденные 8 байт пролога и продолжает 0x45dd08. */
+__declspec(naked) void e0n_reg_tramp(void)
+{
+    __asm {
+        sub esp, 0x18
+        push esi
+        mov esi, dword ptr [esp + 0x20]
+        jmp dword ptr [g_e0n_reg_cont]
+    }
+}
+
+/* Установка native-диага: из initldhook ПОСЛЕ install_site5/site6, только в
+ * нативном режиме. Байтовая проверка пролога; несовпадение — запись и пропуск. */
+int e0_native_install(void)
+{
+    char why[256];
+    unsigned char *fn;
+    int n = 0;
+
+    if (!e0_diag_on()) {
+        return 0;
+    }
+    if (s6_port_enabled()) {
+        ld_info("E0DIAG: порт e0a0 активен — native-диаг не ставится");
+        return 0;
+    }
+    if (g_site5_cont == NULL) {
+        ld_info("E0DIAG: site5 не установлен — native-диаг пропущен");
+        return 0;
+    }
+    fn = (unsigned char *)native::fn(E0N_VA_REG);
+    if (fn == NULL) {
+        ld_info("E0DIAG: нет base EXE — reg hook NOT installed");
+        return 0;
+    }
+    if (memcmp(fn, E0N_REG_SIG, E0N_REG_LEN) != 0) {
+        ld_info("E0DIAG: prologue 0x45dd00 mismatch — reg hook NOT installed");
+    } else if (!rel32_fits(fn, (void *)e0n_reg_hook)) {
+        ld_info("E0DIAG: reg hook E9 rel32 out of range");
+    } else {
+        g_e0n_reg_cont = (void *)(fn + E0N_REG_LEN);
+        g_e0n_reg_tramp = (void *)e0n_reg_tramp;
+        if (!write_jmp(fn, (void *)e0n_reg_hook, E0N_REG_LEN)) {
+            ld_info("E0DIAG: reg hook write_jmp FAILED");
+        } else {
+            ld_info("E0DIAG: reg hook 0x45dd00 -> e0n_reg_hook (stolen %d B, "
+                    "cont=0x%08x)", E0N_REG_LEN, (unsigned)(size_t)g_e0n_reg_cont);
+        }
+    }
+    if (battle_capture_enabled()) {
+        ld_info("E0DIAG: capture активен — CALL-сайты ветки 1 НЕ ставятся "
+                "(захват не получает новых записей)");
+    } else {
+        leaf_sites_set_sink(&g_e0n_sink);
+        why[0] = '\0';
+        n = leaf_site_install_diag(native::fn, why, (int)sizeof(why));
+        ld_info("E0DIAG: %d/%d CALL-сайта ветки 1 FUN_0045dd70 -> diag sink (%s)",
+                n, leaf_site_diag_count(), why);
+    }
+    ld_info("E0DIAG: native-диаг включён (итерации — хвост site5 @0x45e163, "
+            "регистрации — вход 0x45dd00)");
+    return n;
+}
+
 /* Диагностикa скана/регистрации (FUN_0045ce80 / FUN_0045dd00 / FUN_0045dd70)
  * — только LDHOOK_LOG=2; счётники пишутся всегда (InterlockedIncrement нейтрален),
  * лог троттлит первые 4 + каждый 128-й. Кандидатная карта map1 растёт только
@@ -624,6 +958,10 @@ static volatile LONG g_ai_cell_null = 0;
 static volatile LONG g_ai_path_null = 0;
 static volatile LONG g_ai_pfs_null = 0;
 static volatile LONG g_ai_nbr_old = 0;
+/* E0-диаг: ветка 1 по гейтам — вызов lower_bound (= вход ветки 1) и пара
+ * «nbr==NULL после lower_bound» (свободный путь). g_ai_reg_dup — регистрация
+ * ключа, который lower_bound уже нашёл (двойная регистрация в map2). */
+static volatile LONG g_ai_lb_calls = 0, g_ai_nbr_null = 0, g_ai_reg_dup = 0;
 static volatile LONG g_scan_dbg = 0;
 static volatile LONG g_ai_degen_dbg = 0;
 static volatile LONG g_ai_degen = 0;
@@ -1302,11 +1640,13 @@ int s6_ai_update(void *this_, void *cand, int arg2)
                     GridCell *cell;
                     void *path_res;
 
+                    InterlockedIncrement(&g_ai_lb_calls);  /* CALL 0x434bc0 @0x45decb = вход ветки 1 */
                     native::lower_bound_slots(&self->map2, &w[0], &key);  /* @0x45dec7 out=&L[0x38], @0x45dec3 key=&L[0x2c] */
                     if ((void *)(INT_PTR)w[0] != self->occ_head) {        /* @0x45ded2/0x45dedc: узел != head → занят */
                         nbr = (PathState *)(INT_PTR)((const TreeNode *)(INT_PTR)w[0])->value;  /* узел+0x10 @0x45ded7 */
                     }
                     if (nbr == NULL) {                        /* своб. путь (head или узел с нулевым значением) */
+                        InterlockedIncrement(&g_ai_nbr_null);
                         cell = s6_grid_lookup(level, x, y);   /* @0x45dee2..0x45def1 + CALL 0x456ed0 */
                         if (cell == NULL) {
                             InterlockedIncrement(&g_ai_cell_null);
@@ -1351,6 +1691,9 @@ int s6_ai_update(void *this_, void *cand, int arg2)
                         ai_stage = 70;                        /* copy + register */
                         s6_copy_fields((int)(INT_PTR)nbr, (int)(INT_PTR)sp, 0x1fff);  /* src=&spec @0x45df91, CALL 0x45c4b0 @0x45df9e */
                         InterlockedIncrement(&g_reg_calls);
+                        if ((void *)(INT_PTR)w[0] != self->occ_head) {
+                            InterlockedIncrement(&g_ai_reg_dup);  /* ключ уже в map2 */
+                        }
                         native::register_occupied_slot(self, (LDObject *)nbr);  /* CALL 0x45dd00 @0x45dfa6 — только ветка 1 */
                         free_done = 1;                        /* @0x45dfab JMP 0x45e040 */
                     }
@@ -1447,6 +1790,7 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
     LONGLONG t0 = 0;                       /* Фаза 4 A/B: точка отсчёта */
     int map1_before = 0;
     LONG d_cells, d_cellnull, d_pathnull, d_pfsnull, d_reg, d_degen;
+    LONG d_lb, d_nbrnull, d_dup;
     long ps0[7], ps1[7];
     /* LDHOOK_E0_DIAG: снимок визитов цикла (нет аллокаций — фиксированный стек;
      * diag==0 → все ветки пропущены, поведение побайтно прежнее). */
@@ -1507,6 +1851,7 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
         d_pathnull = g_ai_path_null; d_pfsnull = g_ai_pfs_null;
         d_reg = g_reg_calls;
         d_degen = g_ai_degen;
+        d_lb = g_ai_lb_calls; d_nbrnull = g_ai_nbr_null; d_dup = g_ai_reg_dup;
         s6_pfs_snapshot(ps0);
     }
     map1_before = ((BattleAI *)this_)->reserved_70;
@@ -1612,6 +1957,26 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
                      (long)e0nulls, code, map1_before,
                      ((BattleAI *)this_)->reserved_70,
                      (long)g_reg_calls - e0reg0, e0sl);
+        ld_info("E0DIAG2 call=%ld lb=%ld nbrnull=%ld dup=%ld cellnull=%ld "
+                "pathnull=%ld pfsnull=%ld tick=%ld arm=port",
+                (long)n, (long)g_ai_lb_calls - d_lb,
+                (long)g_ai_nbr_null - d_nbrnull, (long)g_ai_reg_dup - d_dup,
+                (long)g_ai_cell_null - d_cellnull,
+                (long)g_ai_path_null - d_pathnull,
+                (long)g_ai_pfs_null - d_pfsnull,
+                battle_trace_tick_count());
+    }
+    /* Периодическая сводка порта (агрегат прогона, каждые 2000 вызовов). */
+    if (diag && (n % E0N_SUM_CALLS) == 0) {
+        ld_info("E0DIAGSUM arm=port calls=%ld iter_sum=%ld heavy=%ld code1=%ld "
+                "code3=%ld code4=%ld reg=%ld lb=%ld nbrnull=%ld dup=%ld cells=%ld "
+                "cellnull=%ld pathnull=%ld pfsnull=%ld tick=%ld",
+                (long)n, (long)g_site6_iter_sum, (long)g_site6_heavy,
+                (long)g_site6_code1, (long)g_site6_code3, (long)g_site6_code4,
+                (long)g_reg_calls, (long)g_ai_lb_calls, (long)g_ai_nbr_null,
+                (long)g_ai_reg_dup, (long)g_ai_calls, (long)g_ai_cell_null,
+                (long)g_ai_path_null, (long)g_ai_pfs_null,
+                battle_trace_tick_count());
     }
 
     /* Статистика (счётчики п. 3.4): итерации, распределение кодов 1/3/4

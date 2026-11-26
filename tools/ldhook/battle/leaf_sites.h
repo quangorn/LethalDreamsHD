@@ -53,6 +53,7 @@ struct leaf_site_def {
     int nargs;             /* стек-аргументов у листа */
     int ret_n;             /* `ret n` оригинала (= 4*nargs у всех 12 листьев) */
     int kind;              /* LS_K_* */
+    int diag;              /* 1 = diag-сайт: ставит только leaf_site_install_diag */
     void *handler;         /* naked-обработчик сайта */
     void **orig_slot;      /* ячейка адреса оригинала (заполняет установщик) */
 };
@@ -70,6 +71,7 @@ struct leaf_sink {
 int  leaf_site_count(void);
 const struct leaf_site_def *leaf_site_at(int i);
 const struct leaf_site_def *leaf_site_defs(void);
+int  leaf_site_diag_count(void);
 
 void leaf_sites_set_sink(const leaf_sink *sink);
 /* Сброс LIFO (вход в новый вызов 44bdd0): несбалансированные записи прошлого
@@ -80,6 +82,11 @@ void leaf_sites_reset(void);
  * `call rel32` именно на ожидаемый лист (иначе sink->missing + пропуск).
  * Возврат — число пропатченных сайтов. */
 int leaf_site_install_all(void *(*resolve)(unsigned va), char *why, int cap);
+
+/* Установка только diag-сайтов (таблица diag=1 — внутренние CALL-сайты ветки 1
+ * FUN_0045dd70, LDHOOK_E0_DIAG). Тот же ABI-гейт и байтовая проверка сайта.
+ * Возврат — число пропатченных diag-сайтов. */
+int leaf_site_install_diag(void *(*resolve)(unsigned va), char *why, int cap);
 
 /* Точечная установка (её же использует self-test вне игры): site — адрес
  * `call rel32`, target_expected — куда он обязан звать, orig_slot — куда

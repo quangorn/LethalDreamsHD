@@ -275,67 +275,83 @@ LS_SITE(51, 0x45e47e, 0x45c4b0, 3, 12, INT, LS_K_INT)           /* 0x45e47e copy
 LS_SITE(52, 0x45e487, 0x45ce80, 1, 4,  INT, LS_K_INT)           /* 0x45e487 scan_map */
 LS_SITE(53, 0x45e49b, 0x456b20, 1, 4,  INT, LS_K_INT_W2_ARG1)  /* 0x45e49b grid_scale */
 LS_SITE(54, 0x45e4b1, 0x456b20, 1, 4,  INT, LS_K_INT_W2_ARG1)  /* 0x45e4b1 grid_scale */
+/* E0-diag (LDHOOK_E0_DIAG, только нативный прогон): внутренние CALL-сайты
+ * ветки 1 FUN_0045dd70. ABI сверены с таблицей выше (сайты 43/44/48 — те же
+ * цели), байты сайтов — E8+rel32 на ожидаемую цель (проверяет leaf_site_patch).
+ * diag=1: эти сайты НЕ ставит leaf_site_install_all (захват v12..v18 не
+ * получает новых записей); их ставит leaf_site_install_diag. */
+LS_SITE(55, 0x45decb, 0x434bc0, 2, 8,  INT, LS_K_INT)           /* 0x45decb lower_bound (branch 1) */
+LS_SITE(56, 0x45def5, 0x456ed0, 1, 4,  INT, LS_K_INT)           /* 0x45def5 grid cell */
+LS_SITE(57, 0x45df17, 0x45cb40, 2, 8,  INT, LS_K_INT)           /* 0x45df17 path search */
+LS_SITE(58, 0x45df2c, 0x45c2e0, 0, 0,  INT, LS_K_INT)           /* 0x45df2c PathState ctor */
+LS_SITE(59, 0x45dfa6, 0x45dd00, 1, 4,  INT, LS_K_INT)           /* 0x45dfa6 register slot (ветка 1) */
 
-#define LS_DEF(n, site, va, nargs, retn, kind)                                \
-    { site, va, nargs, retn, kind, (void *)cap_ls##n##_hook, &g_ls_orig##n }
+#define LS_DEF(n, site, va, nargs, retn, kind, diag)                         \
+    { site, va, nargs, retn, kind, diag, (void *)cap_ls##n##_hook, &g_ls_orig##n }
 
 static const leaf_site_def k_leaf_sites[] = {
-    LS_DEF(1,  0x44bea1, 0x45c6f0, 1, 4,  LS_K_INT_W3_ARG1),
-    LS_DEF(2,  0x44bee7, 0x45c370, 0, 0,  LS_K_INT),
-    LS_DEF(3,  0x44bef2, 0x45c370, 0, 0,  LS_K_INT),
-    LS_DEF(4,  0x44bef9, 0x45af50, 0, 0,  LS_K_INT),
-    LS_DEF(5,  0x44c247, 0x44bbf0, 4, 16, LS_K_INT),
-    LS_DEF(6,  0x44c276, 0x44bbf0, 4, 16, LS_K_INT),
-    LS_DEF(7,  0x44c36f, 0x45c730, 0, 0,  LS_K_INT),
-    LS_DEF(8,  0x44c37e, 0x45c730, 0, 0,  LS_K_INT),
-    LS_DEF(9,  0x44c3b7, 0x45c370, 0, 0,  LS_K_INT),
-    LS_DEF(10, 0x44c3c6, 0x45c370, 0, 0,  LS_K_INT),
-    LS_DEF(11, 0x44c3cd, 0x45af50, 0, 0,  LS_K_INT),
-    LS_DEF(12, 0x44c3fa, 0x45c730, 0, 0,  LS_K_INT),
-    LS_DEF(13, 0x44c41c, 0x45c6f0, 1, 4,  LS_K_INT_W3_ARG1),
-    LS_DEF(14, 0x44c423, 0x403e80, 1, 4,  LS_K_INT),
-    LS_DEF(15, 0x44c4c4, 0x45c370, 0, 0,  LS_K_INT),
-    LS_DEF(16, 0x44c4cb, 0x45b150, 3, 12, LS_K_F32),
-    LS_DEF(17, 0x44c54d, 0x45c370, 0, 0,  LS_K_INT),
-    LS_DEF(18, 0x44c554, 0x45b3e0, 3, 12, LS_K_AL),
-    LS_DEF(19, 0x44c5d9, 0x45c370, 0, 0,  LS_K_INT),
-    LS_DEF(20, 0x44c5e0, 0x45b150, 3, 12, LS_K_F32),
-    LS_DEF(21, 0x44c65f, 0x45c370, 0, 0,  LS_K_INT),
-    LS_DEF(22, 0x44c666, 0x45b3e0, 3, 12, LS_K_AL),
-    LS_DEF(23, 0x44c6fc, 0x45c6f0, 1, 4,  LS_K_INT_W3_ARG1),
-    LS_DEF(24, 0x44c730, 0x44bbf0, 4, 16, LS_K_INT),
-    LS_DEF(25, 0x44c7da, 0x458050, 6, 24, LS_K_INT),
-    LS_DEF(26, 0x44c8c8, 0x45e1d0, 2, 8,  LS_K_INT_W3_RET),
-    LS_DEF(27, 0x44cd83, 0x45c370, 0, 0,  LS_K_INT),
-    LS_DEF(28, 0x44cd8e, 0x45c370, 0, 0,  LS_K_INT),
-    LS_DEF(29, 0x44cd95, 0x45af50, 0, 0,  LS_K_INT),
-    LS_DEF(30, 0x44cfec, 0x45c370, 0, 0,  LS_K_INT),
-    LS_DEF(31, 0x44cff7, 0x45c370, 0, 0,  LS_K_INT),
-    LS_DEF(32, 0x44cffe, 0x45af50, 0, 0,  LS_K_INT),
-    LS_DEF(33, 0x458142, 0x456b60, 1, 4,  LS_K_INT),
-    LS_DEF(34, 0x45811a, 0x457e20, 4, 16, LS_K_INT),
+    LS_DEF(1,  0x44bea1, 0x45c6f0, 1, 4,  LS_K_INT_W3_ARG1,0),
+    LS_DEF(2,  0x44bee7, 0x45c370, 0, 0,  LS_K_INT,0),
+    LS_DEF(3,  0x44bef2, 0x45c370, 0, 0,  LS_K_INT,0),
+    LS_DEF(4,  0x44bef9, 0x45af50, 0, 0,  LS_K_INT,0),
+    LS_DEF(5,  0x44c247, 0x44bbf0, 4, 16, LS_K_INT,0),
+    LS_DEF(6,  0x44c276, 0x44bbf0, 4, 16, LS_K_INT,0),
+    LS_DEF(7,  0x44c36f, 0x45c730, 0, 0,  LS_K_INT,0),
+    LS_DEF(8,  0x44c37e, 0x45c730, 0, 0,  LS_K_INT,0),
+    LS_DEF(9,  0x44c3b7, 0x45c370, 0, 0,  LS_K_INT,0),
+    LS_DEF(10, 0x44c3c6, 0x45c370, 0, 0,  LS_K_INT,0),
+    LS_DEF(11, 0x44c3cd, 0x45af50, 0, 0,  LS_K_INT,0),
+    LS_DEF(12, 0x44c3fa, 0x45c730, 0, 0,  LS_K_INT,0),
+    LS_DEF(13, 0x44c41c, 0x45c6f0, 1, 4,  LS_K_INT_W3_ARG1,0),
+    LS_DEF(14, 0x44c423, 0x403e80, 1, 4,  LS_K_INT,0),
+    LS_DEF(15, 0x44c4c4, 0x45c370, 0, 0,  LS_K_INT,0),
+    LS_DEF(16, 0x44c4cb, 0x45b150, 3, 12, LS_K_F32,0),
+    LS_DEF(17, 0x44c54d, 0x45c370, 0, 0,  LS_K_INT,0),
+    LS_DEF(18, 0x44c554, 0x45b3e0, 3, 12, LS_K_AL,0),
+    LS_DEF(19, 0x44c5d9, 0x45c370, 0, 0,  LS_K_INT,0),
+    LS_DEF(20, 0x44c5e0, 0x45b150, 3, 12, LS_K_F32,0),
+    LS_DEF(21, 0x44c65f, 0x45c370, 0, 0,  LS_K_INT,0),
+    LS_DEF(22, 0x44c666, 0x45b3e0, 3, 12, LS_K_AL,0),
+    LS_DEF(23, 0x44c6fc, 0x45c6f0, 1, 4,  LS_K_INT_W3_ARG1,0),
+    LS_DEF(24, 0x44c730, 0x44bbf0, 4, 16, LS_K_INT,0),
+    LS_DEF(25, 0x44c7da, 0x458050, 6, 24, LS_K_INT,0),
+    LS_DEF(26, 0x44c8c8, 0x45e1d0, 2, 8,  LS_K_INT_W3_RET,0),
+    LS_DEF(27, 0x44cd83, 0x45c370, 0, 0,  LS_K_INT,0),
+    LS_DEF(28, 0x44cd8e, 0x45c370, 0, 0,  LS_K_INT,0),
+    LS_DEF(29, 0x44cd95, 0x45af50, 0, 0,  LS_K_INT,0),
+    LS_DEF(30, 0x44cfec, 0x45c370, 0, 0,  LS_K_INT,0),
+    LS_DEF(31, 0x44cff7, 0x45c370, 0, 0,  LS_K_INT,0),
+    LS_DEF(32, 0x44cffe, 0x45af50, 0, 0,  LS_K_INT,0),
+    LS_DEF(33, 0x458142, 0x456b60, 1, 4,  LS_K_INT,0),
+    LS_DEF(34, 0x45811a, 0x457e20, 4, 16, LS_K_INT,0),
     /* v17: внутренние вызовы листа 0x45e1d0; 35/36 — cdecl `4cfa11` (ret_n=0
      * при nargs=1: аргумент снимает вызывающий). */
-    LS_DEF(35, 0x45e1e3, 0x4cfa11, 1, 0,  LS_K_INT),
-    LS_DEF(36, 0x45e23c, 0x4cfa11, 1, 0,  LS_K_INT),
-    LS_DEF(37, 0x45e274, 0x45c330, 0, 0,  LS_K_INT),
-    LS_DEF(38, 0x45e27b, 0x45ca70, 0, 0,  LS_K_INT),
-    LS_DEF(39, 0x45e297, 0x456b20, 1, 4,  LS_K_INT_W2_ARG1),
-    LS_DEF(40, 0x45e2ab, 0x456b20, 1, 4,  LS_K_INT_W2_ARG1),
-    LS_DEF(41, 0x45e316, 0x458050, 6, 24, LS_K_INT),
-    LS_DEF(42, 0x45e320, 0x45c8c0, 0, 0,  LS_K_INT),
-    LS_DEF(43, 0x45e32e, 0x434bc0, 2, 8,  LS_K_INT),
-    LS_DEF(44, 0x45e340, 0x45c2e0, 0, 0,  LS_K_INT),
-    LS_DEF(45, 0x45e3a2, 0x45c480, 2, 8,  LS_K_INT),
-    LS_DEF(46, 0x45e3b4, 0x45c690, 1, 4,  LS_K_INT),
-    LS_DEF(47, 0x45e3ea, 0x45c4b0, 3, 12, LS_K_INT),
-    LS_DEF(48, 0x45e3f2, 0x45dd00, 1, 4,  LS_K_INT),
-    LS_DEF(49, 0x45e443, 0x45ce80, 1, 4,  LS_K_INT),
-    LS_DEF(50, 0x45e46b, 0x45dd70, 2, 8,  LS_K_INT),
-    LS_DEF(51, 0x45e47e, 0x45c4b0, 3, 12, LS_K_INT),
-    LS_DEF(52, 0x45e487, 0x45ce80, 1, 4,  LS_K_INT),
-    LS_DEF(53, 0x45e49b, 0x456b20, 1, 4,  LS_K_INT_W2_ARG1),
-    LS_DEF(54, 0x45e4b1, 0x456b20, 1, 4,  LS_K_INT_W2_ARG1),
+    LS_DEF(35, 0x45e1e3, 0x4cfa11, 1, 0,  LS_K_INT,0),
+    LS_DEF(36, 0x45e23c, 0x4cfa11, 1, 0,  LS_K_INT,0),
+    LS_DEF(37, 0x45e274, 0x45c330, 0, 0,  LS_K_INT,0),
+    LS_DEF(38, 0x45e27b, 0x45ca70, 0, 0,  LS_K_INT,0),
+    LS_DEF(39, 0x45e297, 0x456b20, 1, 4,  LS_K_INT_W2_ARG1,0),
+    LS_DEF(40, 0x45e2ab, 0x456b20, 1, 4,  LS_K_INT_W2_ARG1,0),
+    LS_DEF(41, 0x45e316, 0x458050, 6, 24, LS_K_INT,0),
+    LS_DEF(42, 0x45e320, 0x45c8c0, 0, 0,  LS_K_INT,0),
+    LS_DEF(43, 0x45e32e, 0x434bc0, 2, 8,  LS_K_INT,0),
+    LS_DEF(44, 0x45e340, 0x45c2e0, 0, 0,  LS_K_INT,0),
+    LS_DEF(45, 0x45e3a2, 0x45c480, 2, 8,  LS_K_INT,0),
+    LS_DEF(46, 0x45e3b4, 0x45c690, 1, 4,  LS_K_INT,0),
+    LS_DEF(47, 0x45e3ea, 0x45c4b0, 3, 12, LS_K_INT,0),
+    LS_DEF(48, 0x45e3f2, 0x45dd00, 1, 4,  LS_K_INT,0),
+    LS_DEF(49, 0x45e443, 0x45ce80, 1, 4,  LS_K_INT,0),
+    LS_DEF(50, 0x45e46b, 0x45dd70, 2, 8,  LS_K_INT,0),
+    LS_DEF(51, 0x45e47e, 0x45c4b0, 3, 12, LS_K_INT,0),
+    LS_DEF(52, 0x45e487, 0x45ce80, 1, 4,  LS_K_INT,0),
+    LS_DEF(53, 0x45e49b, 0x456b20, 1, 4,  LS_K_INT_W2_ARG1,0),
+    LS_DEF(54, 0x45e4b1, 0x456b20, 1, 4,  LS_K_INT_W2_ARG1,0),
+    /* E0-diag (диаг-сайты ветки 1 0x45dd70; diag=1). */
+    LS_DEF(55, 0x45decb, 0x434bc0, 2, 8,  LS_K_INT,1),
+    LS_DEF(56, 0x45def5, 0x456ed0, 1, 4,  LS_K_INT,1),
+    LS_DEF(57, 0x45df17, 0x45cb40, 2, 8,  LS_K_INT,1),
+    LS_DEF(58, 0x45df2c, 0x45c2e0, 0, 0,  LS_K_INT,1),
+    LS_DEF(59, 0x45dfa6, 0x45dd00, 1, 4,  LS_K_INT,1),
 };
 
 int leaf_site_count(void)
@@ -428,6 +444,27 @@ int leaf_site_patch(void *site, void *target_expected, void **orig_slot,
     return ok;
 }
 
+/* Проверка ABI строки таблицы: `ret n` = 4*nargs, либо caller-clean cdecl
+ * (только operator_new 0x4cfa11, 1 аргумент, байты `83 C4 04` на continuation).
+ * Возврат 1 — ABI принимает; 0 — запись в sub (причина отказа). */
+static int ls_abi_ok(const leaf_site_def *d, void *site, char *sub, int cap)
+{
+    if (d->ret_n == 4 * d->nargs) {
+        return 1;
+    }
+    if (d->ret_n == 0 && d->nargs == 1 && d->target_va == 0x4cfa11) {
+        if (ls_caller_clean(site)) {
+            return 1;
+        }
+        ls_fail(sub, cap, "cdecl site: no add esp,%u at 0x%x",
+                (unsigned)(4 * d->nargs), (unsigned)(size_t)site);
+        return 0;
+    }
+    ls_fail(sub, cap, "bad ABI table entry (nargs*4=0x%x ret_n=0x%x)",
+            (unsigned)(4 * d->nargs), (unsigned)d->ret_n);
+    return 0;
+}
+
 int leaf_site_install_all(void *(*resolve)(unsigned va), char *why, int cap)
 {
     int i, n = 0, missing = 0;
@@ -440,9 +477,13 @@ int leaf_site_install_all(void *(*resolve)(unsigned va), char *why, int cap)
     for (i = 0; i < leaf_site_count(); i++) {
         const leaf_site_def *d = &k_leaf_sites[i];
         char sub[192];
-        void *site = resolve(d->site_va);
-        void *target = resolve(d->target_va);
+        void *site, *target;
 
+        if (d->diag != 0) {
+            continue;               /* diag-сайты: их ставит leaf_site_install_diag */
+        }
+        site = resolve(d->site_va);
+        target = resolve(d->target_va);
         sub[0] = '\0';
         /* ABI: либо лист снимает свои аргументы (`ret 4*nargs`), либо это
          * caller-clean cdecl. Второе допускается ТОЛЬКО для operator_new
@@ -453,20 +494,72 @@ int leaf_site_install_all(void *(*resolve)(unsigned va), char *why, int cap)
          * молча принять чужой ABI: ESP стабами не меняется, и при отсутствии
          * `add esp,4` continuation вошёл бы с ESP на 4 ниже (дрейф стека).
          * Любое другое несовпадение — отказ. */
-        if (d->ret_n != 4 * d->nargs &&
-            !(d->ret_n == 0 && d->nargs == 1 && d->target_va == 0x4cfa11 &&
-              ls_caller_clean(site))) {
-            if (d->ret_n == 0 && d->nargs == 1 && d->target_va == 0x4cfa11) {
-                ls_fail(sub, sizeof(sub), "cdecl site: no add esp,%u at 0x%x",
-                        (unsigned)(4 * d->nargs), (unsigned)(size_t)site);
-            } else {
-                ls_fail(sub, sizeof(sub),
-                        "bad ABI table entry (nargs*4=0x%x ret_n=0x%x)",
-                        (unsigned)(4 * d->nargs), (unsigned)d->ret_n);
-            }
+        if (!ls_abi_ok(d, site, sub, (int)sizeof(sub))) {
+            /* ABI-строка таблицы не принята — сайт не патчится */
         } else if (!leaf_site_patch(site, target, d->orig_slot, d->handler,
                                     sub, (int)sizeof(sub))) {
             /* молча терять листья нельзя: маркер виден в захвате */
+        } else {
+            n++;
+            continue;
+        }
+        missing++;
+        if (g_ls_sink != NULL && g_ls_sink->missing != NULL) {
+            g_ls_sink->missing((int)d->site_va, (int)d->target_va, sub);
+        }
+        if (why != NULL && cap > 0 && why[0] == '\0') {
+            _snprintf_s(why, (size_t)cap, _TRUNCATE, "%s", sub);
+        }
+    }
+    if (why != NULL && cap > 0) {
+        char tail[64];
+        _snprintf_s(tail, sizeof(tail), _TRUNCATE, "patched=%d missing=%d",
+                    n, missing);
+        if (why[0] == '\0') {
+            _snprintf_s(why, (size_t)cap, _TRUNCATE, "%s", tail);
+        }
+    }
+    return n;
+}
+
+int leaf_site_diag_count(void)
+{
+    int i, n = 0;
+
+    for (i = 0; i < leaf_site_count(); i++) {
+        if (k_leaf_sites[i].diag != 0) n++;
+    }
+    return n;
+}
+
+/* Установка ТОЛЬКО diag-сайтов (таблица с diag=1). Тот же ABI-гейт и та же
+ * байтовая проверка сайта, что у leaf_site_install_all: несовпадение — пропуск
+ * с записью в `why`/sink->missing, а не молчаливая потеря. */
+int leaf_site_install_diag(void *(*resolve)(unsigned va), char *why, int cap)
+{
+    int i, n = 0, missing = 0;
+
+    if (why != NULL && cap > 0) why[0] = '\0';
+    if (resolve == NULL) {
+        ls_fail(why, cap, "no resolver (0x%x)", 0, 0);
+        return 0;
+    }
+    for (i = 0; i < leaf_site_count(); i++) {
+        const leaf_site_def *d = &k_leaf_sites[i];
+        char sub[192];
+        void *site, *target;
+
+        if (d->diag == 0) {
+            continue;
+        }
+        site = resolve(d->site_va);
+        target = resolve(d->target_va);
+        sub[0] = '\0';
+        if (!ls_abi_ok(d, site, sub, (int)sizeof(sub))) {
+            /* ABI-строка таблицы не принята — сайт не патчится */
+        } else if (!leaf_site_patch(site, target, d->orig_slot, d->handler,
+                                    sub, (int)sizeof(sub))) {
+            /* сайт не `call rel32` на ожидаемую цель — пропуск */
         } else {
             n++;
             continue;

@@ -476,7 +476,7 @@ static unsigned char *find_sig(unsigned char *start, size_t len,
 /* Безопасная запись E9 rel32 по адресу target; total = длина патча
  * (5 байт для site1/site3, 6 для site2: E9+nop, как в exepatch12;
  * до 10 для trace-сайтов H1/H7: E9+nop-дополнение украденных байт). */
-static int write_jmp(void *target, void *dest, int total)
+int write_jmp(void *target, void *dest, int total)
 {
     DWORD old;
     unsigned char patch[16];
@@ -1240,6 +1240,9 @@ extern "C" __declspec(dllexport) void initldhook(void)
             install_site6();
             install_tick_hook();       /* 4.2: детур 45eee0 — гейт LDHOOK_SITE6_EEE0 */
             s6_on = s6_on_site;
+            if (!s6_on) {
+                e0_native_install();   /* LDHOOK_E0_DIAG=1: рег-хук + сайты ветки 1 */
+            }
         }
         install_tick_detour(install_trace_sites());  /* 5.1b: detour 44bdd0 */
         if (!s6_on) {
