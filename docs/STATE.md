@@ -224,6 +224,13 @@
   реплеится офлайн без расхождений (`path_post_match`/`path_boundary_args` 386/386, `fail=0`).
 - `[P]` Поставка (26.11.2026): `check_sites` installable, `smoke_api` OK, `probe_exitcode` — без событий
   Application/WER; два прогона A/B расходятся только адресами и временем (`docs/PITFALLS.md`, 22.11.2026).
+- `[P]` Фазы 8–9 (26.11.2026): 8.3 — 36 именованных слотов кадра `FR_*` в `battle/tick.cpp`; 9.d1/9.d2/9.m1 —
+  `tools/probes/battle_invariants.py` (инварианты, `latency`/`spin`, `--profile`, `--baseline`) и
+  `tools/probes/battle_ab_runs.py` (перемежаемые A/B по живому сценарию); `check_state --quick` rc 0.
+- `[P]` Лаг (26.11.2026): причина — приток кандидатов, не скан. `LDHOOK_E0_DIAG` даёт `rep=0`/`f3=0`/`mchg=0`
+  и регистрацию 1.14 узла/итерацию у порта против 0.35 у натива (`0x45dfa6`); спин до таймаута `45c5a0`.
+- `[P]` Гейты порта (26.11.2026): `LDHOOK_SITE6` (e0a0) и `LDHOOK_SITE6_EEE0` (тик `45eee0`) независимы,
+  второй по умолчанию = первому; краш-логгер `LDHOOK_CRASHLOG` (VEH, стадии, глубина) — no-op без env.
 - `[P]` Офлайн-гейт `458050`: `bdd0_grid_level_modelled()` (сетки в v12..v15 нет) — сводка
   `grid_anchor_replayed`, включение — `docs/PITFALLS.md`. Out-writes сверяет `B0_LEAF_CLAIM_W` (`ported.h`).
 - `[P]` Офлайн-гейт `45b150`/`45b3e0` (`battle/tick.cpp`): порты `s6_band_interp_gate`/`s6_band_target_moved`
