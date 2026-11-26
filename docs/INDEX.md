@@ -16,6 +16,7 @@
 | наблюдения: оверленд, боевой HUD, диалоги, съёмка экранов | `docs/OBSERVATIONS_UI.md` |
 | наблюдения: шрифты, глифы, advance, коэффициент A, масштаб текста | `docs/OBSERVATIONS_FONT.md` |
 | наблюдения: раскод `.btf`, packer, курсоры, иконки, апскейлы | `docs/OBSERVATIONS_TEXTURE.md` |
+| наблюдения: боевой AI — автомат тика, поиск цели, A*, метрика | `docs/OBSERVATIONS_BATTLE_AI.md` |
 | грабли (симптом → причина → обход) | `docs/PITFALLS.md` |
 | реестр опровергнутых утверждений | `docs/CONTRADICTIONS.md` |
 | план исследования: прокси-DLL вместо cave-патчей (C, логгер, размер) | `docs/PLAN_proxy_dll.md` |
@@ -28,7 +29,7 @@
 
 `docs/INDEX.md` → `docs/STATE.md` → `docs/VERIFY.md` → `docs/PATCHES.md` → `docs/PIPELINE.md` →
 `docs/TOOLS.md` → `docs/KNOWLEDGE.md` → `docs/OBSERVATIONS_ENGINE.md` → `docs/OBSERVATIONS_UI.md` →
-`docs/OBSERVATIONS_FONT.md` → `docs/OBSERVATIONS_TEXTURE.md` → `docs/PITFALLS.md` →
+`docs/OBSERVATIONS_FONT.md` → `docs/OBSERVATIONS_TEXTURE.md` → `docs/OBSERVATIONS_BATTLE_AI.md` → `docs/PITFALLS.md` →
 `docs/CONTRADICTIONS.md` → `docs/archive/**`.
 
 ## Назначение файлов
@@ -51,6 +52,7 @@
 | `docs/OBSERVATIONS_UI.md` | наблюдения: оверленд, бои, диалог, меню, съёмка экранов, baseline |
 | `docs/OBSERVATIONS_FONT.md` | наблюдения: шрифты, глифы, advance, коэффициент A, масштаб текста |
 | `docs/OBSERVATIONS_TEXTURE.md` | наблюдения: раскод/формат `.btf`, packer, курсоры, иконки, апскейлы |
+| `docs/OBSERVATIONS_BATTLE_AI.md` | наблюдения: боевой AI — автомат тика `44bdd0`, цикл `45e0a0`, A* (PathState/карты/маски), метрика и выбор цели, бюджет вызовов |
 | `docs/PITFALLS.md` | известные грабли: симптом → причина → обход |
 | `docs/CONTRADICTIONS.md` | реестр опровергнутых утверждений (фиксировать, не «починить» молча) |
 | `docs/PLAN_proxy_dll.md` | план исследования: прокси-`python22.dll` вместо cave-патчей (C, логгер, снятие лимита 238 байт) |

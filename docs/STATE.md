@@ -213,6 +213,8 @@
   окно nested, `bdd0_cand` на каждом скане, `w[0..1]` на всех четырёх `456b20`); иначе — реплей записанного
   натива (`path_recompute_replayed`). Тело — `battle/recompute.cpp`, граница `path_boundary(site, va, ECX, args)`;
   сверки — `path_post_match` (pf/карты) и `path_boundary_args` (приёмник/аргументы против записи), `bdd0/checks_builtin.cpp`.
+- `[P]` Фаза 6 закрыта (26.11.2026): `docs/OBSERVATIONS_BATTLE_AI.md` — автомат тика R1..R23 и выходы,
+  поиск цели/скан, поля A* и маски, метрика и выбор цели, граф вызовов, бюджет на тик, формат trace, открытые семантики.
 - `[P]` Офлайн-гейт `458050`: `bdd0_grid_level_modelled()` (сетки в v12..v15 нет) — сводка
   `grid_anchor_replayed`, включение — `docs/PITFALLS.md`. Out-writes сверяет `B0_LEAF_CLAIM_W` (`ported.h`).
 - `[P]` Офлайн-гейт `45b150`/`45b3e0` (`battle/tick.cpp`): порты `s6_band_interp_gate`/`s6_band_target_moved`
