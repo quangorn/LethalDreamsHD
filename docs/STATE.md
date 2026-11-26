@@ -202,6 +202,9 @@
 - `[P]` capture v17 (26.11.2026): 20 внутренних сайтов листа `0x45e1d0` (номера 35..54,
   `battle/leaf_sites.cpp`) в поток `bdd0_leaf` + аддитивный `kind:"bdd0_site_pf"` на сайте `0x45e320`
   (`cap_leaf_sink_exit`); ABI-гейт сайтов: caller-clean cdecl только `0x4cfa11` + байты `83 C4 04` — `battle/capture.cpp`.
+- `[P]` capture v18 (аддитивно, 26.11.2026): вид листа `LS_K_INT_W2_ARG1` (пара float `456b20` по out-arg1
+  в `w[0..1]`) на сайтах `0x45e297`/`0x45e2ab`/`0x45e49b`/`0x45e4b1` и `kind:"bdd0_cand"` (PathState 0x58
+  на выходе `45ce80`) на сайтах `0x45e443`/`0x45e487` — `battle/leaf_sites.{h,cpp}`, `battle/capture.cpp`.
 - `[P]` Фаза 5.2 (24.11.2026): портированы `45c370`/`45af50`/`45c6f0`(`b0_read_pos_from_ctx`)/`403e80`
   (`b0_pos3_equal`; в захватах всегда `ret=0`, истинная ветвь — только синтетика)/`456b60`/`457e20`/
   `458050` — `battle/grid.cpp`, сайты 33/34 (`0x458142`/`0x45811a`), `grid.cpp` в харнессе.

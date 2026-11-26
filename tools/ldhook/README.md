@@ -43,7 +43,7 @@ site3 считает FP-последовательность `cave3` (x87: `fild
 | `battle/move.cpp` | `s6_unit_ai_tick` — тик юнит-AI `FUN_0045eee0` (Фаза 4: порт тела + детур). |
 | `battle/tick.{cpp,h} + trace.h` | тик `FUN_0044bdd0` (Фаза 5) и trace-каркас `LDHOOK_BATTLE_TRACE` (формат строки — п. 1.7 плана; API/формат — `trace.h`). |
 | `battle/trace.cpp` | наблюдатели тика H1/H2/H3/H7 + trace-строка (29 полей; H5/H6 — точки site5/порта), общий счётчик `vis` с портом `s6_ai_update`, пиннинг seed'а R1..R3. |
-| `battle/capture.{cpp,h}` | офлайн-захват (`LDHOOK_BATTLE_CAPTURE=<jsonl>`): по-вызовные записи `cap`/`res`/`grid`/`eee0_*`/`bdd0_cap`/`bdd0_res`/`bdd0_in`/`bdd0_leaf`/`bdd0_leaf_pre`/`bdd0_leaf_post`/`bdd0_site_pf`/`bdd0_native`; хуки сайтов нативных вызовов тела `44bdd0` |
+| `battle/capture.{cpp,h}` | офлайн-захват (`LDHOOK_BATTLE_CAPTURE=<jsonl>`): по-вызовные записи `cap`/`res`/`grid`/`eee0_*`/`bdd0_cap`/`bdd0_res`/`bdd0_in`/`bdd0_leaf`/`bdd0_leaf_pre`/`bdd0_leaf_post`/`bdd0_site_pf`/`bdd0_cand`/`bdd0_native`; хуки сайтов нативных вызовов тела `44bdd0` |
 | `battle/native_sites.{cpp,h} + native_sites_table.inc` | таблица RECORD-сайтов не-листовых нативов `44bdd0` (эмитируется `tools/probes/gen_native_sites.py`) и стубы с записью аргументов/результата |
 | `battle/leaf_sites.{cpp,h}` | хуки логических листьев `44bdd0` (`bdd0_leaf`): запись ecx, аргументов и возврата |
 | `fetch_headers.py` | официальный Python 2.2.3 (python.org): `Include/*.h` + `PC/pyconfig.h` → `vendor/py223/include/` (untracked) |
@@ -211,7 +211,9 @@ python3 tools/probes/leaf_stream_diff.py <capture.jsonl> <res_port.jsonl> [--ext
 и `maps` обеих RB-карт), v17 (аддитивно: 20 внутренних сайтов листа `0x45e1d0` — номера 35..54,
 `battle/leaf_sites.cpp`) в тот же поток `bdd0_leaf` и `bdd0_site_pf` на сайте `0x45e320` — блоб
 pre/post после `45c8c0`; ABI-гейт сайтов допускает caller-clean cdecl только для `0x4cfa11` с байтами
-`83 C4 04` в continuation). Ключи по версиям: v3 — `ai_words` (скалярный блок
+`83 C4 04` в continuation), v18 (аддитивно: вид листа `LS_K_INT_W2_ARG1` — пара float `456b20` по out-arg1
+в `w[0..1]` на сайтах `0x45e297/0x45e2ab/0x45e49b/0x45e4b1`, и `kind:"bdd0_cand"` — PathState 0x58 на выходе
+`45ce80` у сайтов `0x45e443/0x45e487`; `battle/leaf_sites.*`, `battle/capture.cpp`). Ключи по версиям: v3 — `ai_words` (скалярный блок
 BattleAI), v4 — `ai_words_after`; v5 — запись `grid` перед первой `cap` (уровни/размеры,
 `cells` (LDPos-вид, метрики, ключи, связи), `rows`, статусы world-дерева, внешние входы
 эвристики, `res.timer`); v6 — значения гейта листьев + стек-арги cb40; v7 — `scale`/`scale_ok`:

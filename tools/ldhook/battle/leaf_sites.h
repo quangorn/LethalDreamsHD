@@ -42,6 +42,7 @@
 #define LS_K_F32         2   /* ST(0) как float-биты (45b150) */
 #define LS_K_INT_W3_ARG1 3   /* EAX + 3 dword'а по arg1 (out-тройка 45c6f0) */
 #define LS_K_INT_W3_RET  4   /* EAX + 3 dword'а по EAX (тройка 45e1d0) */
+#define LS_K_INT_W2_ARG1 5   /* EAX + 2 dword'а по arg1 (float-пара 456b20) */
 
 /* Предел глубины LIFO (44bdd0 ре-входим не глубже BDD0_STACK_MAX=32). */
 #define LS_RET_MAX 64

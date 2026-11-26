@@ -175,6 +175,7 @@ void __cdecl cap_leaf_finish(int va, int ret_bits)
     ls_ent *e;
     int w[3];
     int nw = 0;
+    int ncopy;
     int trap;
     const void *src = NULL;
 
@@ -191,15 +192,19 @@ void __cdecl cap_leaf_finish(int va, int ret_bits)
         trap = 1;                   /* рассинхрон пары вход/выход */
     }
     w[0] = w[1] = w[2] = 0;
+    ncopy = 3;
     if (e->kind == LS_K_INT_W3_ARG1) {
         src = (const void *)(size_t)(unsigned)e->args[0];
     } else if (e->kind == LS_K_INT_W3_RET) {
         src = (const void *)(size_t)(unsigned)ret_bits;
+    } else if (e->kind == LS_K_INT_W2_ARG1) {
+        src = (const void *)(size_t)(unsigned)e->args[0];
+        ncopy = 2;                  /* 456b20: пара float по out-указателю */
     }
     if (src != NULL) {
         __try {
-            memcpy(w, src, 3 * sizeof(int));
-            nw = 3;
+            memcpy(w, src, (size_t)ncopy * sizeof(int));
+            nw = ncopy;
         } __except (EXCEPTION_EXECUTE_HANDLER) {
             nw = 0;
             trap = 1;
@@ -254,8 +259,8 @@ LS_SITE(35, 0x45e1e3, 0x4cfa11, 1, 0,  INT, LS_K_INT)           /* 0x45e1e3 oper
 LS_SITE(36, 0x45e23c, 0x4cfa11, 1, 0,  INT, LS_K_INT)           /* 0x45e23c operator_new 0x10 */
 LS_SITE(37, 0x45e274, 0x45c330, 0, 0,  INT, LS_K_INT)           /* 0x45e274 */
 LS_SITE(38, 0x45e27b, 0x45ca70, 0, 0,  INT, LS_K_INT)           /* 0x45e27b clear_maps */
-LS_SITE(39, 0x45e297, 0x456b20, 1, 4,  INT, LS_K_INT)           /* 0x45e297 grid_scale */
-LS_SITE(40, 0x45e2ab, 0x456b20, 1, 4,  INT, LS_K_INT)           /* 0x45e2ab grid_scale */
+LS_SITE(39, 0x45e297, 0x456b20, 1, 4,  INT, LS_K_INT_W2_ARG1)  /* 0x45e297 grid_scale */
+LS_SITE(40, 0x45e2ab, 0x456b20, 1, 4,  INT, LS_K_INT_W2_ARG1)  /* 0x45e2ab grid_scale */
 LS_SITE(41, 0x45e316, 0x458050, 6, 24, INT, LS_K_INT)           /* 0x45e316 grid_anchor (EAX) */
 LS_SITE(42, 0x45e320, 0x45c8c0, 0, 0,  INT, LS_K_INT)           /* 0x45e320 search_params */
 LS_SITE(43, 0x45e32e, 0x434bc0, 2, 8,  INT, LS_K_INT)           /* 0x45e32e lower_bound */
@@ -268,8 +273,8 @@ LS_SITE(49, 0x45e443, 0x45ce80, 1, 4,  INT, LS_K_INT)           /* 0x45e443 scan
 LS_SITE(50, 0x45e46b, 0x45dd70, 2, 8,  INT, LS_K_INT)           /* 0x45e46b ai_update */
 LS_SITE(51, 0x45e47e, 0x45c4b0, 3, 12, INT, LS_K_INT)           /* 0x45e47e copy_fields */
 LS_SITE(52, 0x45e487, 0x45ce80, 1, 4,  INT, LS_K_INT)           /* 0x45e487 scan_map */
-LS_SITE(53, 0x45e49b, 0x456b20, 1, 4,  INT, LS_K_INT)           /* 0x45e49b grid_scale */
-LS_SITE(54, 0x45e4b1, 0x456b20, 1, 4,  INT, LS_K_INT)           /* 0x45e4b1 grid_scale */
+LS_SITE(53, 0x45e49b, 0x456b20, 1, 4,  INT, LS_K_INT_W2_ARG1)  /* 0x45e49b grid_scale */
+LS_SITE(54, 0x45e4b1, 0x456b20, 1, 4,  INT, LS_K_INT_W2_ARG1)  /* 0x45e4b1 grid_scale */
 
 #define LS_DEF(n, site, va, nargs, retn, kind)                                \
     { site, va, nargs, retn, kind, (void *)cap_ls##n##_hook, &g_ls_orig##n }
@@ -315,8 +320,8 @@ static const leaf_site_def k_leaf_sites[] = {
     LS_DEF(36, 0x45e23c, 0x4cfa11, 1, 0,  LS_K_INT),
     LS_DEF(37, 0x45e274, 0x45c330, 0, 0,  LS_K_INT),
     LS_DEF(38, 0x45e27b, 0x45ca70, 0, 0,  LS_K_INT),
-    LS_DEF(39, 0x45e297, 0x456b20, 1, 4,  LS_K_INT),
-    LS_DEF(40, 0x45e2ab, 0x456b20, 1, 4,  LS_K_INT),
+    LS_DEF(39, 0x45e297, 0x456b20, 1, 4,  LS_K_INT_W2_ARG1),
+    LS_DEF(40, 0x45e2ab, 0x456b20, 1, 4,  LS_K_INT_W2_ARG1),
     LS_DEF(41, 0x45e316, 0x458050, 6, 24, LS_K_INT),
     LS_DEF(42, 0x45e320, 0x45c8c0, 0, 0,  LS_K_INT),
     LS_DEF(43, 0x45e32e, 0x434bc0, 2, 8,  LS_K_INT),
@@ -329,8 +334,8 @@ static const leaf_site_def k_leaf_sites[] = {
     LS_DEF(50, 0x45e46b, 0x45dd70, 2, 8,  LS_K_INT),
     LS_DEF(51, 0x45e47e, 0x45c4b0, 3, 12, LS_K_INT),
     LS_DEF(52, 0x45e487, 0x45ce80, 1, 4,  LS_K_INT),
-    LS_DEF(53, 0x45e49b, 0x456b20, 1, 4,  LS_K_INT),
-    LS_DEF(54, 0x45e4b1, 0x456b20, 1, 4,  LS_K_INT),
+    LS_DEF(53, 0x45e49b, 0x456b20, 1, 4,  LS_K_INT_W2_ARG1),
+    LS_DEF(54, 0x45e4b1, 0x456b20, 1, 4,  LS_K_INT_W2_ARG1),
 };
 
 int leaf_site_count(void)

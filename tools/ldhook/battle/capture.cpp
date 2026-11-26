@@ -60,10 +60,14 @@
 /* v12: снапшот входа (kind bdd0_in) и поток логических листьев (bdd0_leaf).
  * Версия только этих двух родов; пара bdd0_cap/res остаётся CAP_BDD0_VER (11),
  * cap/res/grid/eee0_* — CAP_VERSION (10). */
-#define CAP_BDD0_SNAP_VER   17         /* v17: + 20 внутренних сайтов листа 0x45e1d0
-                                        * (bdd0_leaf вложенного уровня) и site-pf
-                                        * "bdd0_site_pf" на сайте 0x45e320 (выход
-                                        * 45c8c0); v16: + "band_pos" + grid-запись */
+#define CAP_BDD0_SNAP_VER   18         /* v18: пара float 456b20 в bdd0_leaf
+                                        * (LS_K_INT_W2_ARG1, w[0..1] = два dword по
+                                        * out-arg1) на сайтах 0x45e297/0x45e2ab/
+                                        * 0x45e49b/0x45e4b1 + аддитивный
+                                        * "bdd0_cand" (снапшот PathState 0x58 на
+                                        * выходе 45ce80) на сайтах 0x45e443/0x45e487;
+                                        * v17: + 20 внутренних сайтов листа и
+                                        * "bdd0_site_pf"; v16: + "band_pos" + grid */
 #define CAP_BDD0_FRAME_SIZE 0x168  /* локалы 0x00..0x15b + param_1/2/3 (0x15c/0x160/0x164) */
 /* unit-блок 0x180: покрывает все чтения unit из tick.cpp (максимум +0x170;
  * +0x138 — встроенный BattleAI, снимается отдельным блоком ниже). 0x180
@@ -2277,6 +2281,42 @@ static void cap_write_bdd0_leaf_state_rec(const char *kind, int seq, int order,
     fputs("}\n", g_file);
 }
 
+/* v18 (аддитивно): bdd0_cand — состояние объекта, ВОЗВРАЩЁННОГО 45ce80
+ * (PathState* или 0), снятое прямо на выходе сканирующего сайта 0x45e443 /
+ * 0x45e487. Порту нужен именно этот момент: 0x58 Б PathState по адресу в
+ * `ret`, а не post-состояние всего листа. Заголовок — как у bdd0_leaf; ps_b64 —
+ * base64 0x58 Б, null когда указатель 0 или память нечитаема (под __try). Одна
+ * запись на вызов скана. */
+static void cap_write_bdd0_cand(int seq, int order, int site, int va,
+                                int ecx, const int *args, int nargs, int cand)
+{
+    unsigned char ps[0x58];
+    int ps_ok = 0, k;
+
+    if (g_file == NULL) {
+        return;
+    }
+    fprintf(g_file, "{\"v\":%d,\"kind\":\"bdd0_cand\",\"seq\":%d,\"order\":%d,"
+            "\"site\":\"%x\",\"va\":\"%x\",\"ecx\":%d,\"args\":[",
+            CAP_BDD0_SNAP_VER, seq, order, site, va, ecx);
+    for (k = 0; k < nargs; k++) {
+        if (args != NULL) {
+            fprintf(g_file, "%s%d", k ? "," : "", args[k]);
+        }
+    }
+    fprintf(g_file, "],\"cand\":%d,\"ps_b64\":", cand);
+    if (cand != 0) {
+        __try {
+            memcpy(ps, (const void *)(size_t)(unsigned)cand, 0x58);
+            ps_ok = 1;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            ps_ok = 0;
+        }
+    }
+    cap_write_b64_field(g_file, ps_ok, ps, 0x58);
+    fputs("}\n", g_file);
+}
+
 static int cap_leaf_sink_enter(int site, int va, int ecx, const int *args,
                                int nargs)
 {
@@ -2324,6 +2364,12 @@ static void cap_leaf_sink_exit(int token, int va, int ecx, const int *args,
     site = g_leaf_q_site[token];
     battle_capture_bdd0_leaf_rec(site, va, (const void *)(size_t)ecx, args,
                                  nargs, ret_bits, w, nw, seq, order, trap);
+    /* v18 (аддитивно): кандидат-снапшот только у сканирующих сайтов 0x45e443/
+     * 0x45e487 — EAX 45ce80 и есть PathState*, чьё состояние нужно порту в
+     * этот момент. При trap (рассинхрон LIFO/сбой) ret не достоверен — пропуск. */
+    if (!trap && (site == 0x45e443 || site == 0x45e487)) {
+        cap_write_bdd0_cand(seq, order, site, va, ecx, args, nargs, ret_bits);
+    }
     /* v16: post-состояние сразу за bdd0_leaf, тем же seq/order/site/va и
      * ecx/args из exit; не пишется при trap (в т.ч. рассинхрон LIFO) — token
      * уже проверен выше. Только лист 0x45e1d0 (guard по va). */
