@@ -157,6 +157,18 @@ int bdd0_grid_level_modelled(void);
  * в загрузчик, (в) оба VA в b0_ported_leaf_va с claim из тел портов.
  * Всё разом: arena.cpp bdd0_band_geometry_modelled, battle/ported.h. */
 int bdd0_band_geometry_modelled(void);
+
+/* Офлайн-харнесс линкует tick.cpp без battle/target.cpp (его заменяет
+ * bdd0/native_stubs.cpp), поэтому определения crash-состояния и stub-гейт
+ * detour'а 45eee0 — здесь. Дефолт stub'а = stub s6_port_enabled() из
+ * native_stubs.cpp (0): replay-путь `45eee0` остаётся native::unit_ai_tick,
+ * как до развязки гейтов. Живой билд (BATTLE_REPLAY не определён) берёт
+ * определения из ldhook.cpp, гейт — из target.cpp. */
+volatile LONG g_crash_on = 0;
+volatile LONG g_depth = 0;
+volatile unsigned char g_stage = 0;
+unsigned char g_stage_stack[LD_CRASH_MAX_STK];
+int s6_eee0_enabled(void) { return 0; }
 #endif
 /* === BEGIN LABEL TRACE === */
 /* Label trace, gated by -DB0_TRACE_LABELS=1.
@@ -655,6 +667,7 @@ static void *b0_band_head(void *ai_)
  * идут через b0_band_interp_gate (реплей натива, см. ниже). */
 float s6_band_interp_gate(const void *band_, float px, int dead_arg, float py)
 {
+    LD_CRASH_SCOPE(8);           /* LDHOOK_CRASHLOG: stage 8 (no-op off) */
     const unsigned char *b = (const unsigned char *)band_;
     float best = 100.0f;            /* 0x45b15e MOV dword [E+0x10],0x42c80000 */
     unsigned i = 1;                 /* 0x45b166 EBX = 1 */
@@ -832,6 +845,7 @@ static float b0_band_interp_gate(void *band, float px, int dead_arg, float py)
  * 18/22 идут через b0_band_target_moved (реплей натива, см. ниже). */
 int s6_band_target_moved(const void *band_, float p1, int dead_arg, float p3)
 {
+    LD_CRASH_SCOPE(8);           /* LDHOOK_CRASHLOG: stage 8 (no-op off) */
     const unsigned char *b = (const unsigned char *)band_;
     unsigned begin, end;
     int count;
@@ -1064,15 +1078,16 @@ static void *b0_grid_anchor(void *grid, int x_bits, int y_metric_bits,
 
 /* --- R17: диспетчер `45eee0` -------------------------------------------- *
  * Сигнатура натива: `int __thiscall(ECX = BattleAI*, stack = rec)`, `ret $4`.
- * Гейт — `s6_port_enabled()` (target.cpp; тот же, что у site6): включён →
- * порт Фазы 4 `s6_unit_ai_tick`, выключен → нативный `45eee0` через чистую
- * thiscall-обёртку `native::unit_ai_tick` (НЕ накед-хук/трамплин site6 —
- * тот ставится только под LDHOOK_SITE6 и заменяет вход функции целиком).
+ * Гейт — `s6_eee0_enabled()` (target.cpp; гейт detour'а 45eee0, а НЕ гейт
+ * порта e0a0): включён → порт Фазы 4 `s6_unit_ai_tick`, выключен → нативный
+ * `45eee0` через чистую thiscall-обёртку `native::unit_ai_tick` (НЕ накед-хук/
+ * трамплин site6 — тот ставится только под гейтом detour'а). Нативный 45eee0
+ * сам зовёт e0a0, решение по которому — s6_port_enabled() (site6/site5).
  * Аргументы — ровно те, что уже стоят в call-site порта: ctx = unit+0x138,
  * rec = &per-tick записи (frame+0xa4). */
 static int b0_45eee0_dispatch(void *ctx, void *rec)
 {
-    if (s6_port_enabled()) {
+    if (s6_eee0_enabled()) {
         return s6_unit_ai_tick((BattleAI *)ctx, rec);
     }
     return native::unit_ai_tick(ctx, rec);

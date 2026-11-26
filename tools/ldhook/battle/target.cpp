@@ -357,12 +357,25 @@ __declspec(naked) void s5_tail_hook(void)
 
 #define S6_HEAVY_ITER  20        /* > нормы (~2): считаем вызов тяжёлым */
 
-/* Гейт порта site6 — единственный источник истины для env LDHOOK_SITE6
- * (дефолт 0 = выкл). Включают: непустое числовое значение != 0 либо ведущий
- * `t`/`T` (true/TRUE) — `atoi("true")` даёт 0, поэтому префикс разбирается
- * отдельно. Читается install_site6 (ldhook.cpp), initldhook и диспетчером
- * e0a0/детуром 45eee0 (battle/move.cpp). Значение кэшируется на первом
- * вызове — env в рантайме не меняется. */
+/* Разбор env-флага (дефолт 0 = выкл): непустое числовое значение != 0 либо
+ * ведущий `t`/`T` (true/TRUE) — `atoi("true")` даёт 0, поэтому префикс
+ * разбирается отдельно. Значение кэшируется на первом вызове — env в рантайме
+ * не меняется. */
+static int ld_env_flag(const char *name, int dflt)
+{
+    const char *env = getenv(name);
+
+    if (env == NULL || *env == '\0') {
+        return dflt;
+    }
+    if (*env == 't' || *env == 'T') {
+        return 1;
+    }
+    return (atoi(env) != 0);
+}
+
+/* Гейт порта site6 — единственный источник истины для S6_ENV. Читается
+ * install_site6 (ldhook.cpp), initldhook и диспетчером e0a0 (battle/move.cpp). */
 int s6_port_enabled(void)
 {
 #ifdef BATTLE_REPLAY
@@ -371,15 +384,28 @@ int s6_port_enabled(void)
     static int on = -1;
 
     if (on < 0) {
-        const char *env = getenv(S6_ENV);
+        on = ld_env_flag(S6_ENV, 0);
+    }
+    return on;
+#endif
+}
 
-        if (env == NULL || *env == '\0') {
-            on = 0;
-        } else if (*env == 't' || *env == 'T') {
-            on = 1;
-        } else {
-            on = (atoi(env) != 0);
-        }
+/* Гейт detour'а 45eee0 (install_tick_hook) — LDHOOK_SITE6_EEE0; единственный
+ * источник истины для него. Дефолт = мастер LDHOOK_SITE6 (s6_port_enabled()),
+ * поэтому без новой переменной old-поведение сохранено: SITE6=1 ставит оба
+ * detour'а. SITE6=1 + SITE6_EEE0=0 = порт e0a0 на месте, 45eee0 нативный.
+ * Ключевое свойство: решения НЕ пересозависимы — detour 45eee0 влияет только
+ * на install_tick_hook и на выбор порт/натив для 45eee0 (tick.cpp R17),
+ * решение e0a0 (site6, site5, trace H5/H6) по-прежнему только по S6_ENV. */
+int s6_eee0_enabled(void)
+{
+#ifdef BATTLE_REPLAY
+    return 1;
+#else
+    static int on = -1;
+
+    if (on < 0) {
+        on = ld_env_flag(S6_EEE0_ENV, s6_port_enabled());
     }
     return on;
 #endif
@@ -1047,6 +1073,7 @@ int s6_ai_update(void *this_, void *cand, int arg2)
     int cpx = -2, cpy = -2, embx = -2, emby = -2;
     void *emb = NULL;
     volatile LONG ai_stage = 0;   /* LOG=2: где порвал AV внутри 3x3 */
+    ld_crash_enter(3);            /* LDHOOK_CRASHLOG: stage 3, depth++ (no-op off) */
     void *ex_path = NULL;         /* LOG=2: последний path_res для ai_ex */
 
     InterlockedIncrement(&g_ai_calls);
@@ -1055,7 +1082,7 @@ int s6_ai_update(void *this_, void *cand, int arg2)
     battle_trace_visit();
 
     if (cur == NULL) {
-        return 0;
+        LD_CRASH_RET(0);
     }
 
     __try {
@@ -1064,12 +1091,22 @@ int s6_ai_update(void *this_, void *cand, int arg2)
                                                               /* grid root @0x45dee4/0x45dee7 */
         cpx = pos->x;
         cpy = pos->y;
-        /* LOG=2: *(cur->pos) — то, что cb40 читает как центр (@0x45cb4d/4f/52). */
+        /* LOG=2: *(cur->pos) — то, что cb40 читает как центр (@0x45cb4d/4f/52).
+         * pos+0x00 — НЕ всегда указатель (замер: 0xa7b3), и разыменование мусора
+         * давало AV на первый шанс → ложную CRASH-строку в логе. Гейт ниже —
+         * ДИАГНОСТИЧЕСКАЯ ЭВРИСТИКА правдоподобия user-space указателя
+         * (диапазон + выравнивание), а не знание о поле: при непроходе
+         * остаются sentinel'ы «неизвестно» (emb=NULL, embx=emby=-2), разыменования нет.
+         * Внутренний __try оставлен: правдоподобное, но невалидное значение
+         * и дальше обрабатывается здесь же, а не внешним handler'ом s6_ai_update. */
         __try {
-            emb = *(void **)pos;
-            if (emb != NULL) {
+            unsigned long v = (unsigned long)(INT_PTR)*(const void **)(pos);
+            if (v >= 0x00010000ul && v < 0x7fff0000ul && (v & 3u) == 0u) {
+                emb = (void *)(INT_PTR)v;
                 embx = *(const int *)((const unsigned char *)emb + 0x0c);
                 emby = *(const int *)((const unsigned char *)emb + 0x10);
+            } else {
+                emb = NULL; embx = -2; emby = -2;
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {
             emb = NULL; embx = -2; emby = -2;
@@ -1082,7 +1119,7 @@ int s6_ai_update(void *this_, void *cand, int arg2)
 
 
         if (x_start > x_max) {                                /* @0x45de0e JG 0x45e08d */
-            return 1;
+            LD_CRASH_RET(1);
         }
         if ((x_max - x_start < 0 || y_max - y_start < 0)) {
             InterlockedIncrement(&g_ai_degen);      /* вырожденный 3x3 (счётчик) */
@@ -1240,11 +1277,11 @@ int s6_ai_update(void *this_, void *cand, int arg2)
                      (void *)cur, cpx, cpy, (long)g_ai_cells,
                      native::av_count(), ex_path);
         }
-        return 0;
+        LD_CRASH_RET(0);
     }
 
     (void)arg2;
-    return 1;
+    LD_CRASH_RET(1);
 }
 
 /* Замена FUN_0045e0a0 (cdecl; вызывается из трамплина). Faithful-цикл (п. 3.1):
@@ -1277,6 +1314,8 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
     int map1_before = 0;
     LONG d_cells, d_cellnull, d_pathnull, d_pfsnull, d_reg, d_degen;
     long ps0[7], ps1[7];
+
+    ld_crash_enter(2);          /* LDHOOK_CRASHLOG: stage 2, depth++ (no-op off) */
 
     /* H4: вход FUN_0045e0a0 (детур) — сброс счётчиков вызова для trace. */
     battle_trace_e0a0_enter(this_, filter);
@@ -1472,7 +1511,7 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
             g_s6_win_t = now;
         }
     }
-    return (void *)result;
+    LD_CRASH_RET((void *)result);
 }
 
 /* Трамплин: вход — E9 из пролога FUN_0045e0a0 (7 Б), ecx=this,

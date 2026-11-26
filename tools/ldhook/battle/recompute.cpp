@@ -71,6 +71,7 @@
 #include "battle.h"
 #include "native.h"
 #include "ported.h"
+#include "../ldhook_internal.h"   /* LD_CRASH_SCOPE (LDHOOK_CRASHLOG) */
 
 #ifdef BATTLE_REPLAY
 #define PATH_REPLAY 1
@@ -230,6 +231,7 @@ static void *path_grid_anchor(unsigned char *tree, const void *block,
 /* ------------------------------ тело листа -------------------------------- */
 int s6_grid_recompute(void *pf_raw, void *arg1, void *arg2)
 {
+    LD_CRASH_SCOPE(5);           /* LDHOOK_CRASHLOG: stage 5 (no-op off) */
     unsigned char *pf = (unsigned char *)pf_raw;
     unsigned char *bandrec = (unsigned char *)arg2;
     unsigned char *rec = NULL, *sub = NULL, *ctx = NULL;

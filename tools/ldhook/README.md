@@ -171,6 +171,16 @@ allowlist, `ui/ui.pyc`, исключение runtime-логов, гейт) — `
 C++ (`battle/target.cpp`), callees портированы. Счётчики цикла отдаёт
 `ldhook.stats()` (см. «Логгер»).
 
+**Два гейта.** `LDHOOK_SITE6` — мастер порта `e0a0` (site6/site5, диспетчер
+`e0a0`, trace H5/H6). `LDHOOK_SITE6_EEE0` — отдельный гейт detour'а `45eee0`
+(`install_tick_hook`), дефолт = `LDHOOK_SITE6`: без новой переменной поведение
+побайтно прежнее (`SITE6=1` ставит оба detour'а), а `SITE6=1` +
+`SITE6_EEE0=0` даёт порт `e0a0` при нативном `45eee0` — это нужно, чтобы
+мерить порт поиска цели изолированно (lag-работа). Решения не пересозависимы:
+`LDHOOK_SITE6_EEE0` влияет только на установку tick-хука и на выбор
+порт/натив для `45eee0` (tick.cpp R17); решение по `e0a0` — только по
+`LDHOOK_SITE6`.
+
 ```
 LDHOOK_LOG=2 <EXE>                 # диагностика поиска цели
 python3 tools/ldhook/patch_ui.py --build     # ui.pyc + загрузчик (.pyd)

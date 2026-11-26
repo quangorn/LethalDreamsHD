@@ -79,8 +79,9 @@ TreeNode *lower_bound(void *map, unsigned int key, void *hint)
     void *addr = fn(0x434bc0);
     TreeNode *res = NULL;
 
+    ld_crash_enter(9);                     /* LDHOOK_CRASHLOG: native wrapper */
     if (addr == NULL) {
-        return NULL;
+        LD_CRASH_RET(NULL);
     }
     __try {
         __asm {
@@ -98,7 +99,7 @@ TreeNode *lower_bound(void *map, unsigned int key, void *hint)
     } __except (native::av_filter()) {
         res = NULL;
     }
-    return res;
+    LD_CRASH_RET(res);
 }
 
 /* FUN_00434bc0 — форма вызова FUN_0045cb40 (см. native.h): ecx = map,
@@ -110,8 +111,9 @@ TreeNode *lower_bound_slots(void *map, int *out_slot, int *key_slot)
     void *addr = fn(0x434bc0);
     TreeNode *res = NULL;
 
+    ld_crash_enter(9);
     if (addr == NULL) {
-        return NULL;
+        LD_CRASH_RET(NULL);
     }
     __try {
         __asm {
@@ -129,7 +131,7 @@ TreeNode *lower_bound_slots(void *map, int *out_slot, int *key_slot)
     } __except (native::av_filter()) {
         res = NULL;
     }
-    return res;
+    LD_CRASH_RET(res);
 }
 
 /* FUN_00449160 (31 байт) — тип (статус) узла в дереве мира.
@@ -141,11 +143,12 @@ TreeNode *lower_bound_slots(void *map, int *out_slot, int *key_slot)
  * esp (см. lower_bound). */
 int tree_lookup(void *world, unsigned int key)
 {
+    ld_crash_enter(9);          /* LDHOOK_CRASHLOG: stage 9 (no-op off) */
     void *addr = fn(0x449160);
     int res = 0;
 
     if (addr == NULL) {
-        return 0;
+        LD_CRASH_RET(0);
     }
     __try {
         __asm {
@@ -162,7 +165,7 @@ int tree_lookup(void *world, unsigned int key)
     } __except (native::av_filter()) {
         res = 0;
     }
-    return res;
+    LD_CRASH_RET(res);
 }
 
 /* FUN_0045dd00 — регистрация занятого слота (this = BattleAI, arg = объект).
@@ -172,10 +175,11 @@ int tree_lookup(void *world, unsigned int key)
  * сохранением esp (см. lower_bound). */
 void register_occupied_slot(void *ai, LDObject *obj)
 {
+    ld_crash_enter(9);          /* LDHOOK_CRASHLOG: stage 9 (no-op off) */
     void *addr = fn(0x45dd00);
 
     if (addr == NULL) {
-        return;
+        LD_CRASH_RET_VOID();
     }
     __try {
         __asm {
@@ -190,6 +194,7 @@ void register_occupied_slot(void *ai, LDObject *obj)
         }
     } __except (native::av_filter()) {
     }
+    ld_crash_leave();
 }
 
 /* --- лента `this+0x3c` и сброс AI (Фаза 4.1b, сайты FUN_0045eee0 B4/B5) --- */
@@ -205,10 +210,11 @@ void register_occupied_slot(void *ai, LDObject *obj)
  * esp (см. lower_bound). */
 void band_free(void *band)
 {
+    ld_crash_enter(9);          /* LDHOOK_CRASHLOG: stage 9 (no-op off) */
     void *addr = fn(0x45b6a0);
 
     if (addr == NULL) {
-        return;
+        LD_CRASH_RET_VOID();
     }
     __try {
         __asm {
@@ -222,6 +228,7 @@ void band_free(void *band)
         }
     } __except (native::av_filter()) {
     }
+    ld_crash_leave();
 }
 
 /* FUN_0045af10 (4 инструкции, 0x45af10..0x45af14) — единственное действие:
@@ -264,11 +271,12 @@ void native_45af10(void *band)
  * esp (см. lower_bound). */
 void *target_search(void *ai, int filter, void *cmp_pos, int arg3, int *out_code)
 {
+    ld_crash_enter(9);          /* LDHOOK_CRASHLOG: stage 9 (no-op off) */
     void *addr = fn(0x45e0a0);
     void *res = NULL;
 
     if (addr == NULL) {
-        return NULL;
+        LD_CRASH_RET(NULL);
     }
     __try {
         __asm {
@@ -288,7 +296,7 @@ void *target_search(void *ai, int filter, void *cmp_pos, int arg3, int *out_code
     } __except (native::av_filter()) {
         res = NULL;
     }
-    return res;
+    LD_CRASH_RET(res);
 }
 
 /* FUN_0045e9c0 (SEH-пролог 0x45e9c0..0x45e9d5; конец тела в этом суб-шаге не
@@ -302,10 +310,11 @@ void *target_search(void *ai, int filter, void *cmp_pos, int arg3, int *out_code
  * esp (см. lower_bound). */
 void band_rebuild(void *ai, void *node, int bits)
 {
+    ld_crash_enter(9);          /* LDHOOK_CRASHLOG: stage 9 (no-op off) */
     void *addr = fn(0x45e9c0);
 
     if (addr == NULL) {
-        return;
+        LD_CRASH_RET_VOID();
     }
     __try {
         __asm {
@@ -321,6 +330,7 @@ void band_rebuild(void *ai, void *node, int bits)
         }
     } __except (native::av_filter()) {
     }
+    ld_crash_leave();
 }
 
 /* FUN_00458050 (0x458050..0x4581f4) — grid-якорь. Пролог `sub $0x8` + push
@@ -339,11 +349,12 @@ void band_rebuild(void *ai, void *node, int bits)
 void *grid_anchor(void *grid, int a1, int a2, int a3, int a4, int *flag_slot,
                   void *world)
 {
+    ld_crash_enter(9);          /* LDHOOK_CRASHLOG: stage 9 (no-op off) */
     void *addr = fn(0x458050);
     void *res = NULL;
 
     if (addr == NULL) {
-        return NULL;
+        LD_CRASH_RET(NULL);
     }
     __try {
         __asm {
@@ -377,7 +388,7 @@ void *grid_anchor(void *grid, int a1, int a2, int a3, int a4, int *flag_slot,
         av[5] = (int)(size_t)world;
         battle_capture_bdd0_leaf(0x458050, grid, av, 6, (int)(size_t)res, NULL, 0);
     }
-    return res;
+    LD_CRASH_RET(res);
 }
 
 /* FUN_0045f430 (0x45f430..0x45f4e2) — ctor/reset объекта PathFinder.
@@ -476,10 +487,11 @@ int set_rect_empty(void *rect)
  * esp (см. lower_bound). */
 void clear_maps(void *ai)
 {
+    ld_crash_enter(9);          /* LDHOOK_CRASHLOG: stage 9 (no-op off) */
     void *addr = fn(0x45ca70);
 
     if (addr == NULL) {
-        return;
+        LD_CRASH_RET_VOID();
     }
     __try {
         __asm {
@@ -493,6 +505,7 @@ void clear_maps(void *ai)
         }
     } __except (native::av_filter()) {
     }
+    ld_crash_leave();
 }
 
 /* FUN_0045c8c0 (0x45c8c0..0x45c995) — пересчёт search-параметров AI: радиусы
@@ -506,10 +519,11 @@ void clear_maps(void *ai)
  * esp (см. lower_bound). */
 void search_params_update(void *ai)
 {
+    ld_crash_enter(9);          /* LDHOOK_CRASHLOG: stage 9 (no-op off) */
     void *addr = fn(0x45c8c0);
 
     if (addr == NULL) {
-        return;
+        LD_CRASH_RET_VOID();
     }
     __try {
         __asm {
@@ -523,6 +537,7 @@ void search_params_update(void *ai)
         }
     } __except (native::av_filter()) {
     }
+    ld_crash_leave();
 }
 
 /* Виртуальный вызов `MOV EDX,[receiver]; CALL *[EDX+off]` (ECX = receiver), без
@@ -595,11 +610,12 @@ int vcall1(void *receiver, unsigned int voffset, int arg)
  * esp (см. lower_bound). */
 int grid_query(void *world, int arg1, int arg2, int arg3, int arg4)
 {
+    ld_crash_enter(9);          /* LDHOOK_CRASHLOG: stage 9 (no-op off) */
     void *addr = fn(0x44bbf0);
     int res = 0;
 
     if (addr == NULL) {
-        return 0;
+        LD_CRASH_RET(0);
     }
     __try {
         __asm {
@@ -628,7 +644,7 @@ int grid_query(void *world, int arg1, int arg2, int arg3, int arg4)
         av[3] = arg4;
         battle_capture_bdd0_leaf(0x44bbf0, world, av, 4, res, NULL, 0);
     }
-    return res;
+    LD_CRASH_RET(res);
 }
 
 /* IAT 0x4ec26c — PtInRect(rect, pt): форма site 0x45c6c4..0x45c6ca (PUSH y,
@@ -677,18 +693,19 @@ typedef void *(*PFN_operator_new)(unsigned int size);
 
 void *operator_new(unsigned int size)
 {
+    ld_crash_enter(9);          /* LDHOOK_CRASHLOG: stage 9 (no-op off) */
     void *addr = fn(0x4cfa11);
     void *p = NULL;
 
     if (addr == NULL) {
-        return NULL;
+        LD_CRASH_RET(NULL);
     }
     __try {
         p = ((PFN_operator_new)addr)(size);
     } __except (native::av_filter()) {
         p = NULL;
     }
-    return p;
+    LD_CRASH_RET(p);
 }
 
 /* --- Фаза 5.1b: листья R1/R2 (FUN_0044bdd0) --- */
@@ -1280,12 +1297,13 @@ void output_debug_string_a(const char *s)
  * поэтому обёртка копирует 3 dword сразу. NULL (AV) → тройка = 0. */
 void grid_recompute(void *rec, void *pos, void *req, float out3[3])
 {
+    ld_crash_enter(9);          /* LDHOOK_CRASHLOG: stage 9 (no-op off) */
     void *addr = fn(0x45e1d0);
     void *res = NULL;
 
     out3[0] = out3[1] = out3[2] = 0.0f;
     if (addr == NULL) {
-        return;
+        LD_CRASH_RET_VOID();
     }
     __try {
         __asm {
@@ -1316,6 +1334,7 @@ void grid_recompute(void *rec, void *pos, void *req, float out3[3])
         memcpy(w, out3, 12);              /* тройка, скопированная обёрткой */
         battle_capture_bdd0_leaf(0x45e1d0, rec, av, 2, (int)(size_t)res, w, 3);
     }
+    ld_crash_leave();
 }
 
 /* --- Фаза 5.1b-7: листья R8 (FUN_0044bdd0, `0x44c3ed..0x44c4dc`) --- */
@@ -1326,13 +1345,14 @@ void grid_recompute(void *rec, void *pos, void *req, float out3[3])
  * как int-биты (телом не читается), arg1/arg3 — float. site 0x44c4cb. */
 void band_interp_gate(void *band, float p2, int p3, float p4, float *out_f)
 {
+    ld_crash_enter(9);          /* LDHOOK_CRASHLOG: stage 9 (no-op off) */
     void *addr = fn(0x45b150);
     int i2;
     int i4;
 
     if (addr == NULL) {
         *out_f = 0.0f;
-        return;
+        LD_CRASH_RET_VOID();
     }
     /* push float в inline asm неоднозначен по размеру операнда — биты
      * переносятся dword'ами (сайт тоже копирует triple как dword'ы). */
@@ -1366,6 +1386,7 @@ void band_interp_gate(void *band, float p2, int p3, float p4, float *out_f)
         memcpy(&rbits, out_f, sizeof(rbits));
         battle_capture_bdd0_leaf(0x45b150, band, av, 3, rbits, NULL, 0);
     }
+    ld_crash_leave();
 }
 
 /* FUN_0045b3e0 — предикат ленты (thiscall: ecx = лента, 3 стек-аргумента по
@@ -1374,13 +1395,14 @@ void band_interp_gate(void *band, float p2, int p3, float p4, float *out_f)
  * x87-границы (`0x4ec37c`, `0x4ef4b8`). site 0x44c554 (B63). */
 int band_target_moved(void *band, float p1, int p2, float p3)
 {
+    ld_crash_enter(9);          /* LDHOOK_CRASHLOG: stage 9 (no-op off) */
     void *addr = fn(0x45b3e0);
     int i1;
     int i3;
     int res = 0;
 
     if (addr == NULL) {
-        return 0;
+        LD_CRASH_RET(0);
     }
     /* push float в inline asm неоднозначен по размеру операнда — биты
      * переносятся dword'ами (сайт тоже копирует triple как dword'ы). */
@@ -1413,7 +1435,7 @@ int band_target_moved(void *band, float p1, int p2, float p3)
         battle_capture_bdd0_leaf(0x45b3e0, band, av, 3,
                                  (int)(unsigned char)res, NULL, 0);
     }
-    return res;
+    LD_CRASH_RET(res);
 }
 
 /* --- Фаза 5.1b-16: R17 (сайт `0x44cbd0`) --- */
@@ -1423,11 +1445,12 @@ int band_target_moved(void *band, float p1, int p2, float p3)
  * R17 (battle/tick.cpp), т.е. хук site6/трамплин не задействованы. */
 int unit_ai_tick(void *ai, void *rec)
 {
+    ld_crash_enter(9);          /* LDHOOK_CRASHLOG: stage 9 (no-op off) */
     void *addr = fn(0x45eee0);
     int res = 0;
 
     if (addr == NULL) {
-        return 0;
+        LD_CRASH_RET(0);
     }
     __try {
         __asm {
@@ -1444,7 +1467,7 @@ int unit_ai_tick(void *ai, void *rec)
     } __except (native::av_filter()) {
         res = 0;
     }
-    return res;
+    LD_CRASH_RET(res);
 }
 
 /* Игровой строковый литерал по VA (base + RVA), см. native.h. */

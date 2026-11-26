@@ -33,6 +33,17 @@
  *          логирование аргументов, кандидатов, метрик, порогов; site6 —
  *          полный detour на faithful-порт (LDHOOK_SITE6=1).
  *
+ * ENV-гейты боевого слоя (два независимых решения; дефолт — оба выкл):
+ *   LDHOOK_SITE6       — мастер порта e0a0 (FUN_0045e0a0): site6 вместо site5,
+ *                        диспетчер e0a0 = порт, trace H5/H6 от порта.
+ *                        Источник истины — s6_port_enabled() (battle/target.cpp).
+ *   LDHOOK_SITE6_EEE0  — detour FUN_0045eee0 (install_tick_hook). Дефолт =
+ *                        LDHOOK_SITE6: без переменной old-поведение побайтно
+ *                        (SITE6=1 ставит оба); SITE6=1 + SITE6_EEE0=0 = порт
+ *                        e0a0, 45eee0 нативный. Источник истины — s6_eee0_enabled().
+ *   LDHOOK_CRASHLOG=1  — VEH-запись AV/стек-оверфлоу (стадия+глубина+RIP).
+ *   LDHOOK_BATTLE_TRACE / LDHOOK_BATTLE_CAPTURE / LDHOOK_SITE5 / LDHOOK_SEED.
+ *
  * Логика 1:1 с tools/exe/caves/fixall.s; guard'ы (k==1 / 4h==3w) сохранены.
  * EXE НЕ модифицируется на диске: правка ставится в памяти через VirtualProtect
  * (правило «игра только для чтения»; md5-цепочка не трогается).
@@ -229,6 +240,163 @@ static void ld_log_init(void)
         g_log_cs_ready = 1;
     }
     g_log_level = ld_parse_level(getenv(LDHOOK_LOG_ENV));
+}
+
+/* ------------------------------------------------------------------ */
+/* Crash-диагностика (LDHOOK_CRASHLOG=1): VEH на первый шанс AV.       */
+/* Только запись строки в hdlog.txt; исключение НЕ глотается.           */
+/* ------------------------------------------------------------------ */
+volatile LONG g_crash_on = 0;
+volatile LONG g_depth = 0;
+volatile unsigned char g_stage = 0;
+unsigned char g_stage_stack[LD_CRASH_MAX_STK];
+
+static HANDLE         g_crash_file = INVALID_HANDLE_VALUE;
+static unsigned char *g_crash_base = NULL;
+static unsigned long  g_crash_size = 0;
+static DWORD          g_crash_rips[LD_CRASH_MAX_LOG];
+static int            g_crash_logged = 0;
+
+static void ld_crash_open_file(void)
+{
+    char path[MAX_PATH];
+
+    ld_exe_dir(path, sizeof(path));
+    if (sizeof(path) - strlen(path) <= strlen(LDHOOK_LOG_NAME)) {
+        return;
+    }
+    strncat(path, LDHOOK_LOG_NAME, sizeof(path) - strlen(path) - 1);
+    g_crash_file = CreateFileA(path, FILE_APPEND_DATA,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                               OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+}
+
+/* Async-safe-ish: без malloc, без Python API, без CriticalSection/ld_info
+ * (логгер может держать g_log_cs на упавшем потоке). Формат — в статический
+ * буфер, запись — WriteFile на отдельный handle того же hdlog.txt. */
+static LONG CALLBACK ld_crash_veh(PEXCEPTION_POINTERS info)
+{
+    PEXCEPTION_RECORD er;
+    CONTEXT *ctx;
+    DWORD rip, fault = 0;
+    DWORD esp = 0;
+    DWORD base = 0;
+    int op = -1;
+    int in_mod = 0;
+    int i, len;
+    LONG depth;
+    unsigned char st, p0 = 0, p1 = 0, p2 = 0, p3 = 0;
+    char buf[256];
+
+    if (g_crash_on == 0 || info == NULL) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    er = info->ExceptionRecord;
+    if (er == NULL) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    /* AV + переполнение стека (рекурсия портированных функций даёт guard-page
+     * 0xC00000FD, не AV; без него runaway-гипотеза не фиксируется). */
+    if (er->ExceptionCode != EXCEPTION_ACCESS_VIOLATION &&
+        er->ExceptionCode != 0xC00000FDu /* EXCEPTION_STACK_OVERFLOW */) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    rip = (DWORD)(ULONG_PTR)er->ExceptionAddress;
+
+    /* Один RIP — одна строка; не больше LD_CRASH_MAX_LOG строк всего. */
+    for (i = 0; i < g_crash_logged; i++) {
+        if (g_crash_rips[i] == rip) {
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+    }
+    if (g_crash_logged >= LD_CRASH_MAX_LOG) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    g_crash_rips[g_crash_logged++] = rip;
+
+    if (er->NumberParameters >= 2) {
+        op = (int)er->ExceptionInformation[0];
+        fault = (DWORD)er->ExceptionInformation[1];
+    }
+    ctx = info->ContextRecord;
+    if (ctx != NULL) {
+        esp = (DWORD)ctx->Esp;
+    }
+    depth = g_depth;
+    st = g_stage;
+    if (g_crash_base != NULL) {
+        base = (DWORD)(ULONG_PTR)g_crash_base;
+        in_mod = (rip >= base && rip < base + g_crash_size) ? 1 : 0;
+    }
+    {
+        LONG n = depth;
+        if (n > LD_CRASH_MAX_STK) {
+            n = LD_CRASH_MAX_STK;
+        }
+        if (n > 0) p0 = g_stage_stack[n - 1];
+        if (n > 1) p1 = g_stage_stack[n - 2];
+        if (n > 2) p2 = g_stage_stack[n - 3];
+        if (n > 3) p3 = g_stage_stack[n - 4];
+    }
+
+    len = _snprintf(buf, sizeof(buf),
+                    "CRASH av code=%08x addr=%08x rip=%08x base=%08x in_module=%d "
+                    "stage=%d depth=%d esp=%08x op=%d off=%08x "
+                    "stk=%u.%u.%u.%u\r\n",
+                    (unsigned)er->ExceptionCode, (unsigned)fault, (unsigned)rip,
+                    (unsigned)base, in_mod,
+                    (int)st, (int)depth, (unsigned)esp, op,
+                    (unsigned)(base != 0 ? rip - base : 0),
+                    (unsigned)p0, (unsigned)p1, (unsigned)p2, (unsigned)p3);
+    if (len < 0) {
+        buf[sizeof(buf) - 1] = '\0';
+        len = (int)strlen(buf);
+    }
+    if (len > (int)sizeof(buf) - 1) {
+        len = (int)sizeof(buf) - 1;
+    }
+    if (g_crash_file == INVALID_HANDLE_VALUE) {
+        ld_crash_open_file();
+    }
+    if (g_crash_file != INVALID_HANDLE_VALUE) {
+        DWORD w = 0;
+        SetFilePointer(g_crash_file, 0, NULL, FILE_END);
+        WriteFile(g_crash_file, buf, (DWORD)len, &w, NULL);
+    }
+    /* НЕ глотаем: игра должна упасть как обычно, запись — только след. */
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+void ld_crash_init(void)
+{
+    const char *env = getenv(LDHOOK_CRASHLOG_ENV);
+    HMODULE mod = NULL;
+
+    if (env == NULL || env[0] == '\0' || env[0] == '0') {
+        return;
+    }
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR)(const void *)&ld_crash_veh, &mod) && mod != NULL) {
+        IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)mod;
+        g_crash_base = (unsigned char *)mod;
+        if (dos->e_magic == IMAGE_DOS_SIGNATURE) {
+            IMAGE_NT_HEADERS *nt =
+                (IMAGE_NT_HEADERS *)((unsigned char *)mod + dos->e_lfanew);
+            if (nt->Signature == IMAGE_NT_SIGNATURE) {
+                g_crash_size = nt->OptionalHeader.SizeOfImage;
+            }
+        }
+    }
+    ld_crash_open_file();
+    if (AddVectoredExceptionHandler(1, ld_crash_veh) == NULL) {
+        ld_info("crashlog: AddVectoredExceptionHandler FAILED");
+        g_crash_on = 0;
+        return;
+    }
+    g_crash_on = 1;
+    ld_info("crashlog: VEH installed (base=0x%08x size=0x%x)",
+            (unsigned)(ULONG_PTR)g_crash_base, (unsigned)g_crash_size);
 }
 
 /* Троттлинг трассировки: первые first вызовов, затем каждый each-й. */
@@ -562,20 +730,22 @@ static void install_site6(void)
 
 /* ------------------------------------------------------------------ */
 /* Phase 4.2: detour FUN_0045eee0 (тик юнит-AI) на его                */
-/* faithful-порт s6_unit_ai_tick (battle/move.cpp). Тот же гейт, что у */
-/* site6 (LDHOOK_SITE6 через s6_port_enabled). Пролог = 5 Б            */
-/* (`sub $0x58,%esp; push %ebx; push %ebp` @0x45eee0..0x45eee4),       */
-/* продолжение 0x45eee5 сохраняется; трамплин s7_tick_tramp в move.cpp */
-/* исполняет украденное и прыгает туда — путь «порт выключен».         */
+/* faithful-порт s6_unit_ai_tick (battle/move.cpp). Гейт — OWNpredicate */
+/* s6_eee0_enabled() (LDHOOK_SITE6_EEE0, дефолт = LDHOOK_SITE6), НЕ     */
+/* s6_port_enabled(): detour 45eee0 отвязан от решения по e0a0.         */
+/* Пролог = 5 Б (`sub $0x58,%esp; push %ebx; push %ebp`                */
+/* @0x45eee0..0x45eee4), продолжение 0x45eee5 сохраняется; трамплин     */
+/* s7_tick_tramp в move.cpp исполняет украденное и прыгает туда —      */
+/* путь «порт выключен».                                               */
 /* ------------------------------------------------------------------ */
 static void install_tick_hook(void)
 {
     unsigned char *site;
     void *cont;
 
-    if (!s6_port_enabled()) {
+    if (!s6_eee0_enabled()) {
         ld_info("install_tick_hook: disabled (%s off) -> hook NOT installed",
-                S6_ENV);
+                S6_EEE0_ENV);
         return;
     }
     /* Тот же layout-гейт, что у install_site6: при несовпадении раскладки
@@ -1029,6 +1199,7 @@ extern "C" __declspec(dllexport) void initldhook(void)
     int s6_on = 0;
 
     ld_log_init();
+    ld_crash_init();
     native::init();
     battle_trace_init();
     battle_capture_init();
@@ -1064,7 +1235,7 @@ extern "C" __declspec(dllexport) void initldhook(void)
                 ld_info("initldhook: %s=1 -> site5 (diag) пропущен, ставится site6", S6_ENV);
             }
             install_site6();
-            install_tick_hook();       /* 4.2: детур 45eee0 (тот же гейт site6) */
+            install_tick_hook();       /* 4.2: детур 45eee0 — гейт LDHOOK_SITE6_EEE0 */
             s6_on = s6_on_site;
         }
         install_tick_detour(install_trace_sites());  /* 5.1b: detour 44bdd0 */

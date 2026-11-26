@@ -265,6 +265,7 @@ static void trace_slot_reset(trace_e0a0_slot *s)
 
 void __cdecl battle_trace_tick_begin(void *unit)
 {
+    LD_CRASH_SCOPE(7);           /* LDHOOK_CRASHLOG: stage 7 (H1), no-op off */
     int cap_on = battle_capture_enabled();
 
     /* Capture работает и при trace=0: H1 даёт ему tick и ordinal юнита. */
@@ -530,14 +531,15 @@ void __cdecl battle_trace_e0a0_latch(void *cand)
  * (BattleAI). Поля тика: code, trk (+0x30, char), bd2 (+0x34, uint). */
 void __cdecl battle_trace_code(int code, void *ai)
 {
+    ld_crash_enter(7);           /* LDHOOK_CRASHLOG: stage 7 (H3), no-op off */
     if (!g_enabled) {
-        return;
+        LD_CRASH_RET_VOID();
     }
     g_tick_code = code;
     if (ai == NULL) {
         g_tick_trk = -1;
         g_tick_bd2 = 0xFFFFFFFFu;
-        return;
+        LD_CRASH_RET_VOID();
     }
     __try {
         g_tick_trk = (int)*(const unsigned char *)(
@@ -548,6 +550,7 @@ void __cdecl battle_trace_code(int code, void *ai)
         g_tick_trk = -1;
         g_tick_bd2 = 0xFFFFFFFFu;
     }
+    ld_crash_leave();
 }
 
 /* ------------------------------------------------------------------ */

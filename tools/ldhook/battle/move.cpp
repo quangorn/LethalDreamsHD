@@ -68,9 +68,10 @@ __declspec(naked) void s7_tick_tramp(void)
 
 /* Хук на вход 0x45eee0 (E9 из 5 Б). ABI: __thiscall, ECX = BattleAI,
  * [esp+4] = rec, `ret $4`, EAX = код 0..4. Переключатель — g_s7_tick_on
- * (ставится install_tick_hook при LDHOOK_SITE6=1): 1 → порт s6_unit_ai_tick,
- * 0 → трамплин с нативным телом (хук в этом режиме не активен). Ре-энтри
- * гарда нет — как у site6 (полная замена, тело натива не исполняется). */
+ * (ставится install_tick_hook при LDHOOK_SITE6_EEE0=1, дефолт гейта =
+ * LDHOOK_SITE6): 1 → порт s6_unit_ai_tick, 0 → трамплин с нативным телом
+ * (хук в этом режиме не активен). Ре-энтри гарда нет — как у site6 (полная
+ * замена, тело натива не исполняется). */
 __declspec(naked) void s7_tick_hook(void)
 {
     __asm {
@@ -182,6 +183,7 @@ static void s6_timer_restart(BattleAI *self)
 int s6_unit_ai_tick(BattleAI *self, void *rec_arg)
 {
     int l[34];                       /* F−0x18..F+0x6c: index 0 = слот F−0x18 (temp B9) */
+    ld_crash_enter(1);               /* LDHOOK_CRASHLOG: stage 1, depth++ (no-op off) */
     unsigned char *ctx;
     const unsigned char *rec;
     void *ebp;                       /* EBP кадра: PathState/узел B10 → B14 (dst copy, [ebp]->pos) */
@@ -399,7 +401,7 @@ int s6_unit_ai_tick(BattleAI *self, void *rec_arg)
             *(void **)(ctx + 0x04));                         /* arg6 = world */
         self->anchor = (LDPos *)anchor;                      /* @0x45f113 mov %eax,0x2c(%esi) */
         if (anchor == NULL) {                                /* @0x45f111 cmp %ebx,%eax / @0x45f116 je 0x45f379 */
-            return 0;                                        /* эпилог 0x45f379..0x45f382: EAX=0, ret $4 */
+            LD_CRASH_RET(0);                                 /* эпилог 0x45f379..0x45f382: EAX=0, ret $4 */
         }
         metric = *(const int *)((const unsigned char *)anchor + 0x14);  /* @0x45f11c mov 0x14(%eax),%edx */
         LS(0x34) = (int)(INT_PTR)anchor;                     /* @0x45f11f mov %eax,0x34(%esp) — spec+0x00 */
@@ -545,7 +547,7 @@ int s6_unit_ai_tick(BattleAI *self, void *rec_arg)
     if (s6_bits_get(LS(0x18)) != 0.0f) {                 /* @0x45f295 flds 0x18 / @0x45f299 fcomps [0x4ec37c] / @0x45f2a1 test $0x44 / @0x45f2a4 jnp 0x45f36f */
         if (cand == 0) {                                 /* @0x45f2aa cmp %ebx,%edi / @0x45f2ac je 0x45f373 */
             *(int *)(INT_PTR)LS(0x14) = 0;               /* @0x45f373 mov 0x14(%esp),%ecx / @0x45f377 mov %ebx,(%ecx) — *out_code = 0 */
-            return 0;                                    /* @0x45f379 EAX=0 → эпилог 0x45f382 */
+            LD_CRASH_RET(0);                             /* @0x45f379 EAX=0 → эпилог 0x45f382 */
         }
         LS(0x6c) = *(const int *)((const unsigned char *)self->cand_head);  /* @0x45f2b2 mov 0x6c(%esi),%ecx / @0x45f2b5 mov (%ecx),%eax / @0x45f2b9 mov %eax,0x6c(%esp) — итератор = head->[0] */
         if (LS(0x6c) != (int)(INT_PTR)self->cand_head) { /* @0x45f2b7 cmp %ecx,%eax / @0x45f2bd je 0x45f2f2 — пустая карта */
@@ -610,7 +612,7 @@ int s6_unit_ai_tick(BattleAI *self, void *rec_arg)
      * (эпилог 0x45f379..0x45f382). */
     if (cand == 0) {                                     /* @0x45f36f cmp %ebx,%edi / @0x45f371 jne 0x45f385 */
         *(int *)(INT_PTR)LS(0x14) = 0;                   /* @0x45f373 mov 0x14(%esp),%ecx / @0x45f377 mov %ebx,(%ecx) */
-        return 0;                                        /* @0x45f379 xor %eax,%eax → эпилог 0x45f37b..0x45f382 (EAX=0) */
+        LD_CRASH_RET(0);                                 /* @0x45f379 xor %eax,%eax → эпилог 0x45f37b..0x45f382 (EAX=0) */
     }
 
     /* B16 (0x45f385..0x45f3d0) — база метрики (ctx[0x18] либо world[0x120] по
@@ -663,11 +665,11 @@ int s6_unit_ai_tick(BattleAI *self, void *rec_arg)
                 self->distance_threshold = (unsigned int)d2;   /* @0x45f407 mov %eax,0x34(%esi) — новый best */
             }
         }
-        return *code;                                    /* @0x45f40a/0x45f41c mov (%ebx),%eax → эпилоги 0x45f413 / 0x45f425 */
+        LD_CRASH_RET(*code);                             /* @0x45f40a/0x45f41c mov (%ebx),%eax → эпилоги 0x45f413 / 0x45f425 */
     }
 
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        return 0;                                        /* harness-рамка (0x44bdd0 в игре), как s6_ai_update */
+        LD_CRASH_RET(0);                                 /* harness-рамка (0x44bdd0 в игре), как s6_ai_update */
     }
 
 #undef LS_BYTES

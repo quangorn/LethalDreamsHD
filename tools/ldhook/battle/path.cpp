@@ -319,6 +319,7 @@ static float s6_bits_get(int slot)
 GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
                               float *p4, int *p5, int *p6, int p7)
 {
+    LD_CRASH_SCOPE(4);           /* LDHOOK_CRASHLOG: stage 4 (no-op off) */
     GridCell *cur;
     GridCell *best = NULL;
 #ifdef BATTLE_REPLAY
@@ -504,6 +505,7 @@ GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
  * out = spec->out_metric. Возврат: L[0x40] при успехе, иначе 0. */
 static void *s6_path_search_body(BattleAI *self, PathState *spec)
 {
+    LD_CRASH_SCOPE(4);           /* LDHOOK_CRASHLOG: stage 4 (no-op off) */
     LDPos *pos = spec->pos;           /* spec[0] — grid-клетка; координаты +0xc/+0x10
                                        * читаются LDPos-раскладкой (@0x45cb4f/0x45cb52) */
     int l[22];                        /* слоты Y+0x00..Y+0x54 */
@@ -648,6 +650,7 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
 
 void *s6_path_search(BattleAI *self, PathState *spec)
 {
+    LD_CRASH_SCOPE(4);           /* LDHOOK_CRASHLOG: stage 4 (no-op off) */
 #ifdef BATTLE_REPLAY
     if (g_replay_override) {
         return replay_path_next();        /* A/B харнесса: результат из захвата */

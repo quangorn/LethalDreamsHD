@@ -447,6 +447,7 @@ GridCell *s6_grid_anchor_lookup(GridLevel *grid, float x, float y_metric,
                                 float y_coord, void *node, unsigned char *flag,
                                 void *world)
 {
+    LD_CRASH_SCOPE(6);           /* LDHOOK_CRASHLOG: stage 6 (no-op off) */
     const int *map;                                 /* [node+0x238]: первый dword = key */
     int xi, yi, idx;
     GridCell *cell, *anchor, *res;

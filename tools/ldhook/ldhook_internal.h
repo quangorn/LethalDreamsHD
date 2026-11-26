@@ -32,6 +32,68 @@ int ld_rate(volatile LONG *ctr, LONG first, LONG each);
 /* Замер времени (QueryPerformanceCounter, микросекунды; частота кэшируется). */
 LONGLONG ld_now_us(void);
 
+/* ---------------- Crash-диагностика (LDHOOK_CRASHLOG) ---------------- */
+/* Всё ниже — no-op при g_crash_on == 0 (env не задан): один предсказуемый
+ * branch на входе функции, без записи в память. VEH (первый шанс AV) ставится
+ * один раз из initldhook, пишет одну строку CRASH в тот же hdlog.txt
+ * (отдельный handle, без CriticalSection/malloc/Python API) и НЕ глотает
+ * исключение (EXCEPTION_CONTINUE_SEARCH). */
+#define LDHOOK_CRASHLOG_ENV "LDHOOK_CRASHLOG"
+#define LD_CRASH_MAX_LOG    16
+#define LD_CRASH_MAX_STK    64
+
+extern volatile LONG g_crash_on;      /* 1 = диагностика активна */
+extern volatile LONG g_depth;         /* вложенность портированных функций */
+extern volatile unsigned char g_stage; /* innermost stage, таблица ниже */
+extern unsigned char g_stage_stack[LD_CRASH_MAX_STK];
+
+/* Таблица stage (значение на входе функции, не на итерации):
+ *   1 s6_unit_ai_tick          2 s6_target_search
+ *   3 s6_ai_update             4 s6_path_search (+ s6_path_tree_search)
+ *   5 s6_grid_recompute        6 s6_grid_anchor_lookup
+ *   7 trace H1/H3              8 s6_band_*
+ *   9 native::* wrapper        0 вне портированной функции */
+
+void ld_crash_init(void);             /* initldhook: env + VEH (иначе no-op) */
+
+static __inline void ld_crash_enter(unsigned char s)
+{
+    if (g_crash_on) {
+        LONG d = g_depth;
+        if (d >= 0 && d < LD_CRASH_MAX_STK) {
+            g_stage_stack[d] = s;
+        }
+        g_stage = s;
+        g_depth = d + 1;
+    }
+}
+
+static __inline void ld_crash_leave(void)
+{
+    if (g_crash_on) {
+        LONG d = g_depth;
+        if (d > 0) {
+            d--;
+            g_depth = d;
+            g_stage = (d > 0 && d <= LD_CRASH_MAX_STK)
+                      ? g_stage_stack[d - 1] : 0;
+        }
+    }
+}
+
+/* Выход из функции с __try (C2712: объект с деструктором там запрещён). */
+#define LD_CRASH_RET(x) do { ld_crash_leave(); return (x); } while (0)
+#define LD_CRASH_RET_VOID() do { ld_crash_leave(); return; } while (0)
+
+#ifdef __cplusplus
+/* RAII-вариант для функций без __try: enter в конструкторе, leave в деструкторе. */
+struct LdCrashScope {
+    explicit LdCrashScope(unsigned char s) { ld_crash_enter(s); }
+    ~LdCrashScope() { ld_crash_leave(); }
+};
+#define LD_CRASH_SCOPE(s) LdCrashScope ld_crash_scope_((unsigned char)(s))
+#endif
+
 /* ---------------- Общие утилиты установки (определяются в ldhook.cpp) -------- */
 /* E9 rel32 от site до трамплина должен влезать в знаковый диапазон. */
 int rel32_fits(void *site, void *dest);
@@ -83,9 +145,19 @@ void s5_epi_hook(void);
 #define S6_TAIL_SIG    "\x8b\xf0\x3b\xf5\x75\xae"       /* mov esi,eax; cmp esi,ebp; jne -0x52 */
 #define S6_TAIL_LEN    6
 #define S6_ENV         "LDHOOK_SITE6"
+/* LDHOOK_SITE6_EEE0 — отдельный гейт detour'а 45eee0 (tick-хук). Дефолт =
+ * мастер LDHOOK_SITE6: без новой переменной поведение бай-в-байт прежнее
+ * (SITE6=1 ставит оба detour'а); LDHOOK_SITE6=1 + SITE6_EEE0=0 даёт порт
+ * e0a0 без detour'а 45eee0. s6_port_enabled() остаётся единственным
+ * источником истины решения «порт e0a0» (диспетчер e0a0, site5/site6,
+ * trace-наблюдатели H5/H6). */
+#define S6_EEE0_ENV    "LDHOOK_SITE6_EEE0"
 
 /* Гейт порта site6 — единственный источник истины для S6_ENV (target.cpp). */
 int s6_port_enabled(void);
+/* Гейт detour'а 45eee0 (единственный источник истины для S6_EEE0_ENV,
+ * target.cpp); дефолт — s6_port_enabled(). */
+int s6_eee0_enabled(void);
 
 /* ---------------- 4.2: detour 45eee0 (тик юнит-AI) ---------------- */
 #define S7_ENTRY_SIG   "\x83\xec\x58\x53\x55"   /* sub $0x58,%esp; push ebx; push ebp */
