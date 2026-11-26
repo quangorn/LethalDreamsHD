@@ -130,6 +130,8 @@ strata; коммит и финальная правка docs — оркестр�
   (`battle/move.cpp`), детур `install_tick_hook`, capture v9 + replay `eee0`.
 - Фаза 5 закрыта (22.11.2026) решениями 5.1c/5.1d: тело `44bdd0` R1–R22 портировано
   (`battle/tick.cpp`, R23 нативен), scope — слой проводки; гейт — офлайн-replay capture v12.
+- Фаза 6 закрыта (26.11.2026): `docs/OBSERVATIONS_BATTLE_AI.md` (автомат тика, поиск цели/A*, метрика,
+  граф вызовов, бюджет, trace, открытые семантики); остаток Фазы 7 — живой прогон (порт выключен, `b0_path_pf()==NULL`).
 - Трассировка: `BATTLE` (29 полей) + `STATEFP` на входе `e0a0` (`battle/trace.cpp`); живой A/B — санитарный
   (`tools/probes/trace_diff.py --align=ordinal`).
 - Исправлено в порте: смысл границ сетки, знак финального гейта, соглашение вьютаблицы (`call *off(reg)`),
@@ -406,6 +408,9 @@ capture v9 (`battle/capture.cpp`), replay — `tools/probes/battle_replay.cpp`.
    объект сетки (`scale`-триплет, `size_x/size_y`, `rows`, `cells`+цепочки) — порт `458050`;
    пост-состояние `45e1d0` (`pf_*`, `rec_*`, `sub_*`, `tree_*` обеих RB-карт, `ps_*`) — `re/leaf_45e1d0_verified.md`.
    Включение портов — (а) гейт модели → 1, (б) снять nested-сайты, (в) `0x458050`/`0x45b150`/`0x45b3e0` в `b0_ported_leaf_va` с claim'ом.
+5.4. `45e1d0` портирован (26.11.2026): внутренние вызовы листа реплеятся записями, а не моделируются —
+   capture v17 (20 сайтов `battle/leaf_sites.cpp`) и v18 (`LS_K_INT_W2_ARG1` для `456b20`, `bdd0_cand` для `45ce80`);
+   тело — `battle/recompute.cpp`, гейт `bdd0_path_state_modelled()`, сверки `path_post_match`/`path_boundary_args`.
 5.last. GUI-часть: обёртки `native::…` с именами по смыслу; проверка, что порядок
    side effects сохранён (визуальный A/B).
 
