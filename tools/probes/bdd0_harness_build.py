@@ -38,6 +38,7 @@ _COMMON = [
     # replay_grid_cell (хуки grid.cpp под BATTLE_REPLAY) определены в
     # bdd0/grid_replay.cpp — реестровый battle_replay.cpp сюда не линкуется.
     os.path.join(_ROOT, "tools", "ldhook", "battle", "grid.cpp"),
+    os.path.join(_ROOT, "tools", "ldhook", "battle", "recompute.cpp"),
 ]
 # Реестр проверок и сами проверки судит только ядро харнесса; генератор
 # (bdd0_synth.exe) их символов не зовёт.

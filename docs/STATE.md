@@ -209,6 +209,9 @@
   (`b0_pos3_equal`; в захватах всегда `ret=0`, истинная ветвь — только синтетика)/`456b60`/`457e20`/
   `458050` — `battle/grid.cpp`, сайты 33/34 (`0x458142`/`0x45811a`), `grid.cpp` в харнессе.
 - `[P]` Индексы `458050` — от arg1 и arg3 (arg2 — только `min_metric − arg2`; `docs/CONTRADICTIONS.md` п. 20).
+- `[P]` Включение порта `45e1d0` (26.11.2026): гейт `bdd0_path_state_modelled()` требует v18 (pre/post/site_pf +
+  окно nested, `bdd0_cand` на каждом скане, `w[0..1]` на всех четырёх `456b20`); иначе — реплей записанного
+  натива (`path_recompute_replayed`). Тело — `battle/recompute.cpp`, сверка — `path_post_match` (`bdd0/checks_builtin.cpp`).
 - `[P]` Офлайн-гейт `458050`: `bdd0_grid_level_modelled()` (сетки в v12..v15 нет) — сводка
   `grid_anchor_replayed`, включение — `docs/PITFALLS.md`. Out-writes сверяет `B0_LEAF_CLAIM_W` (`ported.h`).
 - `[P]` Офлайн-гейт `45b150`/`45b3e0` (`battle/tick.cpp`): порты `s6_band_interp_gate`/`s6_band_target_moved`
@@ -219,7 +222,7 @@
   → SKIP (тавтологический PASS невозможен) — `battle/ported.h` (mutators), `bdd0/native_replay.cpp`
   (`band_resync_from_stream`). `w` листа `45c6f0` несравним (тройка `ctx` не в захвате) — capture v15.
 - `[P]` Scope Фазы 5 (решение 5.1c): порт — слой проводки; state/string/GUI site нативны намеренно,
-  из 12 листьев нативны 3 — `44bbf0`, `45c730`, `45e1d0`; таблица сайтов `bdd0_native` —
+  из 12 листьев нативны 3 — `44bbf0`, `45c730`, `45e1d0` (с v18 — условный порт, см. выше); таблица сайтов `bdd0_native` —
   `tools/probes/gen_native_sites.py` → `battle/native_sites_table.inc`, стубы — `battle/native_sites.cpp`.
 - `[P]` Проверки v12 (`tools/probes/bdd0/checks_builtin.cpp`): `res_match` (al/out/u170), `state_match` (m0..m2),
   `native_args` (ecx/args против записанного порядка нативов), post-state `45eee0` (`ww` = BattleAI+0x00..0x38);

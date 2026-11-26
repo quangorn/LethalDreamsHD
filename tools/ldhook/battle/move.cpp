@@ -115,7 +115,7 @@ static float s6_bits_get(int slot)
  * +0x28, +0x2c (dword 0), байт +0x30 (`mov %bl,0x30(%esi)` @0x45c358) и
  * `+0x34 = 0x0098967f` (@0x45c35b). Поле +0x00 (game_ctx) не трогается.
  * Единственный нативный лист — IAT SetRectEmpty (native::set_rect_empty). */
-static void s6_ai_reset(BattleAI *self)
+void s6_ai_reset(BattleAI *self)
 {
     unsigned char *p = (unsigned char *)self;
 

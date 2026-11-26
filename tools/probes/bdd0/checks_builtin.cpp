@@ -581,9 +581,27 @@ static int cmp_ptr(const TickContext &tc, FrameAnchor &fa, unsigned pv,
             }
             return (base == fa.base) ? AC_EQ : AC_NE;
         }
+        if (pn != NULL) return AC_NOCMP;    /* область модели, объект — куча */
+        /* Порт мог отдать указатель на объект, материализованный ареной по
+         * СЫРОМУ адресу записи (PathFinder листа 0x45e1d0 лежит в кадре
+         * вызывающего и привязан reg_add_fixed): identity по bind-карте —
+         * настоящая сверка, а не подстановка. */
+        {
+            unsigned craw = arena_raw_of((const void *)(size_t)pv);
+            if (craw != 0) return (craw == nv) ? AC_EQ : AC_NE;
+        }
         return AC_NOCMP;
     }
-    if (pn == NULL) return AC_NE;                /* порт дал не тот объект */
+    if (pn == NULL) {
+        /* Порт мог отдать shadow-указатель на объект, смоделированный ареной
+         * (например PathFinder листа 0x45e1d0: сырой адрес привязан к блоку
+         * арены через bind_add, а имени области в k_ptr_prio нет). Identity по
+         * bind-карте — настоящая сверка, а не подстановка: сырой адрес берётся
+         * из привязки shadow-блока. */
+        unsigned craw = arena_raw_of((const void *)(size_t)pv);
+        if (craw != 0) return (craw == nv) ? AC_EQ : AC_NE;
+        return AC_NE;                       /* порт дал не тот объект */
+    }
     if (kind_of_region_name(pn) != nk) return AC_NE;
     return (poff == noff) ? AC_EQ : AC_NE;
 }
@@ -1470,10 +1488,260 @@ static CheckResult chk_path_state_inputs(const TickContext &tc)
     OK();
 }
 
-/* v17: счётчики path_state_inputs для сводки харнесса (см. chk_path_state_inputs). */
-int bdd0_path_state_calls(void) { return g_ps_calls; }
-int bdd0_path_state_p9_total(void) { return g_ps_p9_total; }
-int bdd0_path_state_inputs_fail(void) { return g_ps_fail; }
+/* --------------------------- path_post_match ------------------------------ *
+ * v17/v18: сверка состояния после порта листа 0x45e1d0 (план §4 уровни 2–3).
+ * 1) pf: побитовое равенство по change-set {0x00,08,0c,10,14,18,1c,20,24,28,
+ *    2c,70} (измерен на захватах) между материализованным pf арены и записанным
+ *    post pf; ВСЕ прочие офсеты обязаны остаться такими, как в pre (порт не
+ *    имеет права писать вне набора). Указатели 0x00/0x28/0x2c сравниваются
+ *    символьно: shadow-адрес → сырой адрес игры по bind-карте арены.
+ * 2) карты: post m1_n == m2_n, pf+0x70 == m1_n (инвариант «размер карты = число
+ *    узлов»); каждая вставка порта в регистрационную границу dd00 (ключ map1 =
+ *    указатель pos, ключ map2 = (Y<<16)|X, PathState 0x58) имеет узел в
+ *    post-картах с тем же ключом и побитово тем же PathState.
+ * 3) расхождения вычисленных значений границ с записями (b0_path_boundary_mismatch)
+ *    — провал: тихая подстановка записанного значения не допускается.
+ * Заметка о происхождении значений: 0x08..0x24 порт берёт из bdd0_site_pf (выход
+ * 45c8c0 офлайн не выводится), 0x70 — из записанного post (счётчик родной
+ * RB-вставки). Их сверка проверяет ФАЙТФУЛ реплея: снимок применён в нужной
+ * точке тела и не перетёрт, а число узлов согласовано с размером карты.
+ * SKIP (не PASS), когда модели нет (v12..v17) или порт не исполнялся. */
+static int g_psp_calls = 0;       /* тики, где порт листа исполнился */
+static int g_psp_replayed = 0;    /* тики с вызовом листа, но порт не исполнялся */
+static int g_psp_fail = 0;
+static int g_psp_pass = 0;
+
+static unsigned rd_u32(const void *p)
+{
+    unsigned v;
+    memcpy(&v, p, 4);
+    return v;
+}
+
+static int off_in_set(unsigned off)
+{
+    static const unsigned int cs[] = {
+        0x00, 0x08, 0x0c, 0x10, 0x14, 0x18, 0x1c, 0x20, 0x24, 0x28, 0x2c, 0x70
+    };
+    for (int k = 0; k < (int)(sizeof(cs) / sizeof(cs[0])); k++) {
+        if (cs[k] == off) return 1;
+    }
+    return 0;
+}
+
+static int off_is_ptr(unsigned off)
+{
+    return (off == 0x00 || off == 0x28 || off == 0x2c || off == 0x6c) ? 1 : 0;
+}
+
+/* Узел карты по ключу (ключ — int32 в TreeNode+0x0c). NULL — нет такого. */
+static const MapNodeRec *map_node_by_key(const MapNodeRec *m, int n, unsigned key)
+{
+    for (int i = 0; i < n; i++) {
+        if ((unsigned)m[i].key == key) return &m[i];
+    }
+    return NULL;
+}
+
+/* Сравнение PathState 0x58 по списку смещений: поля-указатели (+0x00 pos,
+ * +0x04 parent, nbr[9] +0x34..+0x54) — символьно (shadow-адрес порта → сырой
+ * адрес записи по bind-карте), остальные dword'ы побитово. offs == NULL —
+ * сравнивать все 0x58 байт. 0 — расхождение (why заполнено). */
+static int ps_equal(const unsigned *port, const unsigned *rec,
+                    const unsigned *offs, int noffs, char *why, int cap)
+{
+    static const unsigned int ptr_off[] = {
+        0x00, 0x04, 0x34, 0x38, 0x3c, 0x40, 0x44, 0x48, 0x4c, 0x50, 0x54
+    };
+    int k;
+
+    for (int f = 0; f < (offs != NULL ? noffs : (int)(BDD0_PS_LEN / 4)); f++) {
+        unsigned off = (offs != NULL) ? offs[f] : (unsigned)f * 4;
+        unsigned pv = port[off / 4], nv = rec[off / 4];
+        int is_ptr = 0;
+
+        for (k = 0; k < (int)(sizeof(ptr_off) / sizeof(ptr_off[0])); k++) {
+            if (ptr_off[k] == off) { is_ptr = 1; break; }
+        }
+        if (is_ptr && pv != 0 && nv != 0) {
+            unsigned raw = arena_raw_of((const void *)(size_t)pv);
+            if (raw != 0) pv = raw;
+        }
+        if (pv != nv) {
+            _snprintf_s(why, (size_t)cap, _TRUNCATE,
+                        "+0x%02x port=0x%08x record=0x%08x", off, pv, nv);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static CheckResult chk_path_post_match(const TickContext &tc)
+{
+    const TickRecord *r = tc.rec;
+    const LeafStateRec *pre = NULL, *post = NULL;
+    const PathCall *pc;
+    const unsigned char *pf;
+    int order = -1, i;
+
+    if (r == NULL) SKIP("no tick record");
+    if (bdd0_site_pf_records() == 0) SKIP("no v17 leaf-state data");
+    for (i = 0; i < r->leaf_n; i++) {
+        const LeafRec *l = bdd0_tick_leaf_at(i);
+        if (l != NULL && l->va == 0x45e1d0) { order = l->order; break; }
+    }
+    if (order < 0) SKIP("no leaf call (no 0x45e1d0 record in this tick)");
+    if (!bdd0_path_state_modelled()) {
+        g_psp_replayed++;
+        SKIP("path state not modelled (replay recorded native)");
+    }
+    g_psp_calls++;   /* порт листа исполнился (gate on) */
+
+    /* (3) вычисленные значения границ против записей — до сверки состояния */
+    if (b0_path_boundary_mismatch() > 0) {
+        g_psp_fail++;
+        return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: %s", r->seq,
+                                    b0_path_boundary_why()), 0 };
+    }
+
+    post = bdd0_leaf_state_post(r->seq, order);
+    pre = bdd0_leaf_state_pre(r->seq, order);
+    if (post == NULL || !post->ok || pre == NULL || !pre->ok) {
+        g_psp_fail++;
+        return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: pre/post state "
+                                        "missing/not ok", r->seq), 0 };
+    }
+    pc = arena_path_call(arena_current());
+    if (pc == NULL || pc->pf == NULL) {
+        g_psp_fail++;
+        return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: materialised "
+                                        "pf missing", r->seq), 0 };
+    }
+    pf = (const unsigned char *)pc->pf;
+
+    /* (1) pf: change-set — против post, остальное — против pre (неизменно) */
+    for (unsigned off = 0; off + 4 <= BDD0_LEAFPF_LEN; off += 4) {
+        unsigned pv, nv;
+        if (off == 0x78) {
+            /* за пределами записанного блоба: pf+0x78 — голова map2, вопрос
+             * адресации (сравнивается узлами на уровне (2), не побайтово). */
+            continue;
+        }
+        pv = rd_u32(pf + off);
+        if (off_is_ptr(off)) {
+            unsigned raw = arena_raw_of((const void *)(size_t)pv);
+            if (pv != 0 && raw == 0) {
+                g_psp_fail++;
+                return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: pf+0x%02x "
+                                                "port pointer 0x%08x is not "
+                                                "bound in the arena", r->seq,
+                                            off, pv), 0 };
+            }
+            pv = raw;
+        }
+        nv = off_in_set(off) ? post->pf[off / 4] : pre->pf[off / 4];
+        if (pv != nv) {
+            g_psp_fail++;
+            return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: pf+0x%02x "
+                                            "port=0x%08x %s=0x%08x", r->seq, off,
+                                        pv, off_in_set(off) ? "post" : "pre", nv),
+                                0 };
+        }
+        /* Вне change-set порт ничего не пишет, поэтому сверка с pre имеет смысл
+         * только если запись и сама не меняла это поле: проверяем pre==post —
+         * иначе change-set неполон и проверка была бы слепой на этом офсете. */
+        if (!off_in_set(off) && post->pf[off / 4] != pre->pf[off / 4]) {
+            g_psp_fail++;
+            return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: pf+0x%02x "
+                                            "changed by the native (pre=0x%08x "
+                                            "post=0x%08x) but the port does not "
+                                            "write it — change-set incomplete",
+                                        r->seq, off, pre->pf[off / 4],
+                                        post->pf[off / 4]), 0 };
+        }
+    }
+
+    /* (2) карты: счётчики и инвариант размера */
+    if (post->m1_n != post->m2_n) {
+        g_psp_fail++;
+        return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: post node "
+                                        "counts differ (m1=%d m2=%d)", r->seq,
+                                    post->m1_n, post->m2_n), 0 };
+    }
+    if (post->pf[0x70 / 4] != (unsigned)post->m1_n) {
+        g_psp_fail++;
+        return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: post pf+0x70=%u "
+                                        "but %d map nodes", r->seq,
+                                    post->pf[0x70 / 4], post->m1_n), 0 };
+    }
+    /* (2) каждая вставка порта (регистрационная граница dd00) — в обеих картах.
+     * Поля PathState, которые переписывает реплеемый 45dd70 (filter/g_cost/
+     * dist2/h10000/metric/parent/nbr), сравниваются только когда итераций P9 не
+     * было вовсе (объект никто не трогал); иначе сверяются поля, автор которых —
+     * сам порт: +0x00 (pos), +0x0c, +0x10 (ctx120+cell[0x14]), +0x28/+0x2c
+     * (сентинелы), +0x30. */
+    {
+        static const unsigned int own[] = { 0x00, 0x0c, 0x10, 0x28, 0x2c, 0x30 };
+        int p9 = 0;
+
+        for (i = 0; i < bdd0_nested_count(); i++) {
+            const NestedRec *nr = bdd0_nested_peek(i);
+            if (nr != NULL && nr->site == BDD0_NESTED_SITE_R9_UPDATE) p9++;
+        }
+        for (i = 0; i < b0_path_insert_count(); i++) {
+            const B0PathInsert *ins = b0_path_insert_at(i);
+            const unsigned *offs = (p9 > 0) ? own : NULL;
+            int noffs = (p9 > 0) ? (int)(sizeof(own) / sizeof(own[0])) : 0;
+            const MapNodeRec *n1, *n2;
+            static char psdiff[96];
+
+            if (ins == NULL) break;
+            n1 = map_node_by_key(post->m1, post->m1_n, ins->key1_raw);
+            if (n1 == NULL) {
+                g_psp_fail++;
+                return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: insert "
+                                                "#%d — no map1 node with key "
+                                                "0x%08x", r->seq, i, ins->key1_raw),
+                                    0 };
+            }
+            if (!n1->has_ps) {
+                g_psp_fail++;
+                return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: insert "
+                                                "#%d — map1 node 0x%08x has no "
+                                                "PathState", r->seq, i,
+                                            ins->key1_raw), 0 };
+            }
+            if (!ps_equal(ins->ps, n1->ps, offs, noffs, psdiff, sizeof(psdiff))) {
+                g_psp_fail++;
+                return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: insert #%d "
+                                                "— map1 PathState differs (%s)",
+                                            r->seq, i, psdiff), 0 };
+            }
+            /* map2: ключ (Y<<16)|X офлайн не выводим (поля ячейки +0x0c/+0x10
+             * в grid-запись не попадают) — тот же PathState обязан стоять
+             * значением узла map2. */
+            n2 = NULL;
+            for (int k = 0; k < post->m2_n; k++) {
+                if (post->m2[k].has_ps &&
+                    ps_equal(ins->ps, post->m2[k].ps, offs, noffs, psdiff,
+                             sizeof(psdiff))) {
+                    n2 = &post->m2[k];
+                    break;
+                }
+            }
+            if (n2 == NULL) {
+                g_psp_fail++;
+                return CheckResult{ 0, whyf(tc, "leaf 0x45e1d0 seq %d: insert "
+                                                "#%d — no map2 node carries the "
+                                                "registered PathState (map1 key "
+                                                "0x%08x)", r->seq, i,
+                                            ins->key1_raw), 0 };
+            }
+        }
+    }
+    g_psp_pass++;
+    OK();
+}
 
 void register_builtin_checks(void)
 {
@@ -1502,4 +1770,15 @@ void register_builtin_checks(void)
     register_check({ "handles",      chk_handles,
                      NEED_HANDLES });
     register_check({ "path_state_inputs", chk_path_state_inputs, 0 });
+    register_check({ "path_post_match", chk_path_post_match, 0 });
 }
+
+int bdd0_path_state_calls(void) { return g_ps_calls; }
+int bdd0_path_state_p9_total(void) { return g_ps_p9_total; }
+int bdd0_path_state_inputs_fail(void) { return g_ps_fail; }
+int bdd0_path_recompute_port(void) { return g_psp_calls; }
+int bdd0_path_recompute_replayed(void) { return g_psp_replayed; }
+int bdd0_path_post_match_fail(void) { return g_psp_fail; }
+/* v18: расхождения границ (сумма по прогону) — в сводку; по тику их судит
+ * path_post_match. */
+int bdd0_path_boundary_mismatch(void) { return b0_path_boundary_mismatch_total(); }

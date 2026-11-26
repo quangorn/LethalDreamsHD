@@ -44,6 +44,16 @@ static int fbits(float f)
     return b;
 }
 
+static void viol(const char *fmt, ...);
+
+/* v18: счётчики границ/регистраций порта листа 0x45e1d0 (сбрасываются на тик в
+ * bdd0_leaf_begin, определения — в блоке границ ниже). */
+static int g_path_boundary_mismatch;          /* тик: судит path_post_match */
+static int g_path_boundary_mismatch_total;    /* прогон: сводка харнесса */
+static char g_path_boundary_why[160];
+static int g_path_ins_n;
+static int g_claim_suspended;                 /* тик: заявки вложенных листьев */
+
 static const LeafRec *g_v = NULL;
 static int g_n = 0;
 static int g_i = 0;             /* потреблено записей */
@@ -156,6 +166,10 @@ void bdd0_leaf_begin(int seq, const LeafRec *v, int n)
     g_ctx_pos_captured = (tr != NULL && tr->has_ctx_pos) ? 1 : 0;
     ctx_pos_from_stream();
     bdd0_nested_reset();
+    g_path_ins_n = 0;
+    g_path_boundary_mismatch = 0;
+    g_path_boundary_why[0] = '\0';
+    g_claim_suspended = 0;
 }
 
 /* ------------------------- v17: nested-сайты листа ----------------------- *
@@ -200,6 +214,227 @@ const NestedRec *bdd0_nested_next(void)
 int bdd0_nested_consumed(void) { return g_nest_i; }
 
 void bdd0_nested_reset(void) { g_nest_i = 0; }
+
+/* ------------------------- v17: границы листа 0x45e1d0 -------------------- *
+ * Тело порта (recompute.cpp) зовёт границу по (site, va); слой потребляет
+ * следующую запись окна и возвращает записанный EAX / w. Несовпадение VA или
+ * исчерпание — нарушение потока (leaf_seq). v18: has_ret!=0 — записанный EAX
+ * сверяется с вычисленным портом (ret_expect); расхождение НЕ двигает поток
+ * иначе, но считается: суммарный счётчик виден в сводке, а path_post_match
+ * валит тик (тихая подстановка запрещена). */
+int b0_nested_call(unsigned site, unsigned va, const int *args, int nargs,
+                   int *w, int *nw, int has_ret, int ret_expect)
+{
+    const NestedRec *r = bdd0_nested_next();
+    (void)site; (void)args; (void)nargs;
+    if (r == NULL) {
+        viol("path boundary #%d: nested stream exhausted, requested va=0x%x "
+             "(seq %d)", g_nest_i, va, g_seq);
+        return 0;
+    }
+    if (r->va != (int)va) {
+        viol("path boundary #%d: requested va=0x%x, recorded va=0x%x (seq %d)",
+             g_nest_i, va, r->va, g_seq);
+        return 0;
+    }
+    if (has_ret && r->ret != ret_expect) {
+        if (g_path_boundary_mismatch == 0) {
+            _snprintf_s(g_path_boundary_why, sizeof(g_path_boundary_why),
+                        _TRUNCATE, "boundary va=0x%x: port=0x%08x recorded="
+                        "0x%08x (seq %d)", va, (unsigned)ret_expect,
+                        (unsigned)r->ret, g_seq);
+        }
+        g_path_boundary_mismatch++;
+        g_path_boundary_mismatch_total++;
+    }
+    if (w != NULL) { w[0] = r->w[0]; w[1] = r->w[1]; w[2] = r->w[2]; }
+    if (nw != NULL) *nw = r->nw;
+    return r->ret;
+}
+
+void *b0_nested_alloc(unsigned site, unsigned va, unsigned size, int *ok)
+{
+    const NestedRec *r = bdd0_nested_next();
+    char name[24];
+    unsigned raw;
+    void *p;
+    (void)site;
+    if (r == NULL || r->va != (int)va) {
+        if (r == NULL)
+            viol("path alloc: nested stream exhausted, requested va=0x%x "
+                 "(seq %d)", va, g_seq);
+        else
+            viol("path alloc: requested va=0x%x, recorded va=0x%x (seq %d)",
+                 va, r->va, g_seq);
+        if (ok != NULL) *ok = 0;
+        return NULL;
+    }
+    raw = (unsigned)r->ret;
+    /* имя уникально на вызов: два new(0x1c/0x10) и PathState 0x58 — три блока */
+    _snprintf_s(name, sizeof(name), _TRUNCATE, "path_blk%d_%x", g_nest_i - 1, va);
+    p = arena_bind_alloc(name, raw, size);
+    if (ok != NULL) *ok = (p != NULL) ? 1 : 0;
+    return p;
+}
+
+/* v18: заявки портированных листьев изнутри тела другого листа не выпускаются:
+ * их записи лежат в окне bdd0_nested, а поток тика ждёт запись самого листа. */
+void b0_leaf_claim_suspend(int on) { g_claim_suspended = (on != 0) ? 1 : 0; }
+
+/* v18: сверка указателя-результата границы с ret последней потреблённой записи
+ * окна. Побитовое сравнение невозможно (shadow ≠ сырой адрес), поэтому адрес
+ * переводится обратно по bind-карте. */
+void b0_nested_expect_ptr(unsigned va, const void *p)
+{
+    const NestedRec *r = bdd0_nested_peek(g_nest_i - 1);
+    unsigned raw;
+
+    if (r == NULL || r->va != (int)va) return;
+    raw = arena_raw_of(p);
+    if (raw == 0 || raw != (unsigned)r->ret) {
+        if (g_path_boundary_mismatch == 0) {
+            _snprintf_s(g_path_boundary_why, sizeof(g_path_boundary_why),
+                        _TRUNCATE, "boundary va=0x%x: port ptr=0x%08x recorded="
+                        "0x%08x (seq %d)", va, raw, (unsigned)r->ret, g_seq);
+        }
+        g_path_boundary_mismatch++;
+        g_path_boundary_mismatch_total++;
+    }
+}
+
+/* v18: PathState-кандидат скана 45ce80 — последняя потреблённая запись окна
+ * несёт bdd0_cand (ps 0x58). Блок материализуется в арене и привязывается к
+ * записанному адресу: порт читает cand[0x20]/cand[0x00] и пишет cand[0x08]=3.
+ * Один блок на тик (переиспользуется итерациями P9: объекты разные, но живой
+ * нужен только текущий). NULL — запись не скан или снимка нет. */
+void *b0_cand_materialise(unsigned site)
+{
+    const NestedRec *r = bdd0_nested_peek(g_nest_i - 1);
+    void *p;
+
+    (void)site;
+    if (r == NULL || r->va != (int)BDD0_VA_SCAN_MAP || !r->cand_ok) return NULL;
+    p = arena_bind_reuse("path_cand", r->cand, BDD0_PS_LEN);
+    if (p == NULL) return NULL;
+    memcpy(p, (const void *)r->cand_ps, BDD0_PS_LEN);
+    return p;
+}
+
+/* v18: регистрационная граница dd00 — что порт подал в карты (ключ map1 и
+ * PathState). Сверяется path_post_match (уровень 3 плана §4). */
+#define PATH_INSERT_MAX 8
+static B0PathInsert g_path_ins[PATH_INSERT_MAX];
+
+void b0_path_note_insert(unsigned key1_shadow, const void *ps)
+{
+    B0PathInsert &e = g_path_ins[g_path_ins_n < PATH_INSERT_MAX
+                                  ? g_path_ins_n : PATH_INSERT_MAX - 1];
+
+    if (g_path_ins_n < PATH_INSERT_MAX) g_path_ins_n++;
+    e.key1_raw = arena_raw_of((const void *)(size_t)key1_shadow);
+    if (ps != NULL) memcpy(e.ps, ps, BDD0_PS_LEN);
+    else memset(e.ps, 0, BDD0_PS_LEN);
+}
+
+int b0_path_insert_count(void) { return g_path_ins_n; }
+
+const B0PathInsert *b0_path_insert_at(int i)
+{
+    if (i < 0 || i >= g_path_ins_n) return NULL;
+    return &g_path_ins[i];
+}
+
+int b0_path_boundary_mismatch(void) { return g_path_boundary_mismatch; }
+int b0_path_boundary_mismatch_total(void) { return g_path_boundary_mismatch_total; }
+const char *b0_path_boundary_why(void) { return g_path_boundary_why; }
+
+/* v17: out-тройка (w[3]) следующей записи листа 0x45e1d0 (граница P11). */
+const int *b0_path_out_w(void)
+{
+    static int w[3] = { 0, 0, 0 };
+    if (g_v == NULL || g_i < 0 || g_i >= g_n) return w;
+    w[0] = g_v[g_i].w[0];
+    w[1] = g_v[g_i].w[1];
+    w[2] = g_v[g_i].w[2];
+    return w;
+}
+
+/* v17: pf+0x08..0x27 из bdd0_site_pf (выход 45c8c0) — состояние, которое
+ * лист читает после сайта 0x45e320 (plan §5). Требуется identity: site_pf
+ * снят на том же объекте (ecx) и это тот же вызов листа (по ecx pre). */
+void b0_path_apply_site_pf(void *pf)
+{
+    const TickRecord *tr = arena_record(arena_current());
+    const LeafStateRec *pre;
+    const LeafStateRec *spf;
+
+    if (pf == NULL || tr == NULL || tr->leaf_pre_idx < 0) return;
+    pre = bdd0_leaf_pre_at(tr->leaf_pre_idx);
+    if (pre == NULL) return;
+    spf = bdd0_leaf_state_site_pf(tr->seq, pre->order);
+    if (spf == NULL || !spf->ok) return;
+    if (spf->site != 0x45e320 || spf->va != 0x45c8c0) return;
+    if (pre->ecx != 0 && spf->ecx != pre->ecx) return;   /* другой объект */
+    memcpy((unsigned char *)pf + 0x08, (const unsigned char *)spf->pf + 0x08, 0x20);
+}
+
+/* v18: dword записанного post-состояния pf того же вызова листа. */
+unsigned b0_path_post_u32(unsigned off)
+{
+    const TickRecord *tr = arena_record(arena_current());
+    const LeafStateRec *pre, *post;
+
+    if (tr == NULL || tr->leaf_pre_idx < 0 || off + 4 > BDD0_LEAFPF_LEN) return 0;
+    pre = bdd0_leaf_pre_at(tr->leaf_pre_idx);
+    if (pre == NULL) return 0;
+    post = bdd0_leaf_state_post(tr->seq, pre->order);
+    if (post == NULL || !post->ok) return 0;
+    return post->pf[off / 4];
+}
+
+void *b0_path_pf(void)
+{
+    const PathCall *pc = arena_path_call(arena_current());
+        return (pc != NULL) ? pc->pf : NULL;
+}
+
+/* v18: 1 — арена несёт ПОЛНЫЙ вход листа 0x45e1d0 в формате v18: pre/post/
+ * site_pf ok, PathCall ok (pf/rec/band материализованы), окно внутренних вызовов
+ * начинается аллокацией rec и на КАЖДОМ сайте скана несёт bdd0_cand, а на всех
+ * четырёх 456b20 — пару w[0..1] (без неё out-пара не восстанавливается: GridCell
+ * внутренности в запись не попадают). Старше v18 — 0: сайт реплеит записанный
+ * натив (v12..v17, регресс сохраняется). */
+int bdd0_path_state_modelled(void)
+{
+    Arena *a = arena_current();
+    const TickRecord *tr;
+    const PathCall *pc;
+    int i, ns = 0;
+
+    if (a == NULL || (tr = arena_record(a)) == NULL) return 0;
+    if (tr->leaf_pre_idx < 0 || tr->leaf_post_idx < 0 || tr->site_pf_idx < 0)
+        return 0;
+    if (tr->nested_n <= 0 || tr->nested_first < 0) return 0;
+    if (bdd0_site_pf_records() == 0) return 0;
+    if (bdd0_cand_records() == 0) return 0;
+    pc = arena_path_call(a);
+    if (pc == NULL || pc->pf == NULL || pc->bandrec == NULL) return 0;
+    for (i = 0; i < tr->nested_n; i++) {
+        const NestedRec *r = bdd0_nested_peek(i);
+        if (r == NULL || r->trap) return 0;
+        if (r->va == BDD0_VA_SCAN_MAP) {
+            if (r->ret != 0 && !r->cand_ok) return 0;   /* cand без снимка */
+            ns++;
+        } else if (r->va == 0x456b20) {
+            if (r->nw != 2) return 0;                   /* без out-пары */
+        }
+    }
+    {
+        const NestedRec *r0 = bdd0_nested_peek(0);
+        if (r0 == NULL || r0->va != 0x4cfa11 || r0->ret == 0) return 0;
+    }
+    return (ns > 0) ? 1 : 0;
+}
 
 int bdd0_leaf_calls(void) { return g_log_n; }
 int bdd0_leaf_violations(void) { return g_viol; }
@@ -390,6 +625,10 @@ void bdd0_leaf_claim_w(unsigned int va, void *ecx, int ret, const int *args,
     int idx = g_claim_n;
     int appended = 0;
     const LeafRec *r;
+
+    /* Вызов идёт изнутри тела другого листа: запись лежит в окне bdd0_nested,
+     * поток тика её не содержит — заявка была бы нарушением потока. */
+    if (g_claim_suspended) return;
 
     /* Канал несёт не более трёх dword'ов (LeafRec.w[3]). Больше — нарушение
      * потока, а не тихое усечение: иначе лишняя запись порта прошла бы через

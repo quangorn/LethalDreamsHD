@@ -115,6 +115,27 @@ const LeafStateRec *bdd0_leaf_state_site_pf(int seq, int order)
 int bdd0_leaf_state_records(void) { return 0; }
 int bdd0_site_pf_records(void) { return 0; }
 const LeafStateRec *bdd0_leaf_pre_at(int idx) { (void)idx; return NULL; }
+/* v17: генератор не несёт вход листа 0x45e1d0 — заглушки. */
+int bdd0_path_state_modelled(void) { return 0; }
+void *b0_path_pf(void) { return NULL; }
+int b0_nested_call(unsigned site, unsigned va, const int *args, int nargs,
+                   int *w, int *nw, int has_ret, int ret_expect)
+{
+    (void)site; (void)va; (void)args; (void)nargs; (void)w; (void)nw;
+    (void)has_ret; (void)ret_expect;
+    return 0;
+}
+void *b0_nested_alloc(unsigned site, unsigned va, unsigned size, int *ok)
+{ (void)site; (void)va; (void)size; if (ok) *ok = 0; return NULL; }
+void *b0_cand_materialise(unsigned site) { (void)site; return NULL; }
+void b0_path_note_insert(unsigned key1, const void *ps)
+{ (void)key1; (void)ps; }
+int b0_path_boundary_mismatch_total(void) { return 0; }
+void b0_leaf_claim_suspend(int on) { (void)on; }
+void b0_nested_expect_ptr(unsigned va, const void *p) { (void)va; (void)p; }
+unsigned b0_path_post_u32(unsigned off) { (void)off; return 0; }
+const int *b0_path_out_w(void) { static int w[3] = {0,0,0}; return w; }
+void b0_path_apply_site_pf(void *pf) { (void)pf; }
 int bdd0_leaf_applied_w(int i, int *w3) { (void)i; (void)w3; return 0; }
 int bdd0_leaf_consumed(void) { return 0; }
 const LeafRec *bdd0_leaf_pending(void) { return NULL; }

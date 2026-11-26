@@ -1454,3 +1454,8 @@ const char *literal(unsigned int va)
 }
 
 } /* namespace native */
+
+/* v17: в живом билде replay-слоя нет — вход листа 0x45e1d0 не моделируется,
+ * сайт исполняет нативный grid_recompute. */
+int bdd0_path_state_modelled(void) { return 0; }
+void *b0_path_pf(void) { return NULL; }

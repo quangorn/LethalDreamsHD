@@ -88,6 +88,9 @@ struct Bind {
     unsigned raw;
     unsigned char *base;
     unsigned size;
+    int synth;      /* v18: raw — синтетический адрес модели (уровень сетки из
+                     * rec->tree+i*0x30), а не адрес из захвата: обратный перевод
+                     * shadow→raw (arena_raw_of) для него не определён */
 };
 
 struct Ident {
@@ -95,7 +98,7 @@ struct Ident {
     unsigned char *cell;
 };
 
-#define ARENA_REGS_MAX 32        /* области фиксированного набора + leafN */
+#define ARENA_REGS_MAX 48        /* области фиксированного набора + leafN */
 /* 64 LDPos + базовые привязки (self/band/e0/e0_44/tree/gs/ctx/grid_node) + запас:
  * 256 покрывает band_n == BDD0_BAND_MAX (64) с большим отрывом. Переполнение
  * (bind_overflow) печатается в сводке харнесса — молчаливой деградации нет. */
@@ -280,10 +283,49 @@ int arena_leaf_nodes(const Arena *a)
     return (a == NULL) ? 0 : a->leaf_nodes;
 }
 
+static void bind_add(Arena *a, unsigned raw, unsigned char *base, unsigned size);
+
 const PathCall *arena_path_call(const Arena *a)
 {
     if (a == NULL || !a->path.ok) return NULL;
     return &a->path;
+}
+
+/* v17: привязать записанный сырой адрес к занулённому блоку (size). Сначала
+ * reg_add_fixed по адресу, при коллизии — shadow + bind_add (identity). NULL —
+ * не удалось. Использует replay-слой для аллокаций листа (4cfa11/45c2e0) и для
+ * PathState-кандидатов скана (v18). name обязан быть уникальным на арену: блок
+ * возвращается напрямую (arena_region_w по неуникальному имени отдал бы первый). */
+void *arena_bind_alloc(const char *name, unsigned raw, unsigned size)
+{
+    Arena *a = g_cur;
+    unsigned char *p;
+    if (a == NULL || raw == 0 || size == 0 || name == NULL) return NULL;
+    if (reg_add_fixed(a, name, raw, size)) {
+        p = a->regs[a->reg_n - 1].base;
+    } else {
+        if (!reg_add(a, name, size)) return NULL;
+        p = a->regs[a->reg_n - 1].base;
+    }
+    memset(p, 0, size);
+    bind_add(a, raw, p, size);
+    return p;
+}
+
+/* v18: блок арены по имени — создаётся при первом обращении, затем переиспользуется
+ * с привязкой нового сырого адреса (PathState-кандидаты скана: объекты разные,
+ * живой нужен только текущий, а число областей арены ограничено). */
+void *arena_bind_reuse(const char *name, unsigned raw, unsigned size)
+{
+    Arena *a = g_cur;
+    unsigned char *p;
+
+    if (a == NULL || raw == 0 || size == 0 || name == NULL) return NULL;
+    p = arena_region_w(a, name);
+    if (p == NULL) return arena_bind_alloc(name, raw, size);
+    memset(p, 0, size);
+    bind_add(a, raw, p, size);
+    return p;
 }
 
 int arena_leaf_identity(const Arena *a)
@@ -299,6 +341,22 @@ int arena_handle_misses(const Arena *a)
 int arena_bind_overflow(const Arena *a)
 {
     return (a == NULL) ? 0 : a->bind_overflow;
+}
+
+/* v17: перевод shadow-указателя обратно в сырой адрес игры (по bind-карте).
+ * 0 — указатель не из арены. Для символьного сравнения pf-полей. */
+unsigned arena_raw_of(const void *p)
+{
+    Arena *a = g_cur;
+    unsigned long v = (unsigned long)p;
+    if (a == NULL || p == NULL) return 0;
+    for (int i = 0; i < a->bind_n; i++) {
+        const Bind &b = a->binds[i];
+        if (b.synth) continue;      /* модель: raw не адрес игры */
+        if (v >= (unsigned long)b.base && v < (unsigned long)b.base + b.size)
+            return b.raw + (unsigned)(v - (unsigned long)b.base);
+    }
+    return 0;
 }
 
 const char *arena_handle_miss_why(const Arena *a)
@@ -370,7 +428,8 @@ static void miss(Arena *a, const char *what, unsigned raw)
     a->handle_miss = 1;
 }
 
-static void bind_add(Arena *a, unsigned raw, unsigned char *base, unsigned size)
+static void bind_add_ex(Arena *a, unsigned raw, unsigned char *base,
+                        unsigned size, int synth)
 {
     if (raw == 0 || base == NULL || size == 0) return;
     if (a->bind_n >= ARENA_BINDS_MAX) { a->bind_overflow++; return; }
@@ -378,7 +437,13 @@ static void bind_add(Arena *a, unsigned raw, unsigned char *base, unsigned size)
     b.raw = raw;
     b.base = base;
     b.size = size;
+    b.synth = synth;
     a->binds[a->bind_n++] = b;
+}
+
+static void bind_add(Arena *a, unsigned raw, unsigned char *base, unsigned size)
+{
+    bind_add_ex(a, raw, base, size, 0);
 }
 
 /* ------------------------- применение таблицы fixup ---------------------- */
@@ -602,8 +667,14 @@ static void materialize_models(Arena *a)
             write_u32(L + 0x30, (unsigned)m.sy);
             write_u32(L + 0x34, (unsigned)(size_t)cells);  /* cells */
             write_u32(L + 0x38, (unsigned)(size_t)grows);   /* rows */
-            if (rec->tree != 0) bind_add(a, rec->tree + i * 0x30, L, 0x40);
+            if (rec->tree != 0) bind_add_ex(a, rec->tree + i * 0x30, L, 0x40, 1);
         }
+        /* v18: идентичность массива ячеек — по нему порт листа 0x45e1d0 отдаёт
+         * pf+0x28/+0x2c (GridCell*), и path_post_match переводит shadow-указатель
+         * в сырой адрес записи. Без привязки такие поля не сравнимы. */
+        if (rec->grid_cells_raw != 0 && gcells != NULL)
+            bind_add(a, rec->grid_cells_raw, gcells,
+                     (unsigned)ncell * S6_GRID_CELL_SIZE);
     }
 
     if (rec->has_band_pos && rec->band_pos_n > 0 && band != NULL) {

@@ -1704,8 +1704,19 @@ B0_LBL(25);
     *(unsigned int *)(frame + 0xa0) = 0;                    /* 0x44c8bd */
     /* 45e1d0: ECX = &frame+0xcc (тот же PathFinder-объект, что ctor 45f430 в
      * R12 и dtor 45e5e0 в R16), arg1 = &frame+0xc0 (слот world-notify),
-     * arg2 = &frame+0x88 (record); RET 8. */
-    native::grid_recompute(frame + 0xcc, frame + 0xc0, frame + 0x88, r14_tri);
+     * arg2 = &frame+0x88 (record); RET 8. v17: если арена несёт вход листа
+     * (bdd0_path_state_modelled) — тело исполняет порт (s6_grid_recompute),
+     * иначе записанный натив. */
+    {
+        void *pf = b0_path_pf();
+        if (pf != NULL && bdd0_path_state_modelled()) {
+            s6_grid_recompute(pf, frame + 0xc0, frame + 0x88);
+            memcpy(r14_tri, frame + 0xc0, 12);   /* out-тройка порта */
+        } else {
+            native::grid_recompute(frame + 0xcc, frame + 0xc0, frame + 0x88,
+                                   r14_tri);
+        }
+    }
     /* 0x44c8cd..0x44c8e2 — возврат-тройка → `unit+0xa4..0xac` (без guard). */
     memcpy(unit_x + 0xa4, r14_tri, 12);
     /* 0x44c8e5..0x44c8f8 — pos-тройка `frame+0x2c/+0x30/+0x34` ← `unit+0xa4..

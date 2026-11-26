@@ -81,6 +81,8 @@
 #define BDD0_NESTED_SITE_R9_SCAN      0x45e487
 #define BDD0_NESTED_SITE_R10_SCALE_C  0x45e49b
 #define BDD0_NESTED_SITE_R10_SCALE_D  0x45e4b1
+/* VA каллее-скана (45ce80): v18 пишет для них снимок PathState (bdd0_cand). */
+#define BDD0_VA_SCAN_MAP              0x45ce80
 
 /* v17: внутренний вызов листа 0x45e1d0 (сайт из BDD0_NESTED_SITE_R*, тело
  * leaf_sites.cpp №35..54). Записи bdd0_leaf этих сайтов выносятся из окна
@@ -91,11 +93,19 @@
  * order — порядок сайта в потоке тика (общий с bdd0_leaf/native). */
 struct NestedRec {
     int order, site, va, ecx, nargs, args[6], ret, w[3], nw, trap;
+    /* v18: bdd0_cand — снимок PathState 0x58, возвращённого сканом 45ce80, снятый
+     * на выходе сайта 49/52. cand_ok=0 — записи нет (v17 и старше) или ps не
+     * прочитан: гейт bdd0_path_state_modelled() тогда 0, порт не исполняется. */
+    int cand_ok;
+    unsigned cand;
+    unsigned cand_ps[0x58 / 4];
     NestedRec()
-        : order(0), site(0), va(0), ecx(0), nargs(0), ret(0), nw(0), trap(0)
+        : order(0), site(0), va(0), ecx(0), nargs(0), ret(0), nw(0), trap(0),
+          cand_ok(0), cand(0)
     {
         for (int i = 0; i < 6; i++) args[i] = 0;
         for (int i = 0; i < 3; i++) w[i] = 0;
+        for (int i = 0; i < 0x58 / 4; i++) cand_ps[i] = 0;
     }
 };
 
@@ -379,6 +389,7 @@ struct Scenario {
     std::vector<LeafStateRec> leaf_post;
     std::vector<LeafStateRec> site_pf;
     int leaf_state_records;    /* сколько state-записей прочитано (pre+post+pf) */
+    int cand_records;          /* v18: сколько bdd0_cand прочитано */
     int input_trap;            /* bdd0_in с trap=1 (снимок недостоверен) */
     int outcome_trap;          /* bdd0_res с trap=1 (исход недостоверен) */
     int incomplete_tail;       /* тиков, у которых seq без res и он последний */
@@ -387,7 +398,7 @@ struct Scenario {
                  truncated(0), records(0), leaf_missing_n(0),
                  native_missing_n(0), nested_leaf_n(0), input_trap(0),
                  outcome_trap(0), incomplete_tail(0), res_missing_nontail(0),
-                 has_grid(0), leaf_state_records(0) {}
+                 has_grid(0), leaf_state_records(0), cand_records(0) {}
 };
 
 /* Загрузчик (scenario.cpp). Ошибка формата → std::runtime_error (rc 2). */
@@ -531,6 +542,12 @@ int field_count(void);
 int bdd0_path_state_calls(void);
 int bdd0_path_state_p9_total(void);
 int bdd0_path_state_inputs_fail(void);
+int bdd0_path_recompute_port(void);
+int bdd0_path_recompute_replayed(void);
+int bdd0_path_post_match_fail(void);
+/* v18: расхождения вычисленных значений границ листа 0x45e1d0 с записями
+ * (порт не подставляет записанное молча — счётчик виден в сводке). */
+int bdd0_path_boundary_mismatch(void);
 
 void register_builtin_checks(void);
 /* Политика бюджета (CLI --budget-ms/--budget-calls); домены — в проверке. */
@@ -572,6 +589,8 @@ void arena_set_grid_model(const GridModel *g);
 void arena_set_model_gates_off(int off);
 /* v16: сколько bind_add отброшено из-за переполнения (диагностика, не молчание). */
 int arena_bind_overflow(const Arena *a);
+/* v17: shadow-указатель → сырой адрес игры (0 — не из арены). */
+unsigned arena_raw_of(const void *p);
 
 const RegionView *arena_regions(const Arena *a);
 int arena_region_n(const Arena *a);
@@ -582,6 +601,13 @@ int bdd0_grid_level_modelled(void);
 const TickRecord *arena_record(const Arena *a);
 /* v17: материализованный вход листа 0x45e1d0 (NULL — данных нет / не ok). */
 const PathCall *arena_path_call(const Arena *a);
+/* v17: привязать записанный сырой адрес к занулённому блоку (replay-аллокации).
+ * name — уникальное имя области (у каждой replay-аллокации своё: повтор имени
+ * вернул бы первый блок). Возврат — сам блок арены, NULL — не удалось. */
+void *arena_bind_alloc(const char *name, unsigned raw, unsigned size);
+/* v18: блок по имени с переиспользованием (создаётся при первом обращении, затем
+ * привязывается новый сырой адрес) — PathState-кандидаты скана. */
+void *arena_bind_reuse(const char *name, unsigned raw, unsigned size);
 const RegionView *arena_views(const Arena *a);
 const RegionView *arena_pre_views(const Arena *a);
 unsigned char *arena_region_w(Arena *a, const char *name);
@@ -624,6 +650,32 @@ void bdd0_leaf_begin(int seq, const LeafRec *v, int n);
 /* v17: окно внутренних вызовов листа 0x45e1d0 для этого seq (массив + длина);
  * NULL/0 — данных нет. Ставится ядром сразу за bdd0_leaf_begin. */
 void bdd0_nested_set_window(const NestedRec *v, int n);
+/* v18: сколько записей bdd0_cand прочитано (0 — данные до v18). */
+int bdd0_cand_records(void);
+/* v18: счётчики порта листа 0x45e1d0 для сводки/проверки path_post_match:
+ * insert_count/at — что порт отдал регистрационной границе dd00 (ключи map1/map2
+ * + PathState 0x58), boundary_mismatch — расхождения вычисленных значений границ
+ * с записанными. */
+/* v18: что порт отдал регистрационной границе dd00 (для path_post_match).
+ * key1_raw — ключ map1 = указатель pos в сыром адресе игры. Ключ map2
+ * (Y<<16)|X = (u16 cell[0x10]<<16)|u16 cell[0x0c] (0x45dd32..0x45dd3d) офлайн
+ * НЕ выводим: поля ячейки +0x0c/+0x10 в grid-запись не попадают (write_grid
+ * несёт только key_rec/next/min_metric), поэтому карта map2 сверяется по
+ * идентичности PathState (тот же объект стоит значением в обеих картах). */
+struct B0PathInsert {
+    unsigned key1_raw;            /* ключ map1 = pos-указатель (сырой адрес) */
+    unsigned ps[BDD0_PS_LEN / 4];
+};
+int b0_path_insert_count(void);
+const B0PathInsert *b0_path_insert_at(int i);
+int b0_path_boundary_mismatch(void);
+const char *b0_path_boundary_why(void);
+/* v18: заявки портированных листьев приостановлены — вызов идёт ВНУТРИ тела
+ * другого листа (его запись лежит в окне bdd0_nested, а не в потоке тика). */
+void b0_leaf_claim_suspend(int on);
+/* v18: сверка указателя-результата границы с ret последней потреблённой записи
+ * окна (символьно: shadow → сырой адрес игры). */
+void b0_nested_expect_ptr(unsigned va, const void *p);
 int bdd0_leaf_calls(void);
 int bdd0_leaf_violations(void);
 const char *bdd0_leaf_violation_why(void);

@@ -472,6 +472,32 @@ static void apply_res(ResRec &r, const JVal &v)
     }
 }
 
+/* v18: bdd0_cand — снимок PathState, возвращённого сканом 45ce80 (сайт 49/52),
+ * снятый на выходе сайта. Ключ — (seq, order) записи bdd0_leaf того же сайта
+ * (писатель даёт им один order); после сборки окна снимок прикрепляется к своей
+ * NestedRec. Без этих записей (v17 и старше) гейт порта листа = 0. */
+struct CandRec {
+    int seq, order;
+    unsigned cand;
+    int ps_ok;
+    unsigned ps[0x58 / 4];
+    CandRec() : seq(0), order(0), cand(0), ps_ok(0)
+    {
+        for (int i = 0; i < 0x58 / 4; i++) ps[i] = 0;
+    }
+};
+
+static void apply_cand(CandRec &c, const JVal &v)
+{
+    int has = 0, exact = 0;
+
+    c.seq = (int)jint_opt(v, "seq", 0);
+    c.order = (int)jint_opt(v, "order", 0);
+    c.cand = (unsigned)jint_opt(v, "cand", 0);
+    read_block(v, "ps_b64", (unsigned char *)c.ps, 0x58, &has, &exact);
+    c.ps_ok = (has && exact) ? 1 : 0;        /* усечённый блок не используем */
+}
+
 static void apply_leaf(LeafRec &l, const JVal &v)
 {
     memset(&l, 0, sizeof(l));
@@ -774,6 +800,8 @@ Scenario *load_capture(const char *path)
      * исполнения; state-записи — по (seq,order). */
     std::vector<std::pair<int, NestedRec> > nested;
     std::vector<std::pair<int, LeafStateRec> > leaf_pre, leaf_post, site_pf;
+    /* v18: снимки кандидатов скана — по (seq, order) записи bdd0_leaf сайта. */
+    std::vector<CandRec> cands;
 
     JParser jp(text);
     JVal v;
@@ -871,6 +899,13 @@ Scenario *load_capture(const char *path)
                 else if (kind == "bdd0_leaf_post") leaf_post.push_back(item);
                 else site_pf.push_back(item);
                 sc->leaf_state_records++;
+            } else if (kind == "bdd0_cand") {
+                /* v18 (аддитивно): снимок PathState-кандидата скана 45ce80. */
+                if (ver < 12) continue;
+                CandRec c;
+                apply_cand(c, v);
+                cands.push_back(c);
+                sc->cand_records++;
             } else if (kind == "bdd0_native") {
                 if (ver < 12) continue;
                 NativeRec n;
@@ -940,8 +975,24 @@ Scenario *load_capture(const char *path)
                   if (a.first != b.first) return a.first < b.first;
                   return a.second.order < b.second.order;
               });
-    for (size_t i = 0; i < nested.size(); i++)
-        sc->nested.push_back(nested[i].second);
+    /* v18: к записи скана прикрепляется снимок кандидата того же (seq, order);
+     * расхождение записанного `cand` с ret записи — аномалия, снимок не берём
+     * (гейт порта листа тогда 0, fail-closed). */
+    for (size_t i = 0; i < nested.size(); i++) {
+        NestedRec nr = nested[i].second;
+        int seq = nested[i].first;
+        if (nr.va == BDD0_VA_SCAN_MAP) {
+            for (size_t k = 0; k < cands.size(); k++) {
+                if (cands[k].seq != seq || cands[k].order != nr.order) continue;
+                if (!cands[k].ps_ok || cands[k].cand != (unsigned)nr.ret) break;
+                nr.cand_ok = 1;
+                nr.cand = cands[k].cand;
+                for (int d = 0; d < 0x58 / 4; d++) nr.cand_ps[d] = cands[k].ps[d];
+                break;
+            }
+        }
+        sc->nested.push_back(nr);
+    }
     std::sort(leaf_pre.begin(), leaf_pre.end(),
               [](const std::pair<int, LeafStateRec> &a,
                  const std::pair<int, LeafStateRec> &b) {
@@ -1082,6 +1133,12 @@ int bdd0_leaf_state_records(void)
 int bdd0_site_pf_records(void)
 {
     return (g_sc != NULL) ? (int)g_sc->site_pf.size() : 0;
+}
+
+/* v18: сколько снимков кандидатов скана прочитано (0 — данные до v18). */
+int bdd0_cand_records(void)
+{
+    return (g_sc != NULL) ? g_sc->cand_records : 0;
 }
 
 /* v17: pre-запись по индексу в Scenario::leaf_pre (окно тика). NULL — нет. */

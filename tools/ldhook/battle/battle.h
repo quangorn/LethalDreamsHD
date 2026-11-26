@@ -14,6 +14,8 @@
 TreeNode *s6_tree_next(TreeNode *node);                 /* порт FUN_0047f800 */
 TreeNode *s6_map_lower_bound(TreeNode *head, unsigned int key);   /* FUN_00434bc0 */
 PathState *s6_pfs_ctor(void);                           /* FUN_0045c2e0 (аллоцирует 0x58) */
+void s6_ai_reset(BattleAI *self);                       /* FUN_0045c330 (сброс состояния) */
+int s6_grid_recompute(void *pf, void *arg1, void *arg2); /* FUN_0045e1d0 (recompute.cpp) */
 
 /* FUN_0045c390 — знаковый max(a,b). */
 int s6_imax(int a, int b);

@@ -994,6 +994,12 @@ int main(int argc, char **argv)
                bdd0_path_state_calls(), bdd0_path_state_p9_total(),
                bdd0_path_state_inputs_fail());
     }
+    if (bdd0_path_recompute_port() > 0 || bdd0_path_recompute_replayed() > 0) {
+        printf("  path_recompute_port=%d path_recompute_replayed=%d "
+               "path_post_match_fail=%d path_boundary_mismatch=%d\n",
+               bdd0_path_recompute_port(), bdd0_path_recompute_replayed(),
+               bdd0_path_post_match_fail(), bdd0_path_boundary_mismatch());
+    }
     if (grid_anchor_replayed > 0) {
         printf("  grid_anchor_replayed=%d (bdd0_leaf 0x458050 replayed: the "
                "grid-level object is not in the capture, so the 458050 port "
