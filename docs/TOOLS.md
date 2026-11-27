@@ -80,6 +80,10 @@ python3 tools/btf/black_btf.py                      # чёрные сайдка�
 python3 tools/btf/qc_blackpoint.py scan             # аддитивные .btf с ненулевой чёрной точкой
 python3 tools/btf/qc_blackpoint.py extract-orig     # оригиналы offenders из pristine_archive
 python3 tools/btf/qc_blackpoint.py fix --in <каталог .btf> --out <каталог>  # clamp + qc_report.txt
+python3 tools/btf/qc_upscale_alpha.py extract-orig   # оригиналы hd_pack .btf из pristine_archive
+python3 tools/btf/qc_upscale_alpha.py scan [--all]   # пары pristine/hd_pack: alpha-corr, BAD < 0.5
+python3 tools/btf/qc_upscale_alpha.py fix            # BAD -> Lanczos ×k по родному шаблону
+python3 tools/btf/qc_upscale_alpha.py install --install  # hd_pack + установка (явный флаг)
 ```
 
 (массовые pack-прогоны делались историческими скриптами сессий; итоговый

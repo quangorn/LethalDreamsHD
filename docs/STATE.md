@@ -126,6 +126,8 @@
   `--quick` rc 1 = загрузчик ldhook в `ui/ui.pyc` (KNOWN в `--full`).
 - `[P]` Чёрная точка аддитивных UI-текстур: 91 запись hd_pack обезполнена (`tools/btf/qc_blackpoint.py fix`)
   и установлена в игру; эталон = сам архив, checker сверяет .btf побитово. Грабля — `docs/PITFALLS.md`.
+- `[P]` Значок юнитов миникарты `minimap_pt01` (hd_pack ×2): битый blob заменён Lanczos-апскейлом
+  (`tools/btf/qc_upscale_alpha.py fix`), эталон md5 `acb6a957412a2006b575969a67d4b299` (crc32 `51213cae`).
 - Покрытие allowlist'а (`release/allowlist.json`: `lib/*` 713,
   корневые бинары 5 — `LETHALDREAMS.EXE`, `python22.dll`, `msvcr70.dll`, `msvcp70.dll`,
   `msvcr70d.dll`, `data/scripts/*.pyc` 10, `data/textures/mm_bkg01.btf` 1);

@@ -106,6 +106,8 @@ python_libs.7z; тот же мандат applies к истории сессий.
 sidecar-черные — только в snapshot-архиве).
 Чёрная точка: `qc_blackpoint.py fix --in <каталог .btf> --out <каталог>` вычитает bandmin
 краевой полосы 2 px из аддитивных `.btf` (`BBlend_Add`), пишет `qc_report.txt`.
+Битый апскейл: `qc_upscale_alpha.py scan|fix|install --install` — альфа-корреляция пары
+pristine/hd_pack (RGBA, BAD < 0.5; легитимные ≥ 0.88), фикс = Lanczos-3 ×k родного раскода.
 
 ## шрифты-пайплайн
 
