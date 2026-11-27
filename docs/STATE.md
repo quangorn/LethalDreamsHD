@@ -109,8 +109,9 @@
   stdlib берётся из `Lib` (`sys.path` = `['', <каталог DLL>\DLLs, ..., <каталог DLL>]`); на
   scratch-копии без них игра проходит меню → персонаж → оверленд, `Lib/` не переписан.
 - Покрытие: SNAPSHOT_ONLY (`release/allowlist.json`: 713 `lib/*`) → `--untouched` rc 0,
-  установка 5087 файлов. Бэкап снятых 11 — приватный `python_libs.7z`; восстановление —
-  `root_pyc_layer.py --restore`.
+  установка 5087 файлов. Снятые 11 — в `paths.scratch_dir('root_pyc_layer')/backup`
+  (восстановление `root_pyc_layer.py --restore`); `python_libs.7z` (714 файлов) побитово равен
+  установке и корневых `.pyc` не содержит.
 - Разбор происхождения и header-mtime — `docs/OBSERVATIONS_ENGINE.md` (раздел «Python-слой»),
   грабли — `docs/PITFALLS.md`.
 
