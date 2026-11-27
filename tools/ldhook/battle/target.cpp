@@ -484,15 +484,37 @@ static volatile LONG g_s6_visit = 0;      /* счётчик визитов dd70 
 /* итераций ровно как по таймауту (код 3, возврат cur); unset — 2000  */
 /* (принято 9.1b), явные 0/отрицательное — потолка нет (прежнее       */
 /* поведение). Не зависит от режима кучи: проверка в общем цикле.     */
+/*                                                                    */
+/* 9.1d — env LDHOOK_E0_MAXUS=<µs>: потолок ВРЕМЕНИ одного вызова.    */
+/* Потолок итераций время не ограничивает: цена итерации растёт с     */
+/* размером карты (стресс 35 юнитов: те же 2000 итераций стоят        */
+/* 20–36 ms, путь = 80–90 % вызова, 9.2a). Часы — QPC (`ld_now_us`),  */
+/* снимается раз в E0CAP_US_CHECK итераций и обязательно на той       */
+/* итерации, где срабатывает потолок итераций. Выход — тот же, что у  */
+/* капа итераций (код 3, возврат cur). unset/0 → потолка времени нет. */
 /* ------------------------------------------------------------------ */
 #define E0_MAXITER_ENV "LDHOOK_E0_MAXITER"
+#define E0_MAXUS_ENV   "LDHOOK_E0_MAXUS"
 #define E0CAP_PERIOD   250          /* сводка E0CAP: каждые N вызовов e0a0 */
+#define E0CAP_US_CHECK 32           /* снимок часов раз в N итераций */
 
-static volatile LONG g_e0cap_hits = 0;      /* вызовов, оборванных капом */
+static volatile LONG g_e0cap_hits = 0;      /* вызовов, оборванных капом итераций */
 static volatile LONG g_e0cap_iters = 0;     /* сумма итераций оборванных вызовов */
 static volatile LONG g_e0cap_max_iter = 0;  /* максимум итераций при обрыве */
+static volatile LONG g_e0cap_us_hits = 0;   /* вызовов, оборванных капом времени */
+static volatile LONG g_e0cap_us_checks = 0; /* снимков часов за прогон */
+static volatile LONGLONG g_e0cap_us_max = 0;/* максимум µs при обрыве по времени */
+static int s_e0cap_atexit = 0;              /* atexit — один раз на процесс */
 
 static void __cdecl e0cap_atexit(void);     /* финальная сводка (atexit) */
+
+static void e0cap_atexit_reg(void)
+{
+    if (!s_e0cap_atexit) {
+        s_e0cap_atexit = 1;
+        atexit(e0cap_atexit);
+    }
+}
 
 /* Кэш env на процесс (env в рантайме не меняется). 0 = потолка нет. */
 static long s6_maxiter_get(void)
@@ -506,7 +528,26 @@ static long s6_maxiter_get(void)
         cap = (v > 0) ? v : 0L;
         if (cap > 0) {
             ld_info("E0CAP maxiter=%ld enabled (%s)", cap, E0_MAXITER_ENV);
-            atexit(e0cap_atexit);
+            e0cap_atexit_reg();
+        }
+    }
+    return cap;
+}
+
+/* Кэш env на процесс. 0 = потолка времени нет (unset/0 — прежнее поведение). */
+static long s6_maxus_get(void)
+{
+    static long cap = -1;
+
+    if (cap < 0) {
+        const char *e = getenv(E0_MAXUS_ENV);
+        /* принято 9.1d: по умолчанию 3000 µs; env 0 отключает */
+        long v = (e != NULL && *e != '\0') ? atol(e) : 3000L;
+
+        cap = (v > 0) ? v : 0L;
+        if (cap > 0) {
+            ld_info("E0CAP maxus=%ld enabled (%s)", cap, E0_MAXUS_ENV);
+            e0cap_atexit_reg();
         }
     }
     return cap;
@@ -514,10 +555,13 @@ static long s6_maxiter_get(void)
 
 static void e0cap_emit(const char *why)
 {
-    ld_info("E0CAP %s maxiter=%ld calls=%ld capped=%ld capped_iters=%ld "
-            "max_capped_iters=%ld code1=%ld code3=%ld code4=%ld tick=%ld",
-            why, s6_maxiter_get(), (long)g_site6_calls,
-            (long)g_e0cap_hits, (long)g_e0cap_iters, (long)g_e0cap_max_iter,
+    ld_info("E0CAP %s maxiter=%ld maxus=%ld calls=%ld capped_it=%ld capped_us=%ld "
+            "capped_iters=%ld max_capped_iters=%ld max_capped_us=%I64d us_checks=%ld "
+            "code1=%ld code3=%ld code4=%ld tick=%ld",
+            why, s6_maxiter_get(), s6_maxus_get(), (long)g_site6_calls,
+            (long)g_e0cap_hits, (long)g_e0cap_us_hits,
+            (long)g_e0cap_iters, (long)g_e0cap_max_iter,
+            (LONGLONG)g_e0cap_us_max, (long)g_e0cap_us_checks,
             (long)g_site6_code1, (long)g_site6_code3, (long)g_site6_code4,
             battle_trace_tick_count());
 }
@@ -2563,6 +2607,8 @@ int s6_ai_update(void *this_, void *cand, int arg2)
  * постоянная (native c4b0 mask 4), restore не вызывается.
  * 9.1c: при LDHOOK_E0_MAXITER=n>0 рядом с таймаутом стоит потолок итераций —
  * тот же выход (code=3, return cur), но по счётчику, а не по настенным часам.
+ * 9.1d: рядом с ним же — потолок времени LDHOOK_E0_MAXUS=µs (часы снимаются
+ * раз в 32 итераций и на итерации капа итераций); выход тот же, capped=2.
  */
 void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
                                       void *arg2, void *arg3)
@@ -2612,9 +2658,11 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
      * кандидата даёт куча; 0 — родной скан (off/shadow/fallback). */
     int heap_owner = 0;
     int heap_on = 0;
-    /* 9.1c: потолок итераций вызова (0 = нет) и признак обрыва по капу
-     * (идёт в E0COST как capped=0/1). */
+    /* 9.1c/9.1d: потолок итераций и потолок времени вызова (0 = нет) и
+     * признак обрыва по капу (идёт в E0COST как capped=0/1/2:
+     * 1 = потолок итераций, 2 = потолок времени). */
     long cap_iters = s6_maxiter_get();
+    long cap_us = s6_maxus_get();
     int capped = 0;
 
     if (diag) {
@@ -2779,6 +2827,33 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
          * возврат cur; проверка рядом с s6_check_timeout и ДО него, чтобы
          * бюджет итераций гасил вызов, а не настенные часы. Потолок
          * не зависит от режима кучи (общий цикл). */
+        /* 9.1d: потолок времени того же вызова — тот же выход и то же место.
+         * Итерационный потолок время не ограничивает (цена итерации = размеру
+         * карты), поэтому часы снимаем раз в E0CAP_US_CHECK итераций и
+         * обязательно на той итерации, где срабатывает потолок итераций.
+         * cap_us==0 → ветка не выполняется ни разу (ни одного обращения к
+         * QPC). Капы независимы и складываются: сработавший первым пишет
+         * capped=1 (итерации) или capped=2 (время). */
+        if (cap_us > 0 &&
+                ((iters % E0CAP_US_CHECK) == 0 ||
+                 (cap_iters > 0 && iters >= cap_iters))) {
+            LONGLONG el = ld_now_us() - t0;
+            InterlockedIncrement(&g_e0cap_us_checks);
+            if (el >= cap_us) {
+                InterlockedIncrement(&g_e0cap_us_hits);
+                InterlockedAdd(&g_e0cap_iters, iters);
+                if (iters > g_e0cap_max_iter) {
+                    g_e0cap_max_iter = iters;
+                }
+                if (el > g_e0cap_us_max) {
+                    g_e0cap_us_max = el;
+                }
+                capped = 2;
+                code = 3;                                      /* как @0x45e1af */
+                result = cur;
+                break;
+            }
+        }
         if (cap_iters > 0 && iters >= cap_iters) {
             InterlockedIncrement(&g_e0cap_hits);
             InterlockedAdd(&g_e0cap_iters, iters);
@@ -2967,8 +3042,8 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
     case 4:  InterlockedIncrement(&g_site6_code4); break;
     default: break;                        /* 0 — пустой скан */
     }
-    /* 9.1c: сводка E0CAP (только при заданном потолке; не на каждый вызов). */
-    if (cap_iters > 0 && (n % E0CAP_PERIOD) == 0) {
+    /* 9.1c/9.1d: сводка E0CAP (только при заданном потолке; не на каждый вызов). */
+    if ((cap_iters > 0 || cap_us > 0) && (n % E0CAP_PERIOD) == 0) {
         e0cap_emit("sum");
     }
     {

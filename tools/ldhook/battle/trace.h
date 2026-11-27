@@ -92,7 +92,8 @@ void battle_trace_e0a0_exit(void *node);
 void battle_trace_e0a0_latch(void *cand);
 
 /* E0TICK (план 9.2a, LDHOOK_E0_DIAG=1): аккумулятор вызовов e0a0 за тик.
- * us — длительность вызова, capped — обрыв по LDHOOK_E0_MAXITER, path_us /
+ * us — длительность вызова, capped — обрыв по LDHOOK_E0_MAXITER (1) или
+ * LDHOOK_E0_MAXUS (2), path_us /
  * lb_us — µs доли path-слоя этого вызова. Строка E0TICK печатается на выходе
  * тика (H2). Вне диага функция no-op: аккумуляторы не пишутся. */
 void battle_trace_e0a0_done(LONGLONG us, int capped, LONGLONG path_us,
