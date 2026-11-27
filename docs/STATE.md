@@ -43,7 +43,7 @@
    `45e93d46…` + cave-блоки; при `--install` пишет baseline в игру
    (`backup/LETHALDREAMS.EXE.pre4`), `restore` возвращает его.
 
-## Кодовый ярус (12 pyc)
+## Кодовый ярус (16 pyc)
 
 Манифест `release/manifest.json`. Для каждого модуля: md5 base-печати
 (header=build-time, source mtime — указанный), md5 установленной копии,
@@ -60,6 +60,7 @@
 | ui/olcamera | 1794778203 |
 | battlecamera | 1794778203 |
 | bdomain | 1794778203 |
+| mentality/battlecharacters | 1052156450 |
 
 - Новые модули лежат в `config[game.root]/data/scripts/`: `types.pyc` (3225 B,
   md5 `414bd2aa0857…`; allowlist `named_legals` + `snapshot_only`) и `hd_res.pyc`
