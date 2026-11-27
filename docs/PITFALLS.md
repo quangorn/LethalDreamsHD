@@ -396,3 +396,16 @@ Space — саммоны на снимке.
 **Обход:** pivot в движковые единицы: обёртка `RotateBillBoardAroundPt` в `patches/hd_scale.py`
 зовёт `bb.RotateAroundPt(SC(point[0]), SY(point[1]), Angle)` и НЕ зовёт оригинал при `HD_K<1`
 (`RotateAroundPt` применяет угол, двойной вызов удваивает угол); при `k==1` — оригинал.
+
+## Предикат агро читает `move_order` у состояния, где его нет (27.11.2026)
+
+**Симптом:** `PythonLogFile` в профиле игры забит `AttributeError: PlayerSuspend instance has no
+attribute 'move_order'` (строка в секунду), радиус агро перестаёт ограничиваться — предикат
+`FilterAggroObjs` падает целиком на каждом вызове, кандидаты не отбираются.
+
+**Причина:** `move_order` объявлен в `__init__` боевых состояний (`BattleMain`), а `self.bs_main`
+бывает `PlayerSuspend` (`StateBase`) и `None`; исключение из предиката движок ловит и печатает,
+но правило отбора возвращает пустой список.
+
+**Обход:** читать через `getattr(self.bs_main, 'move_order', 0)` (`patches/mentality/std_brains.py`);
+`IndexError` в `CCRecon.Think` (`LastPlayerPos == []`) — код оригинала, не наш, правкой патча не лечится.

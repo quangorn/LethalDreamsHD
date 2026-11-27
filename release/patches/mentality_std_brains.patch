@@ -75,7 +75,9 @@
 +        # Предикат правила отбора (CHAR_FUNCTION): оставляет кандидатов в радиусе
 +        # агро. Пока идёт приказ перемещения игрока, не оставляет никого (план 10.2/10.3).
 +        ret = []
-+        if self.bs_main and self.bs_main.move_order:
++        # `move_order` есть только у боевых состояний (BattleMain); bs_main бывает
++        # PlayerSuspend/None — читаем через getattr (иначе AttributeError в предикате).
++        if getattr(self.bs_main, 'move_order', 0):
 +            AggroLog(self.unit.Name, 'filter move_order=1 n=%d' % len(objs))
 +            return ret
 +        r = self.GetAggroRange()
