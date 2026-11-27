@@ -2,7 +2,7 @@
 
 ## Установленная игра (эталон проверки)
 
-- `game.root` (из config.toml): **5098 файлов** (`lethaldreams.dll` и `LD-setup.bat` удалены из
+- `game.root` (из config.toml): **5087 файлов** (`lethaldreams.dll` и `LD-setup.bat` удалены из
   установки по решению пользователя; `LD-setup.bat` только в snapshot `6.7z`, в `original.7z`
   его нет — `docs/KNOWLEDGE.md`; +3 = артефакты живых прогонов ldhook, `dev_artifacts`).
 - EXE md5 `171319bbc170cf6e57c8d36a8ae5f50d`, размер 1191936 — базовая пропатченная версия
@@ -10,8 +10,8 @@
  (cave VA 0x4ebf12 = fileoff 966418; 491308 — fileoff первой правки exepatch3).
 - `ui/cursor.pyc` = published base-печать `60754a253515…` (drift v6 закрыт 19.11.2026
   установкой `release/patches/ui_cursor.patch`; копия v6 `4a8eb4bab413…` — в
-  `scratch_dir('battle_baseline')/cursor_installed_v6.pyc`). `check_state --quick` rc 0.
-  Разбор и команда применения: `docs/VERIFY.md`.
+  `scratch_dir('battle_baseline')/cursor_installed_v6.pyc`). `check_state --quick` rc 1
+  (загрузчик `ui/ui.pyc` — ниже). Разбор и команда применения: `docs/VERIFY.md`.
 - `ui/ui.pyc` загрузчика ldhook `d9a55bdf…` против base-печати `ae59f601…` — dev-состояние живых
   прогонов боевого AI; ставится `tools/ldhook/patch_ui.py --install`, откат `--restore`. Записан в
   манифесте как `drift_known_md5`: `--full` rc 0, `--quick` rc 1. Артефакты прогонов
@@ -100,8 +100,8 @@
 - Шрифты: `data/fonts/` из `tools/fonts/gen_font4x.py` (изображения-эскизы
   приватны, не в git).
 - HD Pack ассеты (1379, из них 30 `.map` с 3x-почвой — `docs/OBSERVATIONS_TEXTURE.md`,
-  «Почвенные текстуры карт») и pristine-ассеты (2966) — неприкосновенны.
-- Пользовательский бэкап (728 ALLOWED + allowlist-правила) — неприкосновенен.
+  «Почвенные текстуры карт») и pristine-ассеты (2963) — неприкосновенны.
+- Пользовательский бэкап (720 ALLOWED + allowlist-правила) — неприкосновенен.
 
 ## Python-слой (обязательная часть базы)
 
@@ -121,8 +121,8 @@
 
 ## Замеры проверки (см. docs/VERIFY.md)
 
-- `[P]` Замер 27.11.2026 (`--full` rc 0, `--untouched` rc 0, установка 5098 файлов): PRISTINE 2964,
-  HD_PACK 1379 (все 1379 побитово), ALLOWED 731, CODE 20, EXCLUDED 4, ARCHIVE_BASENAME 0.
+- `[P]` Замер 27.11.2026 (`--full` rc 0, `--untouched` rc 0, установка 5087 файлов): PRISTINE 2963,
+  HD_PACK 1379 (все 1379 побитово), ALLOWED 720, CODE 21, EXCLUDED 4, ARCHIVE_BASENAME 0.
   `--quick` rc 1 = загрузчик ldhook в `ui/ui.pyc` (KNOWN в `--full`).
 - `[P]` Чёрная точка аддитивных UI-текстур: 91 запись hd_pack обезполнена (`tools/btf/qc_blackpoint.py fix`)
   и установлена в игру; эталон = сам архив, checker сверяет .btf побитово. Грабля — `docs/PITFALLS.md`.
@@ -153,7 +153,7 @@
 ## Публикация (2026-11-16)
 
 - `[P]` Репозиторий опубликован: `https://github.com/quangorn/LethalDreamsHD` (public), ветка `master`;
-  publish-цепочка `85ec7b9d…` → `45ccb09`; 272 файла, игровых бинаров 0, личных путей 0, `config.toml`
+  publish-цепочка `85ec7b9d…` → `45ccb09`; 435 файлов, игровых бинаров 0, личных путей 0, `config.toml`
   не отслеживается; локальная история (`local-history`) удалена по просьбе пользователя.
 
 ## Интерпретатор 2.2.3 (2026-11-17)
@@ -164,9 +164,9 @@
   состав и замеры импортов — `docs/TOOLS.md`, «Дерево интерпретатора».
 - `[P]` Грабля плоского дампа установщика (регистр имени модуля, `case_ok`) —
   `docs/PITFALLS.md`, раздел «Импорт 2.2.3 чувствителен к регистру имени модуля».
-- `[P]` Публикационное ядро: tracked-файлов 272, личных путей 0, игровых бинаров/`.pyc` в git 0,
-  `vendor/**` не отслеживается; AST core `.py` = 51 (py2-only 1 — `tools/pyc/py22_worker.py`),
-  AST `tools/archive/**` = 105 (py2-only 8, список — `tools/archive/README.md`).
+- `[P]` Публикационное ядро: tracked-файлов 435, личных путей 0, игровых бинаров/`.pyc` в git 0,
+  `vendor/**` не отслеживается; AST core `.py` = 93 (`tools/**` без архива; py2-only 1 —
+  `tools/pyc/py22_worker.py`), AST `tools/archive/**` = 105 (py2-only 8, список — `tools/archive/README.md`).
 ## Зависание ввода после Esc×2 из оверленда (18.11.2026)
 
 - `[P]` Фикс: шестой элемент `ShowMainmenu` = `2` (ResumeGame) в `patches/ui/olmenu.py`; каноническая

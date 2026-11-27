@@ -58,13 +58,19 @@ rewrite даёт header build-time (`2026-11-17 10:42`) и md5, не равны�
 | ui/ui | ui_ui.patch (3574 B) | 1794778202 |
 | ui/cursor | ui_cursor.patch (4120 B) | 1794778645 |
 | ui/olmenu | ui_olmenu.patch (2237 B) | 1794778203 |
-| ui/battlemenu | ui_battlemenu.patch (4813 B) | 1794778202 |
+| ui/battlemenu | ui_battlemenu.patch (4909 B) | 1794778202 |
 | ui/btutorial | ui_btutorial.patch (599 B) | 1794778203 |
+| ui/olcamera | ui_olcamera.patch (1481 B) | 1794778203 |
+| battlecamera | battlecamera.patch (11241 B) | 1794778203 |
+| bdomain | bdomain.patch (1388 B) | 1794778203 |
+| mentality/std_brains | mentality_std_brains.patch (4995 B) | 1047745868 |
+| mentality/std_bstates | mentality_std_bstates.patch (7208 B) | 1052809502 |
 | mentality/battlecharacters | mentality_battlecharacters.patch (790 B) | 1052156450 |
 
-- `ui/types.pyc`, `ui/hd_res.pyc` — новые модули, без патча.
-- base-печать vs установленный md5 различаются для `ui/cursor.pyc`
-  (drift, `docs/VERIFY.md`); остальное совпадает (header 2 байта).
+- 12 патчей; новые модули без патча: `data/scripts/types.pyc`, `data/scripts/hd_res.pyc`,
+  `data/scripts/hd_scale.pyc`, `data/scripts/hd_tex.pyc`.
+- base-печать == установленный md5 для всех модулей, кроме загрузчика `ui/ui.pyc`
+  (KNOWN-drift, `docs/VERIFY.md`); дрейф `ui/cursor.pyc` закрыт 19.11.2026.
 - Цепочка exe: `docs/STATE.md`.
 
 ## Применение (полная команда)
@@ -78,10 +84,8 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
 
 ## Тесты (пройдены)
 
-1. все 6 модулей: `.py` после apply → md5 == манифест (gate сверяет py_md5);
-2. canonical-компиляция репозитного `.py` → scratch `.pyc`: 7 md5 == манифест
-   (cursor `60754a253515…`); `ui/olmenu` — ожидаемый `DRIFT_KNOWN`
-   (`5cb5cc88ddc8…` base-печать, installed `3d96162df727…`);
+1. все 12 модулей: `.py` после apply → md5 == манифест (gate сверяет py_md5);
+2. canonical-компиляция репозитного `.py` → scratch `.pyc`: 12 md5 == манифест;
 3. идемпотентность: прогоны 1/2 byte-identical;
 4. sabotaged patch: «APPLY STOPPED, nothing written: context mismatch at base
    line 958», печат ожидаемой/фактической строк; исходники репозитория и

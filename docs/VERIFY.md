@@ -11,7 +11,7 @@
 - EXE, 3 DLL, `hd.cfg` — строгий md5;
 - реестр: App Compat Flag `~ HIGHDPIAWARE` для `LETHALDREAMS.EXE`
   (`reg query`, argv-вызов, cp866);
-- 10 игровых .pyc: md5 установленный vs md5 base-печати манифеста; при
+- 16 игровых .pyc: md5 установленный vs md5 base-печати манифеста; при
   расхождении — разбор header (magic, source mtime) и тела: печатается
   KNOWN-drift с объяснением и fix_command;
 - строгий ярус `--quick`: любое расхождение от base-печати → rc 1 (CI). `--full` печатает KNOWN
@@ -43,12 +43,12 @@
 префикса `LethalDreams/`) → SNAPSHOT; basename+(size,crc) fallback; basename
 (без контента) → REPO_BASENAME; UNCOVERED — репорт.
 
-Замер на установке (5098 файлов, без `__pycache__`, 27.11.2026; `lethaldreams.dll` и
+Замер на установке (5087 файлов, без `__pycache__`, 27.11.2026; `lethaldreams.dll` и
 `LD-setup.bat` удалены из установки по решению пользователя):
 
-- PRISTINE **2964**, HD_PACK **1379** (все побитово, включая 30 `data/maps/*.map` с 3x-почвой),
-  ALLOWED **731** (включая `dev_artifacts`: `ldhook.pyd`, `ldhook_marker.txt`, `hdlog.txt*`),
-  CODE **20** (включая `globalscript.pyc` = `PRISTINE_IDENTICAL`), EXCLUDED **4**,
+- PRISTINE **2963**, HD_PACK **1379** (все побитово, включая 30 `data/maps/*.map` с 3x-почвой),
+  ALLOWED **720** (включая `dev_artifacts`: `ldhook.pyd`, `ldhook_marker.txt`, `hdlog.txt*`),
+  CODE **21** (включая `globalscript.pyc` = `PRISTINE_IDENTICAL`), EXCLUDED **4**,
   ARCHIVE_BASENAME **0**, REPO_BASENAME **1** (`console.py`, 0 B),
   UNCOVERED **0**; `hd.cfg` — REPO (артефакт пайплайна, в git не входит).
 - allowlist: `data/video/*.wmv` (glob) + `.log`-класс; отсутствие
