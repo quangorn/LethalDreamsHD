@@ -287,6 +287,7 @@ _orig_SetPos = ui.BActionElement.SetPos
 _orig_AutoPosition = ui.BActionElement.AutoPosition
 _orig_CalcPopupPos = ui.CalcPopupPos
 _orig_SetPrior = ui.BActionElement.SetPrior
+_orig_RotateBillBoardAroundPt = ui.BActionElement.RotateBillBoardAroundPt
 _orig_SetTextOffset = ui.BActionElement.SetTextOffset
 _orig_CheckRefInPoint = ui.BActionElement.CheckRefInPoint
 _orig_GetTextWidth = ui.BActionElement.GetTextWidth
@@ -461,6 +462,22 @@ def CheckRefInPoint(self, BillBoardName, x, y):
     if self.IsRefFuncValid(BillBoardName):
         return self.__dict__[BillBoardName].CheckRefInPoint(EC(x), EY(y))
     return -1
+
+
+# Pivot поворота — relative to the rect's top-left, in the same engine units as the rect
+# (the rect goes to the engine as EC/EY/SC/SY). The gauge `BHUD_spgauge` rotates around
+# [0, h] = its bottom-left corner; passing the canvas h unscaled puts the pivot below the
+# scaled rect by h*(1-k) and the yellow cast bar lands outside the BHUD frame.
+# RotateAroundPt applies the angle to the billboard, so the original must NOT be called
+# (a second rotation would double the angle) - unlike the Set-based wrappers above.
+def RotateBillBoardAroundPt(self, BillBoardName, Angle, point):
+    if HD_K == 1:
+        return _orig_RotateBillBoardAroundPt(self, BillBoardName, Angle, point)
+    if not self.__dict__.has_key(BillBoardName) or not self.__dict__[BillBoardName]:
+        return
+    bb = self.__dict__[BillBoardName]
+    bb.RotateAroundPt(SC(point[0]), SY(point[1]), Angle)
+    _log('HDROT ' + repr((BillBoardName, SC(point[0]), SY(point[1]), Angle)))
 
 
 def GetTextWidth(self, BillBoardName):
@@ -645,6 +662,7 @@ def install():
     BE.SetPrior = SetPrior
     BE.SetTextOffset = SetTextOffset
     BE.CheckRefInPoint = CheckRefInPoint
+    BE.RotateBillBoardAroundPt = RotateBillBoardAroundPt
     BE.GetTextWidth = GetTextWidth
     BE.GetTextHeight = GetTextHeight
     BE.GetFontSize = GetFontSize

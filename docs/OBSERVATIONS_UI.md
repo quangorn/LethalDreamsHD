@@ -89,6 +89,9 @@
     `bhud_frame_l.tga` (утрачен: покрытия нет ни в git, ни в приватных архивах сессий Project/1-3.7z, 5.7z, 6.7z, 7.7z, original.7z, hd_pack.7z, python_libs.7z); все используют `XLeft`, поэтому блок едет целиком:
     `XLeft = 0 - hd_scale.HD_Shift()` -> при 4K `XLeft = -170` канвас, движковый левый
     край = `k*(-170)+dx` ≈ 0 = экран x **0..720**, низ экранный (y 1440..2160) как был.
+  - gauge (`CGaugeBillboard`): поворот вокруг pivot `[0, h]` — pivot задаётся относительно
+    ВЕРХНЕГО левого угла rect и в движковых единицах, т.е. это нижний левый угол rect;
+    масштаб pivot — `SC/SY` (обёртка `hd_scale.RotateBillBoardAroundPt`).
   - колонка кнопок того же блока (`selection_template`, align BGCA_NONE, canvas-абсолютные
     rect'ы): `btn_mainmenu [1,735]`, `btn_disband [6,593]`, `btn_retreat [6,629]`,
     `btn_pause [109,628]`, `btn_defatt [108,729]`, `btn_move [143,729]` и battle-консоль

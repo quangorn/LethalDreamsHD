@@ -4,6 +4,14 @@
 реализовано. Актуальное состояние — `docs/STATE.md`, пайплайны — `docs/PIPELINE.md`,
 отменённые планы — `docs/archive/CANCELLED_Q_MODE.md`, грабли — `docs/PITFALLS.md`.
 
+## Сессия 2026-11-27: полоса каста в 16:9 прижата к раме BHUD
+
+- `[P]` Pivot поворота gauge — движковые единицы: обёртка `RotateBillBoardAroundPt` в
+  `patches/hd_scale.py` (`SC/SY`, оригинал при `k==1`); эталон `data/scripts/hd_scale.pyc`
+  md5 `336867c67316…` — `docs/PATCHES.md`.
+- `[P]` Съёмка полосы каста: DSL-шаги `rdown`/`rup` в `tools/probes/perform_action_in_game.ps1`,
+  снимок `castbar` в обёртках `battle_169.ps1`/`battle_43.ps1`.
+
 ## Сессия 2026-11-21: порт боя — Фазы 3 и 4 закрыты офлайн-replay
 
 - `[P]` Гейт Фазы 3 — офлайн per-call replay (`battle_replay_diff.py` на capture v8); живой A/B санитарный

@@ -135,6 +135,9 @@
 - `[P]` Правило сдвига к краю экрана обобщено: `hd_scale.HD_Shift`/`HD_EdgeFix`, вызывается из
   `patches/ui/olmenu.py` (панели оверленда) и `patches/ui/battlemenu.py` (левый BHUD-блок, колонка
   кнопок, консоль — влево; миникарта, `bhud_frame_r`, зона сброса заклинаний — вправо).
+- `[P]` Полоса каста (`BHUD_spgauge`) прижата к раме: pivot поворота gauge передаётся движку в
+  движковых единицах `SC/SY` (обёртка `hd_scale.RotateBillBoardAroundPt`, identity при `k==1`) —
+  `docs/PATCHES.md`, «Полоса каста (жёлтый сектор `bhud_spgauge`) в 16:9 — исправлено (27.11.2026)».
 - `[P]` Геометрия мира: aspect зашит в матрицу проекции, правка `matrix[0] = matrix[5]*h/w` с
   guard'ом `4h==3w` (site3 `0x47dd80`) — `docs/OBSERVATIONS_ENGINE.md`.
 
@@ -298,6 +301,6 @@
 ## Прочие принятые правки сессий
 
 - `[P]` Тултипы у курсора в 16:9: обёртка `ui/ui.CalcPopupPos` в `patches/hd_scale.py` (кламп к курсору,
-  identity при `HD_K==1`); установлено `data/scripts/hd_scale.pyc` md5 `12d38f093d2c…` — `docs/PATCHES.md`, «Тултипы у курсора в 16:9».
+  identity при `HD_K==1`); установлено `data/scripts/hd_scale.pyc` md5 `336867c67316…` — `docs/PATCHES.md`, «Тултипы у курсора в 16:9».
 - `[P]` Альфа-плоскость `.tex` задаёт отдельный альфа-проход движка: гладкая решётка эллипсов в дальней зоне создаёт
   она, opaque-проход даёт четырёхугольники тайлов; семантика по 12 bpp4-записям — `docs/OBSERVATIONS_TEXTURE.md`.

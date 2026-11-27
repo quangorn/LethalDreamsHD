@@ -204,3 +204,14 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
   crc32 `2ced231d`, mtime `1794778203`), `.py` md5 `d217277549c2…`; патч
   `release/patches/bdomain.patch` (2 ханка); каноническая сборка — `docs/PIPELINE.md`.
 - Спавн на точке врагов (`KeepersEntrancePoints['Owner']`) отменён — юниты под землёй: `docs/PITFALLS.md`.
+
+## Полоса каста (жёлтый сектор `bhud_spgauge`) в 16:9 — исправлено (27.11.2026)
+
+- `[P]` Обёртка `RotateBillBoardAroundPt` в авторском модуле `patches/hd_scale.py`
+  (`BE.RotateBillBoardAroundPt = RotateBillBoardAroundPt` в `install()`): pivot поворота передаётся
+  движку как `SC(point[0]), SY(point[1])`, оригинал при `HD_K<1` не вызывается; при `k==1` — вызов
+  оригинала, 4:3 побитово. Полоса стоит внутри нижнего сектора рамы, как в 4:3.
+- `[P]` Эталон установленной сборки: `data/scripts/hd_scale.pyc` md5 `336867c67316…` (26422 B,
+  crc32 `625669b4`, mtime `1794819372`) == base-печати манифеста, `.py` md5 `b4961b6d05a0…`;
+  каноническая сборка — `python3 tools/pyc/install_patch.py hd_scale --install`.
+- грабля — `docs/PITFALLS.md` (pivot поворота без масштаба — полоса вне рамы)
