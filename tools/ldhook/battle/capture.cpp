@@ -84,7 +84,6 @@
 #define CAP_BDD0_BAND_END   0x60   /* BattleAI+0x24 */
 #define CAP_BDD0_BAND_CAP   0x64   /* BattleAI+0x28 */
 #define CAP_BDD0_BAND_DIRTY 0x7c   /* BattleAI+0x40 */
-#define CAP_BDD0_BAND_OFF   0x3c   /* v13: offset ленты в BattleAI (45c370) */
 #define CAP_BDD0_BAND_ELEM  0x18
 #define CAP_BDD0_BAND_MAX   64     /* потолок материализуемых элементов ленты */
 #define CAP_BDD0_GS_SIZE    0x20   /* объект FUN_00442570, читаемый телом */

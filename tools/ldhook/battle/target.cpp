@@ -473,7 +473,6 @@ static volatile LONG g_s6_win_calls = 0;
 static volatile LONGLONG g_s6_win_us = 0;
 static volatile LONGLONG g_s6_win_max = 0;
 static LONGLONG g_s6_win_t = 0;           /* начало текущего окна (µs) */
-static volatile LONG g_s6_visit = 0;      /* счётчик визитов dd70 (metric rotation) */
 
 /* ------------------------------------------------------------------ */
 /* 9.1c — потолок итераций одного вызова s6_target_search.             */
@@ -1213,7 +1212,6 @@ static volatile LONG g_ai_nbr_old = 0;
  * ключа, который lower_bound уже нашёл (двойная регистрация в map2). */
 static volatile LONG g_ai_lb_calls = 0, g_ai_nbr_null = 0, g_ai_reg_dup = 0;
 static volatile LONG g_scan_dbg = 0;
-static volatile LONG g_ai_degen_dbg = 0;
 static volatile LONG g_ai_degen = 0;
 
 static void s6_scan_diag(void *this_, int filter, void *res)

@@ -557,7 +557,6 @@ void register_builtin_checks(void);
 /* Политика бюджета (CLI --budget-ms/--budget-calls); домены — в проверке. */
 void bdd0_budget_set(int ms, int calls);
 int bdd0_budget_ms(void);
-int bdd0_budget_calls(void);
 
 /* ---------------------------- реестр реализаций --------------------------- */
 struct Arena;                 /* непрозрачная арена (arena.cpp) */
@@ -596,7 +595,6 @@ int arena_bind_overflow(const Arena *a);
 /* v17: shadow-указатель → сырой адрес игры (0 — не из арены). */
 unsigned arena_raw_of(const void *p);
 
-const RegionView *arena_regions(const Arena *a);
 int arena_region_n(const Arena *a);
 /* 1 — арена несёт модель объекта сетки, и тело может исполнять порт 0x458050
  * (см. arena.cpp). Сегодня 0: сетку не пишет ни один формат захвата. */
@@ -689,7 +687,6 @@ int bdd0_leaf_calls(void);
 int bdd0_leaf_violations(void);
 const char *bdd0_leaf_violation_why(void);
 const CallLogEnt *bdd0_calllog(int *n);
-void bdd0_calllog_reset(void);
 /* 458050: 1, если последний тик реально потребил запись потока bdd0_leaf
  * va=0x458050 (запрос native::grid_anchor, т.е. порт не исполнялся — модель
  * сетки в захвате отсутствует). Считает тики с подстановкой реплея. */
@@ -713,7 +710,6 @@ const LeafRec *bdd0_leaf_record_at(int i);
 int bdd0_nested_count(void);                    /* записей в окне тика */
 const NestedRec *bdd0_nested_peek(int i);       /* i-я запись окна (0-based) */
 const NestedRec *bdd0_nested_next(void);        /* следующая, курсор +1 */
-int bdd0_nested_consumed(void);                 /* сколько выдано next() */
 void bdd0_nested_reset(void);                   /* курсор в 0 (per tick) */
 const LeafRec *bdd0_tick_leaf_at(int i);        /* запись потока bdd0_leaf тика */
 
@@ -723,7 +719,6 @@ const LeafRec *bdd0_tick_leaf_at(int i);        /* запись потока bdd
 const LeafStateRec *bdd0_leaf_state_pre(int seq, int order);
 const LeafStateRec *bdd0_leaf_state_post(int seq, int order);
 const LeafStateRec *bdd0_leaf_state_site_pf(int seq, int order);
-int bdd0_leaf_state_records(void);   /* v17: сколько state-записей в файле */
 int bdd0_site_pf_records(void);      /* v17: сколько bdd0_site_pf (только v17) */
 const LeafStateRec *bdd0_leaf_pre_at(int idx);  /* v17: pre-запись по индексу */
 

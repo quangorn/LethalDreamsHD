@@ -127,8 +127,6 @@ void b0_path_note_insert(unsigned key1_shadow, const void *ps);
 void b0_leaf_claim_suspend(int on);
 void b0_nested_expect_ptr(unsigned va, const void *p);
 int b0_path_boundary_mismatch_total(void);
-/* v17: out-тройка (w[3]) следующей записи листа; pf+0x08..0x27 из site_pf. */
-const int *b0_path_out_w(void);
 void b0_path_apply_site_pf(void *pf);
 /* VA портированных листьев: список живёт только в replay-сборке. В живом
  * билде (BATTLE_REPLAY не определён) порт не судит запросы, поэтому статики
@@ -287,7 +285,6 @@ void bdd0_leaf_claim_w(unsigned int va, void *ecx, int ret, const int *args,
 #define b0_path_note_insert(key1, ps) ((void)0)
 #define b0_leaf_claim_suspend(on) ((void)0)
 #define b0_nested_expect_ptr(va, p) ((void)0)
-#define b0_path_out_w() ((const int *)0)
 #define b0_path_apply_site_pf(pf) ((void)0)
 #endif
 

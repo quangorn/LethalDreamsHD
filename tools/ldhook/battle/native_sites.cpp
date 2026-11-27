@@ -49,8 +49,6 @@ static ns_tls g_tls[NS_TLS_MAX];
 static DWORD g_cap_tid = 0;
 static int g_cap_tid_set = 0;
 static const native_sink *g_ns_sink = NULL;
-static unsigned char *g_last_stub = NULL;
-static int g_last_stub_size = 0;
 static unsigned char *g_ns_base = NULL;
 
 #include "native_sites_table.inc"
@@ -58,12 +56,6 @@ static unsigned char *g_ns_base = NULL;
 int native_site_count(void)
 {
     return (int)(sizeof(k_ns_sites) / sizeof(k_ns_sites[0]));
-}
-
-const struct native_site_def *native_site_at(int i)
-{
-    if (i < 0 || i >= native_site_count()) return NULL;
-    return &k_ns_sites[i];
 }
 
 void native_sites_set_sink(const struct native_sink *sink) { g_ns_sink = sink; }
@@ -323,13 +315,8 @@ void *native_stub_emit(unsigned site_va, unsigned target_va, int slot, int kind,
     }
 
     FlushInstructionCache(GetCurrentProcess(), base, 0x400);
-    g_last_stub = base;
-    g_last_stub_size = e.n;
     return base;
 }
-
-const unsigned char *native_stub_bytes(void) { return g_last_stub; }
-int native_stub_size(void) { return g_last_stub_size; }
 
 /* ------------------------------ site patch ------------------------------- */
 
@@ -434,8 +421,6 @@ typedef struct {
 
 static ns_vt g_vt[NS_VT_MAX];
 static int g_vt_n = 0;
-
-int native_sites_vtable_count(void) { return g_vt_n; }
 
 static unsigned slot_disp(int slot)
 {

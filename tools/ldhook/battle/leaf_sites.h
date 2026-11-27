@@ -70,7 +70,6 @@ struct leaf_sink {
 
 int  leaf_site_count(void);
 const struct leaf_site_def *leaf_site_at(int i);
-const struct leaf_site_def *leaf_site_defs(void);
 int  leaf_site_diag_count(void);
 
 void leaf_sites_set_sink(const leaf_sink *sink);

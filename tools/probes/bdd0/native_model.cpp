@@ -94,7 +94,6 @@ int bdd0_leaf_calls(void) { return 0; }
 int bdd0_leaf_violations(void) { return 0; }
 const char *bdd0_leaf_violation_why(void) { return ""; }
 const CallLogEnt *bdd0_calllog(int *n) { if (n) *n = 0; return NULL; }
-void bdd0_calllog_reset(void) {}
 /* Доступ проверки leaf_args к сопоставленной записи: в генераторе потока
  * записей нет (он их создаёт), поэтому «нечего сверять». */
 const LeafRec *bdd0_leaf_record_at(int i) { (void)i; return NULL; }
@@ -104,7 +103,6 @@ void bdd0_nested_set_window(const NestedRec *v, int n) { (void)v; (void)n; }
 int bdd0_nested_count(void) { return 0; }
 const NestedRec *bdd0_nested_peek(int i) { (void)i; return NULL; }
 const NestedRec *bdd0_nested_next(void) { return NULL; }
-int bdd0_nested_consumed(void) { return 0; }
 void bdd0_nested_reset(void) {}
 const LeafStateRec *bdd0_leaf_state_pre(int seq, int order)
 { (void)seq; (void)order; return NULL; }
@@ -112,7 +110,6 @@ const LeafStateRec *bdd0_leaf_state_post(int seq, int order)
 { (void)seq; (void)order; return NULL; }
 const LeafStateRec *bdd0_leaf_state_site_pf(int seq, int order)
 { (void)seq; (void)order; return NULL; }
-int bdd0_leaf_state_records(void) { return 0; }
 int bdd0_site_pf_records(void) { return 0; }
 const LeafStateRec *bdd0_leaf_pre_at(int idx) { (void)idx; return NULL; }
 /* v17: генератор не несёт вход листа 0x45e1d0 — заглушки. */
@@ -138,7 +135,6 @@ int b0_path_args_mismatch_total(void) { return 0; }
 const char *b0_path_args_why(void) { return ""; }
 void b0_leaf_claim_suspend(int on) { (void)on; }
 void b0_nested_expect_ptr(unsigned va, const void *p) { (void)va; (void)p; }
-const int *b0_path_out_w(void) { static int w[3] = {0,0,0}; return w; }
 void b0_path_apply_site_pf(void *pf) { (void)pf; }
 int bdd0_leaf_applied_w(int i, int *w3) { (void)i; (void)w3; return 0; }
 int bdd0_leaf_consumed(void) { return 0; }

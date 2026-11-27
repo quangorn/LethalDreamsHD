@@ -58,7 +58,6 @@ struct native_site_def {
 };
 
 int native_site_count(void);
-const struct native_site_def *native_site_at(int i);
 
 /* Consumer.  enter runs on call entry (before the original), exit on the
  * continuation (after the original).  enter returns a token >= 0 or -1.
@@ -85,7 +84,6 @@ int native_site_install_all(void *(*resolve)(unsigned va), char *why, int cap);
 /* Arm the four vtable slots of `unit` (once per vtable).  Returns 1 if the
  * vtable is (now) armed.  Called from the 44bdd0 entry capture hook. */
 int native_sites_vtable_arm(void *unit, char *why, int cap);
-int native_sites_vtable_count(void);
 
 /* Image base for VA conversion: the record's site/va are VAs (0x44xxxx), while
  * indirect slots are resolved to absolute pointers.  Set once at install. */
@@ -107,9 +105,6 @@ void *native_stub_emit(unsigned site_va, unsigned target_va, int slot, int kind,
                        char *why, int cap);
 int native_site_patch(void *site, void *target_expected, void *stub,
                       char *why, int cap);
-/* Bytes of the last emitted stub (for the self-test / integrity evidence). */
-const unsigned char *native_stub_bytes(void);
-int native_stub_size(void);
 
 /* C helpers used by generated stubs (cdecl; do not call from the game).
  * direct stubs pass `state` (per-stub static entry); slot stubs pass NULL and

@@ -220,8 +220,6 @@ const NestedRec *bdd0_nested_next(void)
     return &g_nest_v[g_nest_i++];
 }
 
-int bdd0_nested_consumed(void) { return g_nest_i; }
-
 void bdd0_nested_reset(void) { g_nest_i = 0; }
 
 /* ------------------------- v17: границы листа 0x45e1d0 -------------------- *
@@ -475,17 +473,6 @@ int b0_path_args_mismatch(void) { return g_path_args_mismatch; }
 int b0_path_args_mismatch_total(void) { return g_path_args_mismatch_total; }
 const char *b0_path_args_why(void) { return g_path_args_why; }
 
-/* v17: out-тройка (w[3]) следующей записи листа 0x45e1d0 (граница P11). */
-const int *b0_path_out_w(void)
-{
-    static int w[3] = { 0, 0, 0 };
-    if (g_v == NULL || g_i < 0 || g_i >= g_n) return w;
-    w[0] = g_v[g_i].w[0];
-    w[1] = g_v[g_i].w[1];
-    w[2] = g_v[g_i].w[2];
-    return w;
-}
-
 /* v17: pf+0x08..0x27 из bdd0_site_pf (выход 45c8c0) — состояние, которое
  * лист читает после сайта 0x45e320 (plan §5). Требуется identity: site_pf
  * снят на том же объекте (ecx) и это тот же вызов листа (по ecx pre). */
@@ -612,13 +599,6 @@ static void note_applied_w(const void *buf, int nw)
     if (nw > 3) nw = 3;
     g_aw_nw[i] = nw;
     if (nw > 0) memcpy(g_aw[i], buf, (size_t)nw * 4);
-}
-
-void bdd0_calllog_reset(void)
-{
-    g_log_n = 0;
-    g_viol = 0;
-    g_why[0] = '\0';
 }
 
 static void viol(const char *fmt, ...)

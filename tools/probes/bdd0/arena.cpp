@@ -251,11 +251,6 @@ const unsigned char *arena_region_pre(const Arena *a, const char *name)
     return NULL;
 }
 
-const RegionView *arena_regions(const Arena *a)
-{
-    return (a == NULL || a->views.empty()) ? NULL : &a->views[0];
-}
-
 int arena_region_n(const Arena *a)
 {
     return (a == NULL) ? 0 : (int)a->views.size();

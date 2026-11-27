@@ -365,11 +365,6 @@ const struct leaf_site_def *leaf_site_at(int i)
     return &k_leaf_sites[i];
 }
 
-const struct leaf_site_def *leaf_site_defs(void)
-{
-    return k_leaf_sites;
-}
-
 /* ------------------------------ установка -------------------------------- */
 
 static int ls_fail(char *why, int cap, const char *fmt, unsigned a, unsigned b)

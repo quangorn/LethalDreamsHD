@@ -82,7 +82,6 @@ void bdd0_budget_set(int ms, int calls)
 }
 
 int bdd0_budget_ms(void) { return g_budget_ms; }
-int bdd0_budget_calls(void) { return g_budget_calls; }
 
 static CheckResult chk_budget(const TickContext &tc)
 {

@@ -1125,11 +1125,6 @@ const LeafStateRec *bdd0_leaf_state_pre(int seq, int order)
     return leaf_state_find(g_sc->leaf_pre, seq, order);
 }
 
-int bdd0_leaf_state_records(void)
-{
-    return (g_sc != NULL) ? g_sc->leaf_state_records : 0;
-}
-
 int bdd0_site_pf_records(void)
 {
     return (g_sc != NULL) ? (int)g_sc->site_pf.size() : 0;
