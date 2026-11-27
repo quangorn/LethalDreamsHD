@@ -26,6 +26,13 @@
   "SNAPSHOT_ONLY": 741,
   "UNCOVERED": 0
  },
+ "dev_artifacts": [
+  "hdlog.txt",
+  "hdlog.txt.1",
+  "ldhook_marker.txt",
+  "ldhook.pyd"
+ ],
+ "dev_artifacts_note": "артефакты живых прогонов ldhook: загрузчик .pyd (артефакт tools/ldhook/build.py, md5 не фиксируется), marker и лог, которые пишет .pyd при загрузке; ставятся/снимаются tools/ldhook/patch_ui.py --install/--restore",
  "meta": {
   "note": "legal deviations of the install from the pristine archive, measured 2026-11-16; every path relative to install_dir, lower case. The checker --untouched skips allowlisted files and check.exclude globs."
  },

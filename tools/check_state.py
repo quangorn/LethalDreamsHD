@@ -276,7 +276,7 @@ def untouched_tier(install_files):
     code_targets = set(e["target"].lower() for e in man["code_tier"]["entries"]
                        if "target" in e)
     allow = set(al["snapshot_only"]) | set(x["target"] for x in al["repo"]) \
-            | set(x["target"] for x in al["repo_basename"])
+            | set(x["target"] for x in al["repo_basename"]) | set(al.get("dev_artifacts", []))
     excludes = [glob_to_regex(g) for g in paths.check_exclude()]
 
     p_idx = archive_index(paths.pristine_archive())
