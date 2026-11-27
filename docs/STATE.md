@@ -104,13 +104,13 @@
 - `python22.dll` = финальный Python 2.2.3, 847920 B, md5 `4ee79da1533f8ac2957fd46c6ba1cb2d`
   (сборка 30.05.2003); оригинал — альфа 2.2a4+ (`backup_orig/python22_2.2a4.dll`).
 - `Lib/` = stdlib 2.2.3: **713 файлов** (694 `.py` + 19 `.pyc`); в `archive.pristine` `Lib` нет.
-- Корневые `.pyc` = **11** компилятов stdlib, собранных движком из корневых `.py`-копий
-  (`.py` удалены). Состав: `__future__`, `copy`, `linecache`, `ntpath`, `os`, `site`, `stat`,
-  `string`, `traceback`, `types`, `whrandom`.
-- Эксперимент 16.11.2026 (пользователь): альфа DLL + пустой `Lib` + без корневых `.pyc` →
-  игра не запускается; слой возвращён, заархивирован в `python_libs.7z` (725 файлов,
-  crc32-сверка с установкой — 0 расхождений).
-- Покрытие: SNAPSHOT_ONLY (`release/allowlist.json`: 713 `lib/*` + 11 корневых) → `--untouched` rc 0.
+  Обязателен: 2.2.3 требует `site.py`/`codecs.py` при `Py_Initialize`.
+- Корневых `.pyc` в установке **нет** (снято 27.11.2026, `tools/pyc/root_pyc_layer.py --install`):
+  stdlib берётся из `Lib` (`sys.path` = `['', <каталог DLL>\DLLs, ..., <каталог DLL>]`); на
+  scratch-копии без них игра проходит меню → персонаж → оверленд, `Lib/` не переписан.
+- Покрытие: SNAPSHOT_ONLY (`release/allowlist.json`: 713 `lib/*`) → `--untouched` rc 0,
+  установка 5087 файлов. Бэкап снятых 11 — приватный `python_libs.7z`; восстановление —
+  `root_pyc_layer.py --restore`.
 - Разбор происхождения и header-mtime — `docs/OBSERVATIONS_ENGINE.md` (раздел «Python-слой»),
   грабли — `docs/PITFALLS.md`.
 
@@ -121,7 +121,7 @@
   `--quick` rc 1 = загрузчик ldhook в `ui/ui.pyc` (KNOWN в `--full`).
 - `[P]` Чёрная точка аддитивных UI-текстур: 91 запись hd_pack обезполнена (`tools/btf/qc_blackpoint.py fix`)
   и установлена в игру; эталон = сам архив, checker сверяет .btf побитово. Грабля — `docs/PITFALLS.md`.
-- Покрытие allowlist'а (`release/allowlist.json`: `lib/*` 713, корневые `.pyc` 11,
+- Покрытие allowlist'а (`release/allowlist.json`: `lib/*` 713,
   корневые бинары 5 — `LETHALDREAMS.EXE`, `python22.dll`, `msvcr70.dll`, `msvcp70.dll`,
   `msvcr70d.dll`, `data/scripts/*.pyc` 10, `data/textures/mm_bkg01.btf` 1);
   `hd.cfg` классифицируется как REPO — артефакт пайплайна, в git не входит.

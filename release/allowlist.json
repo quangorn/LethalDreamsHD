@@ -67,8 +67,6 @@
   }
  ],
  "snapshot_only": [
-  "__future__.pyc",
-  "copy.pyc",
   "data/scripts/gamescript.pyc",
   "data/scripts/hd_res.pyc",
   "data/scripts/hd_scale.pyc",
@@ -794,19 +792,10 @@
   "lib/zlib_codec.py",
   "lib/zmod.py",
   "lib/zoomheight.py",
-  "linecache.pyc",
   "msvcp70.dll",
   "msvcr70.dll",
   "msvcr70d.dll",
-  "ntpath.pyc",
-  "os.pyc",
-  "python22.dll",
-  "site.pyc",
-  "stat.pyc",
-  "string.pyc",
-  "traceback.pyc",
-  "types.pyc",
-  "whrandom.pyc"
+  "python22.dll"
  ],
  "video_exclude_note": "data/video/boolat.wmv and data/video/russobit_r.wmv are intentionally deleted from the install; they are pristine entries absent on purpose, and are suppressed in --untouched ONLY by check.exclude = [\"data/video/**\"] in config.toml (the mechanism is the config glob, not the allowlist)",
  "video_installed_ok": [

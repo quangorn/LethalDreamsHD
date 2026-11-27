@@ -197,8 +197,8 @@ python3 tools/extract_pristine.py templates  # btf-шаблоны/родные �
 
 Архив Python-слоя (`python_libs.7z`, приватный — путь задаётся приватным ключом config,
 в репозиторий не входит): 725 файлов = `python22.dll` (2.2.3) + `Lib/` (713) + 11 корневых
-`.pyc`; crc32-сверка: все побитово равны текущей установке. Это источник восстановления
-слоя (замеры и обязательность — `docs/OBSERVATIONS_ENGINE.md`, раздел «Python-слой»).
+`.pyc` (слоя в установке с 27.11.2026 нет, снято `tools/pyc/root_pyc_layer.py`). Это источник
+восстановления слоя (замеры и обязательность — `docs/OBSERVATIONS_ENGINE.md`, раздел «Python-слой»).
 
 Исторические скрипты сессий: `tools/archive/README.md`.
 
