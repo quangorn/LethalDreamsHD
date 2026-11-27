@@ -164,7 +164,8 @@ Diff: `tools/probes/trace_diff.py` (rc 0 — нет дивергенций и х
 
 Принято пользователем: радиус агро **6.0 союзники / 8.0 враги** — предикат `FilterAggroObjs` (`CHAR_FUNCTION` в `SetRoTCS`), `patches/mentality/std_brains.py`; `SetVisibilityRange` не трогается. Подавление агро — только для приказов стороны игрока (`move_order`), цель держится до смерти юнита или цели (`std_bstates.py`).
 10.0 (разведка): `SetVisibilityRange` = поле `obj+0x1b8` и общий радиус скана — для агро не годится; правило отбора append-only, `DONT_SELECT_TARGET` не подавляет — `docs/PITFALLS.md`; `REMOTE_ORDER` не отличает приказ игрока от ИИ-приказа — `docs/PITFALLS.md`.
-10.1–10.6: упаковка mentality-патча (`release/manifest.json`, `release/patches/*.patch`), установка только на scratch-дерево, живая проверка человеком, один пункт = один коммит.
+10.1–10.6: упаковка mentality-патча (`release/manifest.json`, `release/patches/*.patch`), установка в игру
+(`install_patch.py --install`), живая проверка человеком, один пункт = один коммит.
 
 Гейт фазы 10: `battle_169.ps1` + `battle_invariants.py --baseline` без новых провалов; живой лог радиусов; сценарии приказов и стойкой цели; ревью каждого пункта.
 
