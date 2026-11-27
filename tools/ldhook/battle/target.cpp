@@ -413,6 +413,9 @@ static int ld_env_flag(const char *name, int dflt)
 
 /* Гейт порта site6 — единственный источник истины для S6_ENV. Читается
  * install_site6 (ldhook.cpp), initldhook и диспетчером e0a0 (battle/move.cpp). */
+/* Гейт порта site6 — единственный источник истины для S6_ENV. Читается
+ * один раз при первом обращении. Поставка: порт ВКЛЮЧЁН по умолчанию
+ * (env LDHOOK_SITE6=0 — откат на нативный 0x45e0a0). */
 int s6_port_enabled(void)
 {
 #ifdef BATTLE_REPLAY
@@ -421,16 +424,17 @@ int s6_port_enabled(void)
     static int on = -1;
 
     if (on < 0) {
-        on = ld_env_flag(S6_ENV, 0);
+        on = ld_env_flag(S6_ENV, 1);
     }
     return on;
 #endif
 }
 
 /* Гейт detour'а 45eee0 (install_tick_hook) — LDHOOK_SITE6_EEE0; единственный
- * источник истины для него. Дефолт = мастер LDHOOK_SITE6 (s6_port_enabled()),
- * поэтому без новой переменной old-поведение сохранено: SITE6=1 ставит оба
- * detour'а. SITE6=1 + SITE6_EEE0=0 = порт e0a0 на месте, 45eee0 нативный.
+ * источник истины для него. Поставка: по умолчанию НАТИВНЫЙ тик (0) при
+ * включённом порте e0a0; LDHOOK_SITE6_EEE0=1 включает и порт тика. Раньше
+ * дефолт следовал мастеру LDHOOK_SITE6 — это делало порт тика неявно
+ * включённым и ломало принятую конфигурацию замеров.
  * Ключевое свойство: решения НЕ пересозависимы — detour 45eee0 влияет только
  * на install_tick_hook и на выбор порт/натив для 45eee0 (tick.cpp R17),
  * решение e0a0 (site6, site5, trace H5/H6) по-прежнему только по S6_ENV. */
@@ -442,7 +446,7 @@ int s6_eee0_enabled(void)
     static int on = -1;
 
     if (on < 0) {
-        on = ld_env_flag(S6_EEE0_ENV, s6_port_enabled());
+        on = ld_env_flag(S6_EEE0_ENV, 0);
     }
     return on;
 #endif

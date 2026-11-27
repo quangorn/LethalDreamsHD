@@ -14,10 +14,10 @@
 /* ---------------- Логгер (определяется в ldhook.cpp) ---------------- */
 /* Один лог движка — hdlog.txt в каталоге EXE; уровень задаётся env LDHOOK_LOG
  * (0=off, 1=info — дефолт, 2=debug), ldhook.set_level(n) перекрывает на лету.
- * Ротация: файл > 8 MiB → hdlog.txt.1. */
+ * Ротация: файл > 64 MiB → hdlog.txt.1. */
 #define LDHOOK_LOG_NAME "hdlog.txt"
 #define LDHOOK_LOG_ENV  "LDHOOK_LOG"
-#define LDHOOK_LOG_MAX  (8u * 1024u * 1024u)
+#define LDHOOK_LOG_MAX  (64u * 1024u * 1024u)
 
 #define LD_OFF   0
 #define LD_INFO  1
@@ -156,10 +156,10 @@ int  e0_native_install(void);
 #define S6_TAIL_SIG    "\x8b\xf0\x3b\xf5\x75\xae"       /* mov esi,eax; cmp esi,ebp; jne -0x52 */
 #define S6_TAIL_LEN    6
 #define S6_ENV         "LDHOOK_SITE6"
-/* LDHOOK_SITE6_EEE0 — отдельный гейт detour'а 45eee0 (tick-хук). Дефолт =
- * мастер LDHOOK_SITE6: без новой переменной поведение бай-в-байт прежнее
- * (SITE6=1 ставит оба detour'а); LDHOOK_SITE6=1 + SITE6_EEE0=0 даёт порт
- * e0a0 без detour'а 45eee0. s6_port_enabled() остаётся единственным
+/* LDHOOK_SITE6_EEE0 — отдельный гейт detour'а 45eee0 (tick-хук). Поставка:
+ * по умолчанию 0 — порт e0a0 включён, тик 45eee0 нативный (конфигурация
+ * приёмки 9.1b/9.1c/9.1d). SITE6_EEE0=1 включает и порт тика.
+ * s6_port_enabled() остаётся единственным
  * источником истины решения «порт e0a0» (диспетчер e0a0, site5/site6,
  * trace-наблюдатели H5/H6). */
 #define S6_EEE0_ENV    "LDHOOK_SITE6_EEE0"

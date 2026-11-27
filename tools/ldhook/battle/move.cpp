@@ -68,8 +68,7 @@ __declspec(naked) void s7_tick_tramp(void)
 
 /* Хук на вход 0x45eee0 (E9 из 5 Б). ABI: __thiscall, ECX = BattleAI,
  * [esp+4] = rec, `ret $4`, EAX = код 0..4. Переключатель — g_s7_tick_on
- * (ставится install_tick_hook при LDHOOK_SITE6_EEE0=1, дефолт гейта =
- * LDHOOK_SITE6): 1 → порт s6_unit_ai_tick, 0 → трамплин с нативным телом
+ * (ставится install_tick_hook при LDHOOK_SITE6_EEE0=1, дефолт гейта 0): 1 → порт s6_unit_ai_tick, 0 → трамплин с нативным телом
  * (хук в этом режиме не активен). Ре-энтри гарда нет — как у site6 (полная
  * замена, тело натива не исполняется). */
 __declspec(naked) void s7_tick_hook(void)

@@ -64,6 +64,7 @@ void *g_h3_callee = NULL; /* 0x45eee0 (FUN_0045eee0, native::fn) */
 void *g_h7_cont = NULL;   /* 0x45dd78 */
 
 static int  g_enabled = 0;
+static int  g_mode = 0;              /* 1 = строка на тик, 2 = сводка по секундам */
 static volatile LONG g_tick_no = 0;
 static int  g_tick_unit_id = -1;
 static void *g_tick_unit = NULL;   /* сохранён H1; читается H2 */
@@ -196,13 +197,17 @@ static int   g_unit_n = 0;
 void battle_trace_init(void)
 {
     const char *s = getenv(BATTLE_TRACE_ENV);
+    int v = (s != NULL && *s != '\0') ? atoi(s) : 0;
 
-    g_enabled = (s != NULL && *s != '\0' && atoi(s) != 0) ? 1 : 0;
+    g_mode = (v >= 2) ? 2 : ((v >= 1) ? 1 : 0);
+    g_enabled = (g_mode != 0) ? 1 : 0;
     if (g_enabled) {
         memset(g_unit_ptr, 0, sizeof(g_unit_ptr));
         memset(g_unit_id, 0, sizeof(g_unit_id));
         g_unit_n = 0;
-        ld_info("battle_trace: %s=1 (tick trace ON)", BATTLE_TRACE_ENV);
+        ld_info("battle_trace: %s=%d (%s)", BATTLE_TRACE_ENV, g_mode,
+                g_mode == 2 ? "tick trace ON, сводка по секундам + медленные тики"
+                            : "tick trace ON");
     }
 }
 
@@ -293,13 +298,14 @@ void __cdecl battle_trace_tick_begin(void *unit)
     }
     g_tick_t0 = ld_now_us();
     g_vis = 0;
+    /* 9.3: аккумулятор e0a0 за тик — всегда (2 записи на вызов, без QPC). */
+    g_tick_calls = 0;
+    g_tick_us = 0;
+    g_tick_max = 0;
+    g_tick_cap = 0;
     if (e0_diag_on()) {
         /* E0PATH/E0TICK (план 9.2a): таблица повторов живёт один тик. */
         e0path_tick_reset();
-        g_tick_calls = 0;
-        g_tick_us = 0;
-        g_tick_max = 0;
-        g_tick_cap = 0;
         g_tick_path_us = 0;
         g_tick_lb_us = 0;
     }
@@ -319,9 +325,58 @@ long battle_trace_tick_count(void)
     return (long)g_tick_no;
 }
 
+/* LDHOOK_BATTLE_TRACE=2 — сводка по секундам (длинный бой: строка на тик
+ * съедает 8 МиБ за минуты). Одна строка TICKSEC на секунду плюс полная
+ * BATTLE-строка для тиков длиннее TRACE_SLOW_US. Время — ld_now_us()/1e6. */
+#define TRACE_SLOW_US 5000
+static LONGLONG g_sec_id = -1;
+static long g_sec_n = 0, g_sec_over10 = 0, g_sec_over20 = 0, g_sec_over50 = 0;
+static long g_sec_code1 = 0, g_sec_code3 = 0;
+static LONGLONG g_sec_us = 0, g_sec_max = 0, g_sec_e0 = 0, g_sec_e0max = 0;
+
+static void trace_sec_add(LONGLONG us, LONGLONG e0us, int code)
+{
+    LONGLONG sec = ld_now_us() / 1000000;
+
+    if (sec != g_sec_id) {
+        if (g_sec_id >= 0) {
+            ld_info("TICKSEC sec=%I64d n=%ld us_sum=%I64d us_max=%I64d "
+                    "e0_sum=%I64d e0_max=%I64d over10=%ld over20=%ld "
+                    "over50=%ld code1=%ld code3=%ld",
+                    g_sec_id, g_sec_n, g_sec_us, g_sec_max, g_sec_e0,
+                    g_sec_e0max, g_sec_over10, g_sec_over20, g_sec_over50,
+                    g_sec_code1, g_sec_code3);
+        }
+        g_sec_id = sec;
+        g_sec_n = 0;
+        g_sec_us = 0;
+        g_sec_max = 0;
+        g_sec_e0 = 0;
+        g_sec_e0max = 0;
+        g_sec_over10 = 0;
+        g_sec_over20 = 0;
+        g_sec_over50 = 0;
+        g_sec_code1 = 0;
+        g_sec_code3 = 0;
+    }
+    g_sec_n++;
+    g_sec_us += us;
+    if (us > g_sec_max) {
+        g_sec_max = us;
+    }
+    g_sec_e0 += e0us;
+    if (e0us > g_sec_e0max) {
+        g_sec_e0max = e0us;
+    }
+    if (us > 10000) g_sec_over10++;
+    if (us > 20000) g_sec_over20++;
+    if (us > 50000) g_sec_over50++;
+    if (code == 1) g_sec_code1++;
+    if (code == 3) g_sec_code3++;
+}
+
 /* Строка пишется ДО воспроизведения украденных байт эпилога.
- * unit берётся из g_tick_unit (сохранён H1), esp — из кадра для [esp+0x164]. */
-void __cdecl battle_trace_tick_end(int al, void *esp)
+ * unit берётся из g_tick_unit (сохранён H1), esp — из кадра для [esp+0x164]. */void __cdecl battle_trace_tick_end(int al, void *esp)
 {
     long tick;
     int unit_id;
@@ -415,16 +470,24 @@ void __cdecl battle_trace_tick_end(int al, void *esp)
         us = ld_now_us() - g_tick_t0;
     }
 
+    /* Режим 2: секундная сводка + полная строка только для медленных тиков. */
+    if (g_mode == 2) {
+        trace_sec_add(us, (LONGLONG)g_tick_us, code);
+        if (us < TRACE_SLOW_US) {
+            return;
+        }
+    }
+
     ld_info("BATTLE tick=%ld unit=%d code=%d u170=%d al=%d out=%d "
             "c1=%d x1=%d y1=%d i1=%ld fx=%d fy=%d lx=%d ly=%d "
             "c2=%d x2=%d y2=%d i2=%ld g=%ld h10k=%ld cost=%ld "
             "trk=%d bd2=%u s1=%ld s2=%ld vis=%ld "
-            "m0=%08x m1=%08x m2=%08x us=%I64d ai=%08x",
+            "m0=%08x m1=%08x m2=%08x us=%I64d e0n=%ld e0us=%I64d ai=%08x",
             tick, unit_id, code, u170, al, out,
             c1, x1, y1, i1, fx, fy, lx, ly,
             c2, x2, y2, i2, g, h10k, cost,
             trk, bd2, s1, s2, vis,
-            m0, m1, m2, us, ai);
+            m0, m1, m2, us, (long)g_tick_calls, (LONGLONG)g_tick_us, ai);
 
     /* E0TICK (план 9.2a): итог тика по вызовам e0a0 — только при LDHOOK_E0_DIAG=1. */
     if (e0_diag_on()) {
@@ -576,7 +639,7 @@ void __cdecl battle_trace_e0a0_latch(void *cand)
 void battle_trace_e0a0_done(LONGLONG us, int capped, LONGLONG path_us,
                             LONGLONG lb_us)
 {
-    if (!g_enabled || !e0_diag_on()) {
+    if (!g_enabled) {
         return;
     }
     g_tick_calls++;
@@ -586,6 +649,9 @@ void battle_trace_e0a0_done(LONGLONG us, int capped, LONGLONG path_us,
     }
     if (capped != 0) {
         g_tick_cap++;
+    }
+    if (!e0_diag_on()) {
+        return;                    /* path/lb считаются только под диагом */
     }
     g_tick_path_us += path_us;
     g_tick_lb_us += lb_us;
