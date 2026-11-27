@@ -1,0 +1,20 @@
+--- a/mentality/battlecharacters.py
++++ b/mentality/battlecharacters.py
+@@ -2,12 +2,12 @@
+ from balltecharacters_constants import *
+ import g_defs, units_base
+ g_UnitHLMode = 1
+-HPIND_BIG_OUTER = [0.5, 0.06]
+-HPIND_BIG_INNER = [0.49, 0.05]
++HPIND_BIG_OUTER = [0.75, 0.12]
++HPIND_BIG_INNER = [0.735, 0.1]
+ HPIND_SMALL_SIZEMULT = 0.7
+-HPIND_SMALL_OUTER = [HPIND_BIG_OUTER[0] * HPIND_SMALL_SIZEMULT, HPIND_BIG_OUTER[1] * HPIND_SMALL_SIZEMULT]
+-HPIND_SMALL_INNER = [HPIND_BIG_INNER[0] * HPIND_SMALL_SIZEMULT, HPIND_BIG_INNER[1] * HPIND_SMALL_SIZEMULT]
+-HPIND_SMALL_COLORMULT = 0.8
++HPIND_SMALL_OUTER = [0.35, 0.042]
++HPIND_SMALL_INNER = [0.343, 0.035]
++HPIND_SMALL_COLORMULT = 0.5
+ 
+ def TwoPointDistance2(p1, p2):
+     return math.sqrt(math.pow(p1[0] - p2[0], 2) + math.pow(p1[2] - p2[2], 2))

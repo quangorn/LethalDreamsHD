@@ -215,3 +215,14 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
   crc32 `625669b4`, mtime `1794819372`) == base-печати манифеста, `.py` md5 `b4961b6d05a0…`;
   каноническая сборка — `python3 tools/pyc/install_patch.py hd_scale --install`.
 - грабля — `docs/PITFALLS.md` (pivot поворота без масштаба — полоса вне рамы)
+
+## HP-индикатор выбранного юнита: патч `mentality/battlecharacters` (27.11.2026)
+
+- `[P]` Выделенный юнит — HP-индикатор ×1.5 по ширине и ×2 по толщине; мелкие индикаторы невыбранных
+  юнитов — прежний размер (значения заданы литералами) и темнее (`HPIND_SMALL_COLORMULT = 0.5`).
+  Реализовано: константы `HPIND_BIG_OUTER`/`HPIND_BIG_INNER`/`HPIND_SMALL_OUTER`/`HPIND_SMALL_INNER`/`HPIND_SMALL_COLORMULT`,
+  патч `release/patches/mentality_battlecharacters.patch` (790 B, 1 ханк).
+- `[P]` Эталон установленной сборки: `data/scripts/mentality/battlecharacters.pyc` md5 `83ea2b28fc1f…`
+  (== base-печати, mtime `1052156450`), `.py` md5 `81984b4ee9e6…`; pristine-копия `fb1c48e47dde…` =
+  `installed_recorded_md5`; новый кодовый модуль манифеста, каноническая команда —
+  `python3 tools/apply_patch.py mentality/battlecharacters && python3 tools/pyc/install_patch.py mentality/battlecharacters`.

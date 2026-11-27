@@ -309,6 +309,27 @@
     "target": "data/scripts/mentality/std_bstates.pyc"
    },
    {
+    "base": "decompiled_fixed/mentality/battlecharacters.py",
+    "crc32": "6d6e207b",
+    "fix_command": "python3 tools/apply_patch.py mentality/battlecharacters && python3 tools/pyc/install_patch.py mentality/battlecharacters",
+    "id": "mentality/battlecharacters",
+    "installed_recorded_md5": "fb1c48e47dde7d98f2fa43c4850ebc53",
+    "kind": "pyc",
+    "md5": "83ea2b28fc1f4b6e7c0193ccb6ca6045",
+    "module": "mentality/battlecharacters",
+    "note": "selected unit HP indicator 1.5x wider / 2x thicker; non-selected small indicators frozen to current size and darkened (COLORMULT 0.5)",
+    "patch_file": "release/patches/mentality_battlecharacters.patch",
+    "py_md5": "81984b4ee9e69f2ec3a01844bcf0174b",
+    "py_size": 46872,
+    "pyc_magic": "2ded0d0a",
+    "pyc_source_mtime": 1052156450,
+    "repo_py": "patches/mentality/battlecharacters.py",
+    "repo_pyc": "patches/mentality/battlecharacters.pyc",
+    "size": 62165,
+    "state": "MATCH",
+    "target": "data/scripts/mentality/battlecharacters.pyc"
+   },
+   {
     "crc32": "625669b4",
     "fix_command": "python3 tools/pyc/install_patch.py hd_scale",
     "id": "hd_scale",
