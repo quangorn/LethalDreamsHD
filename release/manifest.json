@@ -6,9 +6,9 @@
   "fonts_hd_pack": 12,
   "fonts_install": 12,
   "fonts_sets_equal": true,
-  "hd_pack_entries": 1349,
+  "hd_pack_entries": 1379,
   "installed_btf": 1342,
-  "installed_byte_identical": 1349,
+  "installed_byte_identical": 1379,
   "rule": "every assets.hd_pack entry must be present in the install at its archive path with identical bytes (CRC32+size); the install data/fonts file-name set must equal the hd_pack data/fonts name set; every installed .btf must have a CRC32 in {pristine archive CRCs} union {hd_pack CRCs}"
  },
  "code_tier": {
@@ -103,6 +103,8 @@
    {
     "base": "decompiled_fixed/ui/ui.py",
     "crc32": "4d56e300",
+    "drift_known_md5": "d9a55bdfcac5a43b559f5ed3c6d68447",
+    "drift_known_note": "загрузчик imp.load_dynamic(ldhook) в ui.pyc; сборка tools/ldhook/patch_ui.py --install, md5 воспроизводим; откат patch_ui.py --restore",
     "fix_command": "python3 tools/apply_patch.py ui/ui && python3 tools/pyc/install_patch.py ui/ui",
     "id": "ui/ui",
     "installed_recorded_md5": "ae59f6016ed633ffe7d936ac27468e3a",
@@ -117,7 +119,7 @@
     "repo_py": "patches/ui/ui.py",
     "repo_pyc": "patches/ui/ui.pyc",
     "size": 56832,
-    "state": "MATCH",
+    "state": "DRIFT_KNOWN",
     "target": "data/scripts/ui/ui.pyc"
    },
    {

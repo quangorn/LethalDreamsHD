@@ -180,6 +180,18 @@ def code_tier(install_files, strict):
         if m == e["md5"]:
             state = e.get("state", "MATCH")
             lines.append("OK %s %s md5 %s (эталон, state %s)" % (e["kind"], target, m[:12], state))
+        elif e.get("drift_known_md5") and m == e["drift_known_md5"]:
+            # объяснённая dev-сборка (записывается в манифесте как drift_known_md5)
+            state = e.get("state", "DRIFT_KNOWN")
+            if strict:
+                viol += 1
+                tag = "DRIFT"
+            else:
+                tag = "KNOWN"
+            lines.append("%s %s %s: установленный md5 %s != эталон %s (state %s)" %
+                         (tag, e["kind"], target, m[:12], e["md5"][:12], state))
+            lines.append("   note: %s" % e.get("drift_known_note", ""))
+            lines.append("   fix_command: %s" % e["fix_command"])
         elif m == e.get("installed_recorded_md5"):
             state = e.get("state", "DRIFT")
             if strict:

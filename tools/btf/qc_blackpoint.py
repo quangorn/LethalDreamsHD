@@ -21,7 +21,6 @@ import hashlib
 import os
 import re
 import struct
-import subprocess
 import sys
 import zlib
 
@@ -176,30 +175,10 @@ def compare(chs_new, w, h, chs_orig, wo):
     return mean / n, mx
 
 
-def cyg(p):
-    """Cygwin-форма пути для p7zip: D:/x -> /cygdrive/d/x (p7zip форму `D:/x` не читает)."""
-    s = paths.norm(p)
-    if re.match(r"^[A-Za-z]:/", s):
-        return '/cygdrive/' + s[0].lower() + s[2:]
-    return s
-
-
-def run7z(prefix, archive, suffix=()):
-    """7z с путём архива: сначала как есть (Windows 7-Zip читает `D:/x`), при отказе —
-    cygwin-форма `/cygdrive/d/x` (её читает p7zip; Windows 7-Zip её не читает)."""
-    proc = None
-    for form in (paths.norm(archive), cyg(archive)):
-        proc = subprocess.run(['7z'] + list(prefix) + [form] + list(suffix),
-                              capture_output=True, text=True)
-        if proc.returncode == 0:
-            return proc
-    return proc
-
-
 def extract_orig(names, outdir):
     """Оригиналы (2002) offender-текстур из pristine_archive в outdir/data/textures."""
     entries = ['data/textures/%s.btf' % n for n in sorted(names)]
-    proc = run7z(['x', '-y', '-scsUTF-8', '-o' + outdir], paths.pristine_archive(), entries)
+    proc = paths.run7z(['x', '-y', '-scsUTF-8', '-o' + outdir], paths.pristine_archive(), entries)
     if proc.returncode != 0:
         raise RuntimeError('7z extract failed for %s\n%s' % (paths.pristine_archive(),
                                                              proc.stdout + proc.stderr))

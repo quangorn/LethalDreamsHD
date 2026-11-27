@@ -133,6 +133,30 @@ def win_path(p):
     return s
 
 
+def cygwin_path(p):
+    """Path in Cygwin mount form (`/cygdrive/c/x`) for p7zip; a non-drive path is
+    returned normalized. Windows 7-Zip does not read this form."""
+    s = norm(p)
+    m = re.match(r"^([A-Za-z]):/(.*)$", s)
+    if m:
+        return "/cygdrive/" + m.group(1).lower() + "/" + m.group(2)
+    return s
+
+
+def run7z(prefix, archive, suffix=()):
+    """Run `7z` with the archive path in both forms: Windows 7-Zip reads `C:/x`,
+    cygwin p7zip reads `/cygdrive/c/x` and fails on `C:/x`. Returns the first
+    successful process; if both forms fail, the last process. `prefix` holds the
+    switches, `suffix` the entry names."""
+    proc = None
+    for form in (norm(archive), cygwin_path(archive)):
+        proc = subprocess.run(["7z"] + list(prefix) + [form] + list(suffix),
+                              capture_output=True)
+        if proc.returncode == 0:
+            return proc
+    return proc
+
+
 def _writable(d):
     """Create d if missing, then prove it is writable. Returns a problem string
     or None. The probe file is our own file, created and removed here.
@@ -430,10 +454,7 @@ def archive_list_of(archive, refresh=False):
         except (OSError, ValueError, KeyError):
             pass  # stale/corrupt cache -> rebuild
 
-    proc = subprocess.run(
-        ["7z", "l", "-slt", archive],
-        capture_output=True,
-    )
+    proc = run7z(["l", "-slt"], archive)
     if proc.returncode != 0:
         raise RuntimeError(
             "7z listing failed for %s\n%s" % (archive, _decode_console(proc.stdout) + _decode_console(proc.stderr))

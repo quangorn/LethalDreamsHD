@@ -121,22 +121,18 @@ def subprocess_run_extract(archive, names, out_dir):
     UTF-8 @listfile instead (7-Zip reads patterns in the list file with
     -scsUTF-8). Relative structure is kept by `x`, output dir via `-o`.
     """
-    argv = ["7z", "x", "-y", "-scsUTF-8", "-o" + str(out_dir), archive]
+    prefix = ["x", "-y", "-scsUTF-8", "-o" + str(out_dir)]
     if sum(len(n) + 3 for n in names) + len(archive) + len(str(out_dir)) + 40 > MAX_ARGV_CHARS:
         listfile = Path(paths.scratch_dir()) / ("extract_pristine_names_%d.txt" % os.getpid())
         tmp = Path(str(listfile) + ".tmp")
         with open(tmp, "w", encoding="utf-8") as fh:
             fh.write("\n".join(names) + "\n")
         os.replace(tmp, listfile)
-        argv.append("@" + paths.norm(listfile))
         try:
-            return subprocess.run(argv, capture_output=True, text=True,
-                                  encoding="utf-8", errors="replace")
+            return paths.run7z(prefix, archive, ["@" + paths.norm(listfile)])
         finally:
             os.remove(listfile)
-    argv.extend(names)
-    return subprocess.run(argv, capture_output=True, text=True,
-                          encoding="utf-8", errors="replace")
+    return paths.run7z(prefix, archive, names)
 
 
 def lib_entries(archive):
