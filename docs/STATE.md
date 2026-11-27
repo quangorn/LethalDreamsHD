@@ -79,8 +79,9 @@
   `957bc9d86ccc…`, state `MATCH`; патч — `docs/PATCHES.md` («Точка входа отряда в бой»).
 - `[P]` Mentality-слой боя (27.11.2026, план 10.1–10.4): `patches/mentality/std_brains.py` + `std_bstates.py`
   (`release/patches/mentality_*.patch`, записи `mentality/*` в манифесте); установлены, md5 `a694e49d…`/`607efecd…`.
-  Радиус агро 4.0 союзники / 6.0 враги — предикат `FilterAggroObjs` (`CHAR_FUNCTION` в `SetRoTCS`) + гейт `h_AggroGate`;
-  `SetVisibilityRange` не трогается. `move_order` глушит агро до прибытия/недостижимости, цель держится до смерти.
+  Радиус агро 6.0 союзники / 8.0 враги — предикат `FilterAggroObjs` (`CHAR_FUNCTION` в `SetRoTCS`);
+  `SetVisibilityRange` не трогается. `move_order` (только сторона игрока) глушит агро до прибытия, цель держится до смерти.
+  Диагностика — файл `aggro.flag` в корне игры → `ld_aggro.log` (строка в секунду на юнита).
   Грабля: правило отбора append-only, `DONT_SELECT_TARGET` не подавляет — `docs/PITFALLS.md`.
 - Дрейфов кодового яруса нет: `ui/cursor.pyc` приведён к base `60754a25…` (19.11.2026);
   `ui/olmenu.pyc` (md5 `af176d4859a1…`, state `MATCH`) — каноническая сборка с фиксом Esc×2:

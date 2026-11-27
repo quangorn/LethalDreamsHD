@@ -11,8 +11,33 @@ def LOG(who, what):
     return
 
 # Радиус агро (обнаружения) юнита в бою; задаёт план 10.2.
-AGGRO_RANGE_ALLY = 4.0
-AGGRO_RANGE_ENEMY = 6.0
+AGGRO_RANGE_ALLY = 6.0
+AGGRO_RANGE_ENEMY = 8.0
+# Диагностика агро: пишет ld_aggro.log (строка в секунду на юнита) только при
+# наличии файла aggro.flag в корне игры (тот же приём, что blackbg.flag).
+AGGRO_LOG = 0
+_AGGRO_T = {}
+try:
+    _af = open('aggro.flag')
+    _af.close()
+    AGGRO_LOG = 1
+except:
+    pass
+
+def AggroLog(key, what):
+    if not AGGRO_LOG:
+        return
+    t = gamemodule.GetTime()
+    if t - _AGGRO_T.get(key, -1000.0) < 1.0:
+        return
+    _AGGRO_T[key] = t
+    try:
+        f = open('ld_aggro.log', 'a')
+        f.write('%.2f %s %s' % (t, str(key), str(what)) + chr(10))
+        f.close()
+    except:
+        pass
+    return
 
 def IsEnemyOwner(owner):
     if owner == None:
@@ -72,18 +97,24 @@ class BBrain_Base:
         # агро. Пока идёт приказ перемещения игрока, не оставляет никого (план 10.2/10.3).
         ret = []
         if self.bs_main and self.bs_main.move_order:
+            AggroLog(self.unit.Name, 'filter move_order=1 n=%d' % len(objs))
             return ret
         r = self.GetAggroRange()
         r2 = r * r
         mypos = self.unit.GetPosition()
+        mind = -1.0
         i = len(objs) - 1
         while i >= 0:
             ment = objs[i].GetMentalityPart()
             if ment and ment.GetPythonCharacter():
                 u = ment.GetPythonCharacter()
-                if battlecharacters.TwoPointDistance2_2x(mypos, u.GetPosition()) <= r2:
+                d2 = battlecharacters.TwoPointDistance2_2x(mypos, u.GetPosition())
+                if mind < 0.0 or d2 < mind:
+                    mind = d2
+                if d2 <= r2:
                     ret.append(objs[i])
             i -= 1
+        AggroLog(self.unit.Name, 'filter r=%.1f n=%d ret=%d mind=%.2f' % (r, len(objs), len(ret), math.sqrt(mind)))
         return ret
 
     def Dest(self):

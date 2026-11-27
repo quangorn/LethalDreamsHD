@@ -105,8 +105,7 @@ class BattleMain(StateBase):
             self.bstate.AddEventReaction(ORDER, [REMOTE_ORDER | DIRECT_TO_RUN, self.parent.TestOrderObeyance], FUNCTION_ACTION | DIRECT_OBJECT_TO_POINT_RUN | NOTIFY_ACTION, {FUNCTION_ACTION: (self.h_DirectTo_Remote), NOTIFY_ACTION: (self.n_DirectTo_Remote)})
         if self.parent.grouping_flags & SB_GF_FLOCK:
             self.bstate.SetRuleOfTargetCharSelection(OBJECTS_FILTER, {OBJECTS_FILTER: [OBJECT_OWNER | INCLUDE, {OBJECT_OWNER: MY_OWNER}]}, self.h_TestForAlly)
-        # Агро только в пределах GetAggroRange (план 10.2).
-        self.bstate.AddEventReaction(NEW_TARGET_FOUND, [MO_TARGET], NOTIFY_ACTION | FUNCTION_ACTION, {FUNCTION_ACTION: (self.h_AggroGate), NOTIFY_ACTION: (self.n_TargetFound)})
+        self.bstate.AddEventReaction(NEW_TARGET_FOUND, [MO_TARGET], NOTIFY_ACTION | DIRECT_OBJECT_TO_CHAR_RUN | CHANGE_STATE, {CHANGE_STATE: 'attack', NOTIFY_ACTION: (self.n_TargetFound)})
         self.bstate.AddEventReaction(ORDER, [DIRECT_TO, 0], FUNCTION_ACTION | NOTIFY_ACTION | DIRECT_OBJECT_TO_POINT, {FUNCTION_ACTION: (self.h_DirectTo), NOTIFY_ACTION: (self.n_DirectTo)})
         self.bstate.AddEventReaction(ORDER, [DIRECT_TO_POINT, 0], FUNCTION_ACTION | NOTIFY_ACTION | DIRECT_OBJECT_TO_POINT_RUN, {FUNCTION_ACTION: (self.h_DirectTo_Point), NOTIFY_ACTION: (self.n_DirectTo_Point)})
         self.bstate.AddEventReaction(TARGET_REACHED, [POINT_TARGET, [0, 0]], FUNCTION_ACTION | NOTIFY_ACTION | STOP_OBJECT | FORGET_TARGET, {FUNCTION_ACTION: (self.h_TargetReached), NOTIFY_ACTION: (self.n_TargetReached)})
@@ -119,7 +118,8 @@ class BattleMain(StateBase):
         self.bstate.AddEventReaction(ORDER, [RESUME_OBJECT, self.h_ResumeTestAnother], FUNCTION_ACTION | NOTIFY_ACTION, {FUNCTION_ACTION: (self.h_ResumeObject), NOTIFY_ACTION: (self.n_ResumeObject)})
         self.bstate.AddEventReaction(ORDER, [RESUME_OBJECT, self.h_ResumeTestPoint], FUNCTION_ACTION | NOTIFY_ACTION | DIRECT_OBJECT_TO_POINT, {FUNCTION_ACTION: (self.h_ResumeObject), NOTIFY_ACTION: (self.n_ResumeObject)})
         self.bstate.AddEventReaction(ORDER, [RESUME_OBJECT, self.h_ResumeTestMO], FUNCTION_ACTION | NOTIFY_ACTION | DIRECT_OBJECT_TO_CHAR_RUN | CHANGE_STATE, {FUNCTION_ACTION: (self.h_ResumeObject), NOTIFY_ACTION: (self.n_ResumeObject), CHANGE_STATE: 'attack'})
-        self.bstate.SetRuleOfTargetCharSelection(DONT_SELECT_TARGET, 0)
+        # Правило отбора задаёт SetRoTCS (CHAR_FUNCTION — радиус агро); правило-ноль
+        # здесь не ставится: массив правил append-only, лишнее правило отбирает всё.
         self.bstate.SetRuleOfTargetPointSelection(DONT_SELECT_TARGET, 0)
         self.moving = 0
         # Приказ перемещения игрока в работе (план 10.3).
@@ -129,27 +129,6 @@ class BattleMain(StateBase):
         self.wait_target = None
         self.waiting = 0
         return
-
-    def h_AggroGate(self):
-        target = self.ment.GetTarget()
-        if target == None:
-            return 0
-        if self.move_order:
-            # Приказ перемещения игрока в работе: агро не включается (план 10.3).
-            self.ment.SetTarget(0)
-            return 0
-        if target[2] == None:
-            self.ment.SetTarget(0)
-            return 0
-        unit = target[2].GetPythonCharacter()
-        if unit == None:
-            self.ment.SetTarget(0)
-            return 0
-        if not self.parent.IsWithinAggro(unit):
-            self.ment.SetTarget(0)
-            return 0
-        self.u_AttackTarget_Melee(unit)
-        return 1
 
     def h_StartFunc(self):
         self.parent.SetRoTCS(self.bstate)
@@ -181,9 +160,11 @@ class BattleMain(StateBase):
         self.moving = 1
         if not self.parent.grouping_flags & SB_GF_STRONG_CONNEXITY & SB_GF_ONE_GROUP_PER_CLASS:
             self.parent.DetachFromGroup_self()
-        # Агро подавляется на весь приказ перемещения (план 10.3):
-        # правило отбора вернёт пустой список, пока move_order установлен.
-        self.move_order = 1
+        # Агро глушится только у юнитов стороны игрока (план 10.3): ИИ-командиры
+        # раздают приказы тем же REMOTE_ORDER, и у них подавление ломало бой.
+        if not std_brains.IsEnemyOwner(self.unit.Owner):
+            self.move_order = 1
+            std_brains.AggroLog(self.unit.Name, 'order start')
         return
 
     def h_DirectTo(self, param):
@@ -192,6 +173,8 @@ class BattleMain(StateBase):
 
     def EndMove(self):
         self.moving = 0
+        if self.move_order:
+            std_brains.AggroLog(self.unit.Name, 'order end')
         self.move_order = 0
         self.loitering = 0
         self.parent.SetRoTCS(self.bstate)
@@ -204,6 +187,7 @@ class BattleMain(StateBase):
 
     def u_AttackTarget_Melee(self, unit):
         if self.move_order:
+            std_brains.AggroLog(self.unit.Name, 'melee blocked by move_order')
             return
         mtarget = [MO_TARGET, 0, unit.MentalityObject, 0]
         self.ment.SetTarget(mtarget)
@@ -276,6 +260,7 @@ class BattleMain(StateBase):
         return
 
     def n_TargetFound(self, param=None):
+        std_brains.AggroLog(self.unit.Name, 'new_target')
         LOG(self, 'h_TargetFound')
         return
 
@@ -360,6 +345,7 @@ class BattleAttack(StateBase):
 
     def h_StartFunc(self):
         target = self.ment.GetTarget()
+        std_brains.AggroLog(self.unit.Name, 'attack start target=' + str(target != None))
         if not self.parent.target_selection_flags & SB_TSF_EXCEPT_ATTACK:
             self.parent.SetRoTCS(self.bstate)
         if target == None:
@@ -632,10 +618,12 @@ class SCMain2(BattleMain):
 
     def h_EnemyFound(self, objs):
         if self.move_order:
+            std_brains.AggroLog(self.unit.Name, 'sc_enemy blocked by move_order')
             return
         target = objs[0]
         unit = target.GetMentalityPart().GetPythonCharacter()
         if not self.parent.IsWithinAggro(unit):
+            std_brains.AggroLog(self.unit.Name, 'sc_enemy far')
             return
         if self.disengage_cnt >= self.parent.disengage_tries_max:
             self.u_AttackTarget_Melee(target.GetMentalityPart().GetPythonCharacter())

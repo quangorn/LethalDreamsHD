@@ -1,17 +1,12 @@
 --- a/mentality/std_bstates.py
 +++ b/mentality/std_bstates.py
-@@ -105,7 +105,8 @@
-             self.bstate.AddEventReaction(ORDER, [REMOTE_ORDER | DIRECT_TO_RUN, self.parent.TestOrderObeyance], FUNCTION_ACTION | DIRECT_OBJECT_TO_POINT_RUN | NOTIFY_ACTION, {FUNCTION_ACTION: (self.h_DirectTo_Remote), NOTIFY_ACTION: (self.n_DirectTo_Remote)})
-         if self.parent.grouping_flags & SB_GF_FLOCK:
-             self.bstate.SetRuleOfTargetCharSelection(OBJECTS_FILTER, {OBJECTS_FILTER: [OBJECT_OWNER | INCLUDE, {OBJECT_OWNER: MY_OWNER}]}, self.h_TestForAlly)
--        self.bstate.AddEventReaction(NEW_TARGET_FOUND, [MO_TARGET], NOTIFY_ACTION | DIRECT_OBJECT_TO_CHAR_RUN | CHANGE_STATE, {CHANGE_STATE: 'attack', NOTIFY_ACTION: (self.n_TargetFound)})
-+        # Агро только в пределах GetAggroRange (план 10.2).
-+        self.bstate.AddEventReaction(NEW_TARGET_FOUND, [MO_TARGET], NOTIFY_ACTION | FUNCTION_ACTION, {FUNCTION_ACTION: (self.h_AggroGate), NOTIFY_ACTION: (self.n_TargetFound)})
-         self.bstate.AddEventReaction(ORDER, [DIRECT_TO, 0], FUNCTION_ACTION | NOTIFY_ACTION | DIRECT_OBJECT_TO_POINT, {FUNCTION_ACTION: (self.h_DirectTo), NOTIFY_ACTION: (self.n_DirectTo)})
-         self.bstate.AddEventReaction(ORDER, [DIRECT_TO_POINT, 0], FUNCTION_ACTION | NOTIFY_ACTION | DIRECT_OBJECT_TO_POINT_RUN, {FUNCTION_ACTION: (self.h_DirectTo_Point), NOTIFY_ACTION: (self.n_DirectTo_Point)})
-         self.bstate.AddEventReaction(TARGET_REACHED, [POINT_TARGET, [0, 0]], FUNCTION_ACTION | NOTIFY_ACTION | STOP_OBJECT | FORGET_TARGET, {FUNCTION_ACTION: (self.h_TargetReached), NOTIFY_ACTION: (self.n_TargetReached)})
-@@ -121,12 +122,35 @@
-         self.bstate.SetRuleOfTargetCharSelection(DONT_SELECT_TARGET, 0)
+@@ -118,9 +118,12 @@
+         self.bstate.AddEventReaction(ORDER, [RESUME_OBJECT, self.h_ResumeTestAnother], FUNCTION_ACTION | NOTIFY_ACTION, {FUNCTION_ACTION: (self.h_ResumeObject), NOTIFY_ACTION: (self.n_ResumeObject)})
+         self.bstate.AddEventReaction(ORDER, [RESUME_OBJECT, self.h_ResumeTestPoint], FUNCTION_ACTION | NOTIFY_ACTION | DIRECT_OBJECT_TO_POINT, {FUNCTION_ACTION: (self.h_ResumeObject), NOTIFY_ACTION: (self.n_ResumeObject)})
+         self.bstate.AddEventReaction(ORDER, [RESUME_OBJECT, self.h_ResumeTestMO], FUNCTION_ACTION | NOTIFY_ACTION | DIRECT_OBJECT_TO_CHAR_RUN | CHANGE_STATE, {FUNCTION_ACTION: (self.h_ResumeObject), NOTIFY_ACTION: (self.n_ResumeObject), CHANGE_STATE: 'attack'})
+-        self.bstate.SetRuleOfTargetCharSelection(DONT_SELECT_TARGET, 0)
++        # Правило отбора задаёт SetRoTCS (CHAR_FUNCTION — радиус агро); правило-ноль
++        # здесь не ставится: массив правил append-only, лишнее правило отбирает всё.
          self.bstate.SetRuleOfTargetPointSelection(DONT_SELECT_TARGET, 0)
          self.moving = 0
 +        # Приказ перемещения игрока в работе (план 10.3).
@@ -19,34 +14,7 @@
          self.loitering = 0
          self.loiter_cnt = 0
          self.wait_target = None
-         self.waiting = 0
-         return
- 
-+    def h_AggroGate(self):
-+        target = self.ment.GetTarget()
-+        if target == None:
-+            return 0
-+        if self.move_order:
-+            # Приказ перемещения игрока в работе: агро не включается (план 10.3).
-+            self.ment.SetTarget(0)
-+            return 0
-+        if target[2] == None:
-+            self.ment.SetTarget(0)
-+            return 0
-+        unit = target[2].GetPythonCharacter()
-+        if unit == None:
-+            self.ment.SetTarget(0)
-+            return 0
-+        if not self.parent.IsWithinAggro(unit):
-+            self.ment.SetTarget(0)
-+            return 0
-+        self.u_AttackTarget_Melee(unit)
-+        return 1
-+
-     def h_StartFunc(self):
-         self.parent.SetRoTCS(self.bstate)
-         self.stand_anim_cnt = 0
-@@ -134,6 +158,7 @@
+@@ -134,6 +137,7 @@
  
      def h_EndFunc(self):
          self.unit.SA_Reset()
@@ -54,36 +22,41 @@
          self.wait_target = None
          self.waiting = 0
          return
-@@ -156,8 +181,9 @@
+@@ -156,8 +160,11 @@
          self.moving = 1
          if not self.parent.grouping_flags & SB_GF_STRONG_CONNEXITY & SB_GF_ONE_GROUP_PER_CLASS:
              self.parent.DetachFromGroup_self()
 -        if self.parent.target_selection_flags & SB_TSF_EXCEPT_MOVE:
 -            self.bstate.SetRuleOfTargetCharSelection(DONT_SELECT_TARGET, 0)
-+        # Агро подавляется на весь приказ перемещения (план 10.3):
-+        # правило отбора вернёт пустой список, пока move_order установлен.
-+        self.move_order = 1
++        # Агро глушится только у юнитов стороны игрока (план 10.3): ИИ-командиры
++        # раздают приказы тем же REMOTE_ORDER, и у них подавление ломало бой.
++        if not std_brains.IsEnemyOwner(self.unit.Owner):
++            self.move_order = 1
++            std_brains.AggroLog(self.unit.Name, 'order start')
          return
  
      def h_DirectTo(self, param):
-@@ -166,6 +192,7 @@
+@@ -166,6 +173,9 @@
  
      def EndMove(self):
          self.moving = 0
++        if self.move_order:
++            std_brains.AggroLog(self.unit.Name, 'order end')
 +        self.move_order = 0
          self.loitering = 0
          self.parent.SetRoTCS(self.bstate)
          self.unit.SA_Reset()
-@@ -176,6 +203,8 @@
+@@ -176,6 +186,9 @@
          return
  
      def u_AttackTarget_Melee(self, unit):
 +        if self.move_order:
++            std_brains.AggroLog(self.unit.Name, 'melee blocked by move_order')
 +            return
          mtarget = [MO_TARGET, 0, unit.MentalityObject, 0]
          self.ment.SetTarget(mtarget)
          self.ment.SendOrder(DIRECT_TO, [unit.MentalityObject.GetGraphObject(), 0])
-@@ -226,6 +255,7 @@
+@@ -226,6 +239,7 @@
          return
  
      def h_ResumeObject(self, params=None):
@@ -91,7 +64,15 @@
          self.wait_target = None
          self.waiting = 0
          return
-@@ -306,8 +336,9 @@
+@@ -246,6 +260,7 @@
+         return
+ 
+     def n_TargetFound(self, param=None):
++        std_brains.AggroLog(self.unit.Name, 'new_target')
+         LOG(self, 'h_TargetFound')
+         return
+ 
+@@ -306,8 +321,9 @@
              self.bstate.AddEventReaction(ORDER, [DIRECT_TO_POINT, 0], FUNCTION_ACTION | NOTIFY_ACTION | DIRECT_OBJECT_TO_POINT_RUN, {FUNCTION_ACTION: (self.h_DirectTo_Point), NOTIFY_ACTION: (self.n_DirectTo_Point)})
              self.bstate.AddEventReaction(TARGET_REACHED, [POINT_TARGET, [0, 0]], FUNCTION_ACTION | NOTIFY_ACTION | STOP_OBJECT, {FUNCTION_ACTION: (self.h_TargetReached_Point), NOTIFY_ACTION: (self.n_TargetReached_Point)})
          self.bstate.AddEventReaction(ORDER, [DIRECT_TO, 0], NOTIFY_ACTION | DIRECT_OBJECT_TO_CHAR_RUN, {NOTIFY_ACTION: (self.n_DirectTo_Run)})
@@ -103,20 +84,30 @@
          self.bstate.AddEventReaction(NEAR_ATTACK_DISTANCE, [MO_TARGET, [0, 0]], STOP_OBJECT | NOTIFY_ACTION | CHANGE_STATE, {CHANGE_STATE: 'kick', NOTIFY_ACTION: (self.n_NearAttackDistance)})
          self.bstate.AddEventReaction(TARGET_MOVED, [MO_TARGET, [0, 15]], DIRECT_OBJECT_TO_CHAR | NOTIFY_ACTION, {NOTIFY_ACTION: (self.n_TargetMoved)})
          self.bstate.AddEventReaction(ORDER, [MISS_ORDER, self.h_MissTest], DEFEND_OBJECT | NOTIFY_ACTION | CHANGE_STATE, {NOTIFY_ACTION: (self.n_Miss), CHANGE_STATE: 'locked_anim'})
-@@ -600,8 +631,12 @@
+@@ -329,6 +345,7 @@
+ 
+     def h_StartFunc(self):
+         target = self.ment.GetTarget()
++        std_brains.AggroLog(self.unit.Name, 'attack start target=' + str(target != None))
+         if not self.parent.target_selection_flags & SB_TSF_EXCEPT_ATTACK:
+             self.parent.SetRoTCS(self.bstate)
+         if target == None:
+@@ -600,8 +617,14 @@
          return
  
      def h_EnemyFound(self, objs):
 +        if self.move_order:
++            std_brains.AggroLog(self.unit.Name, 'sc_enemy blocked by move_order')
 +            return
          target = objs[0]
          unit = target.GetMentalityPart().GetPythonCharacter()
 +        if not self.parent.IsWithinAggro(unit):
++            std_brains.AggroLog(self.unit.Name, 'sc_enemy far')
 +            return
          if self.disengage_cnt >= self.parent.disengage_tries_max:
              self.u_AttackTarget_Melee(target.GetMentalityPart().GetPythonCharacter())
              self.disengage_cnt = 0
-@@ -1160,7 +1195,11 @@
+@@ -1160,7 +1183,11 @@
          return
  
      def h_EnemyFound(self, objs):
@@ -128,7 +119,7 @@
          self.parent.u_MoveGroup_Free(unit.GetPosition(), self.parent.cl_escort)
          if self.CurState < CCS2_MELEE and self.unit.CalcDist_Point(unit.GetPosition()) < self.parent.danger_range:
              self.u_RewindStateStack()
-@@ -1584,7 +1623,11 @@
+@@ -1584,7 +1611,11 @@
          return
  
      def h_EnemyFound(self, objs):
