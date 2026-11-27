@@ -58,7 +58,7 @@ rewrite даёт header build-time (`2026-11-17 10:42`) и md5, не равны�
 | ui/ui | ui_ui.patch (3574 B) | 1794778202 |
 | ui/cursor | ui_cursor.patch (4120 B) | 1794778645 |
 | ui/olmenu | ui_olmenu.patch (2237 B) | 1794778203 |
-| ui/battlemenu | ui_battlemenu.patch (4909 B) | 1794778202 |
+| ui/battlemenu | ui_battlemenu.patch (5579 B) | 1794778202 |
 | ui/btutorial | ui_btutorial.patch (599 B) | 1794778203 |
 | ui/olcamera | ui_olcamera.patch (1481 B) | 1794778203 |
 | battlecamera | battlecamera.patch (11241 B) | 1794778203 |
@@ -147,6 +147,12 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
 - `[P]` База правок — recovered-декомпилят `decompiled_fixed/` (`tools/pyc/decompile_lit.py`); правка `patches/ui/battlemenu.py`: `XLeft = 0 - sh` (`sh = hd_scale.HD_Shift()`) — весь левый BHUD-блок едет; ветка `BCCT_TEMPLATE` в `ModifyCallBackSel` → `hd_scale.HD_EdgeFix(param, левый, правый)` до создания контролов (левый: `mc_pullbtn`, `mc_pullbtn_bkg`, `btn_mainmenu`, `btn_disband`, `btn_retreat`, `btn_pause`, `btn_defatt`, `btn_move`; правый: `mini_map`, `frame`, `spells_border_zone`; `console` не входит).
 - `[P]` Установка: `python3 tools/pyc/install_patch.py hd_scale ui/olmenu ui/battlemenu`; регрессия 4:3 — регионы `left_bhud`/`left_btns`/`console_strip`/`center_battle` побитово идентичны.
 - грабля — `docs/PITFALLS.md` (декомпилят печатает ИНДЕКС констант вместо литерала: BHUD исчезает целиком) — подробный разбор: `docs/archive/NARRATIVE_2026-11.md` («Боевой HUD поверх recovered-базы (2026-11-15, вечер)»)
+
+## Esc из боя: главное меню (27.11.2026)
+- `[P]` Вектор пунктов `BackToMainMenu` (`patches/ui/battlemenu.py`) = `[1, 0, 1, 1, 1, 3]`: Quit и Options
+  активны (оригинал `[0, 0, 1, 1, 1, 3]`), Load оставлен включённым (загрузка сейва из боя), Save — выключен как в оригинале.
+- `[P]` Установка: `python3 tools/apply_patch.py ui/battlemenu --install`; эталон `data/scripts/ui/battlemenu.pyc` md5 `cece97624608…`.
+- грабля — `docs/PITFALLS.md` (декомпилят переставляет элементы литерала `ShowMainmenu`)
 
 ## Консоль боя (левая полоса) — исправлена (2026-11-15, финал итерации)
 - `[P]` `console` добавлен в левый список `HD_EdgeFix` (`patches/ui/battlemenu.py::ModifyCallBackSel`): rect `[-434,90,450,428]` при сдвиге `-sh` даёт правый край движка `k*(16-170)+dx = 12.3 >= 0` — полоска видима и прижата к левому краю; при 4:3 сдвиг=0 → identity. — подробный разбор: `docs/archive/NARRATIVE_2026-11.md` («Консоль боя (левая полоса) — исправлена (2026-11-15, финал итерации)»)

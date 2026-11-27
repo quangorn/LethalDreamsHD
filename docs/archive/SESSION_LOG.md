@@ -11,6 +11,9 @@
 - `[P]` Съёмка полосы каста: DSL-шаги `rdown`/`rup` (`tools/probes/perform_action_in_game.ps1`), снимок `castbar`.
 - `[P]` Спавн отряда в бою — случайный вход карты: патч `bdomain` снят, `data/scripts/bdomain.pyc` = родной (crc32 `5e282f17`).
 
+- `[P]` Вектор `BackToMainMenu` = `[1, 0, 1, 1, 1, 3]` (`release/patches/ui_battlemenu.patch`):
+  Quit и Options активны, Load из боя сохранён — `docs/PATCHES.md`, «Esc из боя: главное меню».
+
 ## Сессия 2026-11-21: порт боя — Фазы 3 и 4 закрыты офлайн-replay
 
 - `[P]` Гейт Фазы 3 — офлайн per-call replay (`battle_replay_diff.py` на capture v8); живой A/B санитарный

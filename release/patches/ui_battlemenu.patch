@@ -1,5 +1,17 @@
 --- a/ui_battlemenu.py
 +++ b/ui_battlemenu.py
+@@ -97,6 +97,10 @@
+         ResumeGame = 1
+     if len(Battlemenu) > 0:
+         Battlemenu[0].UpdateSpellsHK(1)
+-    mainmenu.ShowMainmenu(1, [1, 1, 1, 0, 0, 3])
++    # Пункты: Load, Save, NewGame, Quit, Options, 6-й = 3 (ResumeBattle).
++    # Оригинал (backup_orig/ui/battlemenu.pyc): [0, 0, 1, 1, 1, 3]; в декомпиляте
++    # литерал переставлен ([1, 1, 1, 0, 0, 3]) -> Quit и Options мертвы. Load
++    # оставлен включённым (загрузка сейва из боя), Save - как в оригинале выключен.
++    mainmenu.ShowMainmenu(1, [1, 0, 1, 1, 1, 3])
+     return
+ 
 @@ -958,7 +958,20 @@
          self.buttons.append(self.SDname)
          self.SDspells = []
