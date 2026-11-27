@@ -17,9 +17,11 @@ EXE не трогается: хуки ставятся в памяти (VirtualP
 (без него игра не влезает в 4K) и восстанавливает его, если он слетел.
 """
 import hashlib
+import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 
@@ -103,7 +105,13 @@ def ui_pyc_path(root):
 
 
 def build(out_path):
-    """patches/ui/ui.py + блок загрузчика -> out_path (воркер 2.2.3)."""
+    """patches/ui/ui.py + блок загрузчика -> out_path (воркер 2.2.3).
+
+    Header mtime прибивается к `pyc_source_mtime` модуля ui/ui из манифеста:
+    иначе md5 уезжает от времени сборки (тело побитово одинаковое), и установку
+    нельзя сверить с записанным эталоном. Игровой .py для ui/ui не существует,
+    поэтому staleness-проверке движка эта дата безразлична.
+    """
     text = open(UI_SRC, "rb").read().replace(b"\r\n", b"\n")
     tmp = os.path.join(work_dir(), "_ui_ldhook_src.py")
     with open(tmp, "wb") as fh:
@@ -118,6 +126,12 @@ def build(out_path):
     if "BUILD-OK" not in out:
         raise SystemExit("BUILD FAIL: %s" % out.strip()[:400])
     os.remove(tmp)
+    stamp = module_source_mtime("ui/ui")
+    if stamp is not None:
+        d = bytearray(open(out_path, "rb").read())
+        d[4:8] = struct.pack("<i", stamp)
+        with open(out_path, "wb") as fh:
+            fh.write(bytes(d))
     print("ui.pyc -> %s (%d B, md5 %s)" % (out_path, os.path.getsize(out_path),
                                            md5(out_path)))
     return out_path
@@ -127,6 +141,33 @@ def artifact():
     return os.path.join(_ROOT, "build", "ldhook", "ui.pyc")
 
 
+def clean_ui_md5():
+    """Эталон ui/ui.pyc (base-печать манифеста) — то, что обязано стоять без
+    загрузчика. Нужен для проверки бэкапа: его снимает install() с текущего
+    файла, и если там уже был загрузчик (повторный --install), бэкап не чистый."""
+    e = manifest_entry("ui/ui")
+    return e.get("md5") if e else None
+
+
+def module_source_mtime(module):
+    e = manifest_entry(module)
+    return e.get("pyc_source_mtime") if e else None
+
+
+def manifest_entry(module):
+    """Запись code tier манифеста (тот же контракт, что у install_patch)."""
+    p = os.path.join(_ROOT, "release", "manifest.json")
+    try:
+        with open(p, encoding="utf-8") as fh:
+            m = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    for e in m.get("code_tier", {}).get("entries", []):
+        if e.get("module") == module:
+            return e
+    return None
+
+
 def install():
     root = paths.install_dir()
     if not os.path.isdir(root):
@@ -134,18 +175,29 @@ def install():
     if not os.path.isfile(PYD):
         raise SystemExit("нет артефакта: %s (сначала tools/ldhook/build.py)" % PYD)
     pyc = artifact()
-    if not os.path.isfile(pyc):
-        build(pyc)
+    # загрузчик пересобирается из текущего patches/ui/ui.py на каждом --install:
+    # иначе в игру уезжает вчерашний artifact, а md5 установки расходится с кодом
+    build(pyc)
 
     bak = os.path.join(work_dir(), "ui_ui.pyc.pre")
     dst_pyc = ui_pyc_path(root)
     dst_pyd = os.path.join(root, PYD_NAME)
-    if os.path.isfile(bak) and os.path.isfile(dst_pyd):
-        # повторный --install: бэкап уже снят с чистой установки, не затираем
-        print("бэкап уже есть: %s (не перезаписываю)" % bak)
+    clean = clean_ui_md5()
+    bak_ok = os.path.isfile(bak) and clean and md5(bak) == clean
+    if bak_ok:
+        # повторный --install: бэкап снят с чистой установки, не затираем
+        print("бэкап уже есть: %s (md5 %s == эталон) — не перезаписываю" % (bak, md5(bak)))
     else:
-        shutil.copyfile(dst_pyc, bak)
-        print("бэкап ui/ui.pyc -> %s (md5 %s)" % (bak, md5(bak)))
+        # НЕ чистый бэкап (снят с уже пропатченного файла) — не затираем его
+        # самим собой: чистый файл собирается каноническим пайплайном.
+        shutil.copyfile(dst_pyc, bak + ".prev")
+        shutil.copyfile(os.path.join(_ROOT, "patches", "ui", "ui.pyc"), bak)
+        print("бэкап ui/ui.pyc -> %s (md5 %s; прежний — %s.prev, md5 %s)"
+              % (bak, md5(bak), os.path.basename(bak),
+                 md5(bak + ".prev") if os.path.isfile(bak + ".prev") else "-"))
+        if clean and md5(bak) != clean:
+            print("warning: бэкап %s != эталон манифеста %s (соберите"
+                  " patches/ui/ui.pyc: python3 tools/apply_patch.py ui/ui)" % (md5(bak), clean))
 
     if os.path.isfile(dst_pyd) and md5(dst_pyd) != md5(PYD):
         os.remove(dst_pyd)
@@ -165,10 +217,20 @@ def restore():
     bak = os.path.join(work_dir(), "ui_ui.pyc.pre")
     dst_pyc = ui_pyc_path(root)
     dst_pyd = os.path.join(root, PYD_NAME)
-    if not os.path.isfile(bak):
-        raise SystemExit("нет бэкапа: %s" % bak)
-    shutil.copyfile(bak, dst_pyc)
-    print("restore: %s (md5 %s)" % (dst_pyc, md5(dst_pyc)))
+    clean = clean_ui_md5()
+    if os.path.isfile(bak) and (clean is None or md5(bak) == clean):
+        shutil.copyfile(bak, dst_pyc)
+        print("restore: %s (md5 %s)" % (dst_pyc, md5(dst_pyc)))
+    else:
+        # Бэкап не эталонный (или его нет): чистый файл даёт только канонический
+        # пайплайн (base + release/patches/ui_ui.patch), копия бэкапа — нет.
+        print("restore: бэкап %s %s эталону %s — чистая сборка каноническим путём"
+              % (bak, "не равен" if os.path.isfile(bak) else "отсутствует", clean))
+        src = os.path.join(_ROOT, "patches", "ui", "ui.pyc")
+        if not os.path.isfile(src) or (clean and md5(src) != clean):
+            raise SystemExit("нет чистого patches/ui/ui.pyc: python3 tools/apply_patch.py ui/ui")
+        shutil.copyfile(src, dst_pyc)
+        print("restore: %s (md5 %s == эталон)" % (dst_pyc, md5(dst_pyc)))
     if os.path.isfile(dst_pyd):
         os.remove(dst_pyd)
         print("restore: удалён %s" % dst_pyd)

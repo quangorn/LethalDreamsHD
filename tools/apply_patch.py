@@ -146,6 +146,14 @@ def main():
         print("no manifest entry for module %s" % module)
         sys.exit(2)
 
+    if "base" not in e:
+        # Авторский модуль (hd_scale/hd_tex): патча нет, дерево-базы нет —
+        # каноническая команда другая (fix_command манифеста).
+        print("module %s: не game-derived (в манифесте нет base) —\n  %s"
+              % (module, e.get("fix_command",
+                               "python3 tools/pyc/install_patch.py " + module)))
+        sys.exit(2)
+
     base = os.path.join(_ROOT, e["base"])
     if not os.path.exists(base):
         print("base missing: %s\nrecreate the decompilate from your own game copy:\n  python3 tools/pyc/decompile_lit.py %s"
