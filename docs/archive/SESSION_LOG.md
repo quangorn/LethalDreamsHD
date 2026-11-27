@@ -4,13 +4,12 @@
 реализовано. Актуальное состояние — `docs/STATE.md`, пайплайны — `docs/PIPELINE.md`,
 отменённые планы — `docs/archive/CANCELLED_Q_MODE.md`, грабли — `docs/PITFALLS.md`.
 
-## Сессия 2026-11-27: полоса каста в 16:9 прижата к раме BHUD
+## Сессия 2026-11-27: полоса каста в 16:9 + случайный спавн отряда
 
-- `[P]` Pivot поворота gauge — движковые единицы: обёртка `RotateBillBoardAroundPt` в
-  `patches/hd_scale.py` (`SC/SY`, оригинал при `k==1`); эталон `data/scripts/hd_scale.pyc`
-  md5 `336867c67316…` — `docs/PATCHES.md`.
-- `[P]` Съёмка полосы каста: DSL-шаги `rdown`/`rup` в `tools/probes/perform_action_in_game.ps1`,
-  снимок `castbar` в обёртках `battle_169.ps1`/`battle_43.ps1`.
+- `[P]` Pivot поворота gauge — движковые единицы `SC/SY` (обёртка `RotateBillBoardAroundPt`,
+  `patches/hd_scale.py`); эталон `data/scripts/hd_scale.pyc` md5 `336867c67316…`.
+- `[P]` Съёмка полосы каста: DSL-шаги `rdown`/`rup` (`tools/probes/perform_action_in_game.ps1`), снимок `castbar`.
+- `[P]` Спавн отряда в бою — случайный вход карты: патч `bdomain` снят, `data/scripts/bdomain.pyc` = родной (crc32 `5e282f17`).
 
 ## Сессия 2026-11-21: порт боя — Фазы 3 и 4 закрыты офлайн-replay
 

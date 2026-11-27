@@ -246,27 +246,6 @@
     "target": "data/scripts/battlecamera.pyc"
    },
    {
-    "base": "decompiled_fixed/bdomain.py",
-    "crc32": "2ced231d",
-    "fix_command": "python3 tools/apply_patch.py bdomain && python3 tools/pyc/install_patch.py bdomain",
-    "id": "bdomain",
-    "installed_recorded_md5": "c8e6ac7bb406f820044853d7139c4a62",
-    "kind": "pyc",
-    "md5": "957bc9d86ccc6fae7b3f6ec4347a403c",
-    "module": "bdomain",
-    "note": "fixed battle entrance index FIXED_ENTRANCE_INDEX = 5; party spawn and start camera deterministic (player decision 2026-11-20)",
-    "patch_file": "release/patches/bdomain.patch",
-    "py_md5": "d217277549c21cac1bb94609089a3cf8",
-    "py_size": 25160,
-    "pyc_magic": "2ded0d0a",
-    "pyc_source_mtime": 1794778203,
-    "repo_py": "patches/bdomain.py",
-    "repo_pyc": "patches/bdomain.pyc",
-    "size": 28840,
-    "state": "MATCH",
-    "target": "data/scripts/bdomain.pyc"
-   },
-   {
     "base": "decompiled_fixed/mentality/std_brains.py",
     "crc32": "c3c273ff",
     "fix_command": "python3 tools/apply_patch.py mentality/std_brains && python3 tools/pyc/install_patch.py mentality/std_brains",
