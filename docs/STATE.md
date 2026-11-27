@@ -2,9 +2,9 @@
 
 ## Установленная игра (эталон проверки)
 
-- `game.root` (из config.toml): **5096 файлов** (`lethaldreams.dll` и `LD-setup.bat` удалены из
+- `game.root` (из config.toml): **5098 файлов** (`lethaldreams.dll` и `LD-setup.bat` удалены из
   установки по решению пользователя; `LD-setup.bat` только в snapshot `6.7z`, в `original.7z`
-  его нет — `docs/KNOWLEDGE.md`).
+  его нет — `docs/KNOWLEDGE.md`; +3 = артефакты живых прогонов ldhook, `dev_artifacts`).
 - EXE md5 `171319bbc170cf6e57c8d36a8ae5f50d`, размер 1191936 — базовая пропатченная версия
  (pristine-EXE того же размера, md5 `7943036fbd12…`). Маппинг: fileoff = VA − 0x400000
  (cave VA 0x4ebf12 = fileoff 966418; 491308 — fileoff первой правки exepatch3).
@@ -12,12 +12,11 @@
   установкой `release/patches/ui_cursor.patch`; копия v6 `4a8eb4bab413…` — в
   `scratch_dir('battle_baseline')/cursor_installed_v6.pyc`). `check_state --quick` rc 0.
   Разбор и команда применения: `docs/VERIFY.md`.
-- `ldhook.pyd` в установке + `ui/ui.pyc` с блоком загрузчика (`d9a55bdf…` против эталона
-  `ae59f601…`) — dev-состояние для живых прогонов боевого AI; ставится
-  `python3 tools/ldhook/patch_ui.py --install`, откат `--restore` (после отката rc 0).
-  `.pyd` в установке = артефакт `build/ldhook/ldhook.pyd`; header загрузчика прибит к
-  `pyc_source_mtime` ui/ui (md5 сборки воспроизводим), бэкап отката сверяется с эталоном
-  манифеста. Грабли: `docs/PITFALLS.md`.
+- `ui/ui.pyc` загрузчика ldhook `d9a55bdf…` против base-печати `ae59f601…` — dev-состояние живых
+  прогонов боевого AI; ставится `tools/ldhook/patch_ui.py --install`, откат `--restore`. Записан в
+  манифесте как `drift_known_md5`: `--full` rc 0, `--quick` rc 1. Артефакты прогонов
+  `ldhook.pyd` (артефакт `build/ldhook/ldhook.pyd`, md5 не фиксируется), `ldhook_marker.txt`,
+  `hdlog.txt*` — в allowlist'е `dev_artifacts`. Грабли: `docs/PITFALLS.md`.
 - Реестр:
   `HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\App Compat Flags\LETHALDREAMS.EXE` =
   строковый `~ HIGHDPIAWARE` (флаг совместимости, отключает системное масштабирование exe).
@@ -117,8 +116,11 @@
 
 ## Замеры проверки (см. docs/VERIFY.md)
 
-- `[P]` Замер 22.11.2026 (`--untouched`/`--full` rc 0, установка 5096 файлов): PRISTINE 2966,
-  HD_PACK 1379, ALLOWED 728, CODE 18, EXCLUDED 4, ARCHIVE_BASENAME 1 (`lethaldreams.dll`), UNCOVERED 0.
+- `[P]` Замер 27.11.2026 (`--full` rc 0, `--untouched` rc 0, установка 5098 файлов): PRISTINE 2964,
+  HD_PACK 1379 (все 1379 побитово), ALLOWED 731, CODE 20, EXCLUDED 4, ARCHIVE_BASENAME 0.
+  `--quick` rc 1 = загрузчик ldhook в `ui/ui.pyc` (KNOWN в `--full`).
+- `[P]` Чёрная точка аддитивных UI-текстур: 91 запись hd_pack обезполнена (`tools/btf/qc_blackpoint.py fix`)
+  и установлена в игру; эталон = сам архив, checker сверяет .btf побитово. Грабля — `docs/PITFALLS.md`.
 - Покрытие allowlist'а (`release/allowlist.json`: `lib/*` 713, корневые `.pyc` 11,
   корневые бинары 5 — `LETHALDREAMS.EXE`, `python22.dll`, `msvcr70.dll`, `msvcp70.dll`,
   `msvcr70d.dll`, `data/scripts/*.pyc` 10, `data/textures/mm_bkg01.btf` 1);

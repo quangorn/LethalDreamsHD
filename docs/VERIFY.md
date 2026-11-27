@@ -14,15 +14,15 @@
 - 10 игровых .pyc: md5 установленный vs md5 base-печати манифеста; при
   расхождении — разбор header (magic, source mtime) и тела: печатается
   KNOWN-drift с объяснением и fix_command;
-- строгий ярус `--quick`: расхождение cursor → rc 1 (CI); на 19.11.2026 дрейфов нет,
-  rc 0 (cursor приведён к base-печати). `--full` печатает KNOWN и считает rc 0.
+- строгий ярус `--quick`: любое расхождение от base-печати → rc 1 (CI). `--full` печатает KNOWN
+  и даёт rc 0 для объяснённых сборок, записанных в манифесте (`drift_known_md5` + `state`).
 
 Пояснение md5-разбора для mirror-дерева: `co_filename` компилируется из пути,
 из которого компилировали; тело совпадает только при компиляции из канонического
 пути — checker печатает поясняющую строку.
 
-Дрейфов манифеста нет (cursor закрыт 19.11.2026, `MATCH`); механизм `DRIFT_KNOWN`
-сохраняется для аналогичных исторических сборок (`docs/PATCHES.md`).
+- `[P]` Известный дрейф code tier: `ui/ui.pyc` загрузчика ldhook `d9a55bdf…` против base-печати
+  `ae59f601…`; ставится `tools/ldhook/patch_ui.py --install`, откат `--restore` (после отката rc 0).
 
 ## Ярус assets (входит в `--full`)
 
@@ -43,12 +43,13 @@
 префикса `LethalDreams/`) → SNAPSHOT; basename+(size,crc) fallback; basename
 (без контента) → REPO_BASENAME; UNCOVERED — репорт.
 
-Замер на установке (5096 файлов, без `__pycache__`, 22.11.2026; `lethaldreams.dll` и
+Замер на установке (5098 файлов, без `__pycache__`, 27.11.2026; `lethaldreams.dll` и
 `LD-setup.bat` удалены из установки по решению пользователя):
 
-- PRISTINE **2966**, HD_PACK **1379** (включая 30 `data/maps/*.map` с 3x-почвой),
-  ALLOWED **728**, CODE **18** (включая `globalscript.pyc` = `PRISTINE_IDENTICAL`), EXCLUDED **4**,
-  ARCHIVE_BASENAME **1** (`lethaldreams.dll`), REPO_BASENAME **1** (`console.py`, 0 B),
+- PRISTINE **2964**, HD_PACK **1379** (все побитово, включая 30 `data/maps/*.map` с 3x-почвой),
+  ALLOWED **731** (включая `dev_artifacts`: `ldhook.pyd`, `ldhook_marker.txt`, `hdlog.txt*`),
+  CODE **20** (включая `globalscript.pyc` = `PRISTINE_IDENTICAL`), EXCLUDED **4**,
+  ARCHIVE_BASENAME **0**, REPO_BASENAME **1** (`console.py`, 0 B),
   UNCOVERED **0**; `hd.cfg` — REPO (артефакт пайплайна, в git не входит).
 - allowlist: `data/video/*.wmv` (glob) + `.log`-класс; отсутствие
   `boolat.wmv`, `russobit_r.wmv` — разрешено (присутствуют в archive, отсутствуют
