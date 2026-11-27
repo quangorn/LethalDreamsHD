@@ -18,6 +18,8 @@
 #   hover:CX:CY      наведение курсора без клика (hit-test тултипа/глифа)
 #   rclick:CX:CY     ПКМ по канвасной точке
 #   hold:CX:CY:MS    ПКМ вниз в точке, держать MS, отпустить (каст заклинания)
+#   rdown:CX:CY      ПКМ вниз в точке и НЕ отпускать (каст идёт, между шагами)
+#   rup              отпустить ПКМ в текущей позиции курсора (каст завершается)
 #   key:VK           нажатие клавиши: 13=Enter (подтверждение диалога), 32=Space (пауза боя)
 #   wave:SX:SY:CX:CY волна призыва: клик по слоту (SX,SY), ПКМ-удержание на цели (CX,CY)
 #   waves            N волн подряд из -Waves/-SpellX/-SpellY/-CastX/-CastY/-HoldMs
@@ -149,6 +151,18 @@ function Hold($x, $y, [int]$ms) {
   Start-Sleep -Milliseconds $ClickGapMs
 }
 
+# ПКМ-удержание разбито на два шага: каст идёт между ними, и в середину можно
+# вставить shot (полоса каста видна только во время удержания).
+function RDown($x, $y) {
+  Move-To $x $y
+  [T]::mouse_event(0x8,0,0,0,[IntPtr]::Zero)
+}
+
+function RUp() {
+  [T]::mouse_event(0x10,0,0,0,[IntPtr]::Zero)
+  Start-Sleep -Milliseconds $ClickGapMs
+}
+
 function Key([int]$vk) {
   $sc = [byte][T]::MapVirtualKey([uint32]$vk, 0)
   [T]::keybd_event([byte]$vk, $sc, 0, [IntPtr]::Zero)
@@ -202,6 +216,8 @@ foreach ($step in $Steps.Split(';')) {
     'hover'      { $a = To-Abs $main ([double]$v[1]) ([double]$v[2]); Log "STEP $si hover canvas $($v[1]),$($v[2]) -> abs ($($a[0]),$($a[1]))"; Move-To $a[0] $a[1] }
     'rclick'     { $a = To-Abs $main ([double]$v[1]) ([double]$v[2]); Log "STEP $si rclick canvas $($v[1]),$($v[2]) -> abs ($($a[0]),$($a[1]))"; RClick $a[0] $a[1] }
     'hold'       { $ms = $HoldMs; if ($v.Count -gt 3 -and $v[3]) { $ms = [int]$v[3] }; Log "STEP $si hold canvas $($v[1]),$($v[2]) -> abs ($($a[0]),$($a[1])) ${ms}ms"; Hold $a[0] $a[1] $ms }
+    'rdown'      { $a = To-Abs $main ([double]$v[1]) ([double]$v[2]); Log "STEP $si rdown canvas $($v[1]),$($v[2]) -> abs ($($a[0]),$($a[1]))"; RDown $a[0] $a[1] }
+    'rup'        { Log "STEP $si rup (release at cursor)"; RUp }
     'key'        { Log "STEP $si key $($v[1])"; Key ([int]$v[1]) }
     'wave'       { $ms = $HoldMs; if ($v.Count -gt 5 -and $v[5]) { $ms = [int]$v[5] }
                    $a = To-Abs $main ([double]$v[1]) ([double]$v[2]); $b = To-Abs $main ([double]$v[3]) ([double]$v[4])

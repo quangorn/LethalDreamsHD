@@ -350,7 +350,7 @@ python3 tools/tex/hook_ground.py --tree <дерево> --restore   # ориги�
   клики по канвасным тайлам, обнаружение боя по строке `SCENE battle` в `hdlog.txt`.
 - Раннер шагов над игрой: `tools/probes/perform_action_in_game.ps1` — последовательность действий,
   координаты (канвас 1024x768) и паузы приходят аргументами. DSL: `wait / waitload / waitattack /
-  waitbattle / click / hover / rclick / hold / key / wave / waves / shot / cpu`; durations —
+  waitbattle / click / hover / rclick / hold / rdown / rup / key / wave / waves / shot / cpu`; durations —
   `-LoadSec/-AttackSec/-BattleSec/-WaveGapMs/-ClickGapMs/-HoldMs`; волны — `-Waves` +
   `-SpellX/-SpellY/-CastX/-CastY`.
 - Обёртки с захардкоженными аргументами: `tools/probes/battle_169.ps1` (3840x2160 F=1) и
@@ -362,6 +362,9 @@ python3 tools/tex/hook_ground.py --tree <дерево> --restore   # ориги�
   (500,430) → `shot:summons`. Эталонный сейв — верхняя строка списка
   (`Documents\Boolat Games\Lethal Dreams\Saves`). Обёртка 4:3 возвращает `hd.cfg` установки к
   `3840 2160 32 1` (`-RestoreCfg`).
+- `rdown:CX:CY` — ПКМ вниз и не отпускать, `rup` — отпустить в текущей позиции курсора: каст идёт
+  между шагами, и в середину вставляется `shot:castbar` (жёлтая полоса каста видна только во время
+  удержания). Полоса — сектор `bhud_spgauge`, измерается по жёлтому каналу снимка.
 - Принято (27.11.2026): `-HoldMs 6000` — постоянный дефолт канонического гейта (каст 5 с из-за лага
   иногда даёт 1 саммон вместо 2); параметры обёртки 16:9 `-Waves N`, `-AfterWavesWait SEC` (дефолт 1 =
   прежний гейт). Стресс «много монстров»: `-Waves 8 -AfterWavesWait 20` — 35 юнитов против 13–14.
