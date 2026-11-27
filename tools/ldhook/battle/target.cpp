@@ -471,6 +471,63 @@ static volatile LONGLONG g_s6_win_max = 0;
 static LONGLONG g_s6_win_t = 0;           /* начало текущего окна (µs) */
 static volatile LONG g_s6_visit = 0;      /* счётчик визитов dd70 (metric rotation) */
 
+/* ------------------------------------------------------------------ */
+/* 9.1c — потолок итераций одного вызова s6_target_search.             */
+/*                                                                    */
+/* Причина (замер 9.1a): цикл ограничен настенными часами             */
+/* (`s6_timer_restart` до вызова, порог `ctx[0x14]` ≈ 70 ms), поэтому */
+/* провальный вызов всегда стоит ~71 ms независимо от цены итерации:  */
+/* 4 246 итераций на линейном скане, 11 003 на куче — обе ~71 ms.     */
+/* Лечится бюджетом итераций, а не ценой шага.                        */
+/*                                                                    */
+/* env LDHOOK_E0_MAXITER=<n>: n > 0 — вызов обрывается после n        */
+/* итераций ровно как по таймауту (код 3, возврат cur); unset/0/      */
+/* отрицательное — потолка нет (поведение прежнее). Не зависит от     */
+/* режима кучи: проверка стоит в общем цикле. Счёт попаданий — строки */
+/* E0CAP (сводка, не на каждый вызов).                                */
+/* ------------------------------------------------------------------ */
+#define E0_MAXITER_ENV "LDHOOK_E0_MAXITER"
+#define E0CAP_PERIOD   250          /* сводка E0CAP: каждые N вызовов e0a0 */
+
+static volatile LONG g_e0cap_hits = 0;      /* вызовов, оборванных капом */
+static volatile LONG g_e0cap_iters = 0;     /* сумма итераций оборванных вызовов */
+static volatile LONG g_e0cap_max_iter = 0;  /* максимум итераций при обрыве */
+
+static void __cdecl e0cap_atexit(void);     /* финальная сводка (atexit) */
+
+/* Кэш env на процесс (env в рантайме не меняется). 0 = потолка нет. */
+static long s6_maxiter_get(void)
+{
+    static long cap = -1;
+
+    if (cap < 0) {
+        const char *e = getenv(E0_MAXITER_ENV);
+        long v = (e != NULL && *e != '\0') ? atol(e) : 0L;
+
+        cap = (v > 0) ? v : 0L;
+        if (cap > 0) {
+            ld_info("E0CAP maxiter=%ld enabled (%s)", cap, E0_MAXITER_ENV);
+            atexit(e0cap_atexit);
+        }
+    }
+    return cap;
+}
+
+static void e0cap_emit(const char *why)
+{
+    ld_info("E0CAP %s maxiter=%ld calls=%ld capped=%ld capped_iters=%ld "
+            "max_capped_iters=%ld code1=%ld code3=%ld code4=%ld tick=%ld",
+            why, s6_maxiter_get(), (long)g_site6_calls,
+            (long)g_e0cap_hits, (long)g_e0cap_iters, (long)g_e0cap_max_iter,
+            (long)g_site6_code1, (long)g_site6_code3, (long)g_site6_code4,
+            battle_trace_tick_count());
+}
+
+static void __cdecl e0cap_atexit(void)
+{
+    e0cap_emit("final");
+}
+
 PFN_timeGetTime g_s6_gettime = NULL;      /* кэш timeGetTime из IAT EXE */
 
 /* Игровой таймер (native `call *0x4ec27c`, VA 0x4ec27c = timeGetTime, winmm).
@@ -704,7 +761,7 @@ static void e0c_ai_leave(long edep, LONGLONG tu)
 
 /* bad = самосогласованность снимка (числа не меняются, строка помечается).
  * us_lb ⊆ us_path ⊆ us_update: us_lb и us_path — подмножества, доли не складываются. */
-static void e0c_emit(long call, int filter, long iters, int code,
+static void e0c_emit(long call, int filter, long iters, int code, int capped,
                      LONGLONG us_total, LONGLONG us_scan, LONGLONG us_update,
                      LONGLONG us_path, LONGLONG us_lb,
                      LONGLONG nodes, long live_before, long live_after, long b2,
@@ -718,13 +775,13 @@ static void e0c_emit(long call, int filter, long iters, int code,
         us_lb > us_update) {
         bad = 1;
     }
-    ld_info("E0COST call=%ld filter=%d iters=%ld code=%d us_total=%I64d "
+    ld_info("E0COST call=%ld filter=%d iters=%ld code=%d capped=%d us_total=%I64d "
             "us_scan=%I64d us_update=%I64d us_path=%I64d us_lb=%I64d "
             "nodes_scanned=%I64d live_before=%ld live_after=%ld b2=%ld "
             "map1=%d->%d tick=%ld arm=port%s",
-            call, filter, iters, code, us_total, us_scan, us_update, us_path,
-            us_lb, nodes, live_before, live_after, b2, map1_0, map1_1, tick,
-            bad ? " bad=1" : "");
+            call, filter, iters, code, capped, us_total, us_scan, us_update,
+            us_path, us_lb, nodes, live_before, live_after, b2, map1_0, map1_1,
+            tick, bad ? " bad=1" : "");
     g_e0c_lines++;
     if (g_e0c_lines >= E0C_LINES) {
         ld_info("E0COST %ld lines (limit %d), capped for this run",
@@ -2446,7 +2503,10 @@ int s6_ai_update(void *this_, void *cand, int arg2)
  *   }
  *   return NULL;   // пустой скан: code остаётся 0 (entry-запись), записи в *param_4 нет
  * Гейты — в родном порядке; ai_update/scan/предикаты — порты (выше). Разметка
- * постоянная (native c4b0 mask 4), restore не вызывается. */
+ * постоянная (native c4b0 mask 4), restore не вызывается.
+ * 9.1c: при LDHOOK_E0_MAXITER=n>0 рядом с таймаутом стоит потолок итераций —
+ * тот же выход (code=3, return cur), но по счётчику, а не по настенным часам.
+ */
 void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
                                       void *arg2, void *arg3)
 {
@@ -2487,6 +2547,10 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
      * кандидата даёт куча; 0 — родной скан (off/shadow/fallback). */
     int heap_owner = 0;
     int heap_on = 0;
+    /* 9.1c: потолок итераций вызова (0 = нет) и признак обрыва по капу
+     * (идёт в E0COST как capped=0/1). */
+    long cap_iters = s6_maxiter_get();
+    int capped = 0;
 
     if (diag) {
         memset(e0sl, 0, sizeof(e0sl));   /* count==0 = слот пуст */
@@ -2637,6 +2701,21 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
             result = cur;
             break;
         }
+        /* 9.1c: потолок итераций. Тот же выход, что у таймаута: код 3,
+         * возврат cur; проверка рядом с s6_check_timeout и ДО него, чтобы
+         * бюджет итераций гасил вызов, а не настенные часы. Потолок
+         * не зависит от режима кучи (общий цикл). */
+        if (cap_iters > 0 && iters >= cap_iters) {
+            InterlockedIncrement(&g_e0cap_hits);
+            InterlockedAdd(&g_e0cap_iters, iters);
+            if (iters > g_e0cap_max_iter) {
+                g_e0cap_max_iter = iters;
+            }
+            capped = 1;
+            code = 3;                                      /* как @0x45e1af */
+            result = cur;
+            break;
+        }
         if (s6_check_timeout(this_, arg2)) {               /* @0x45e14e */
             if (heap_owner == LD_HEAP_SHADOW) {
                 /* 9.1a shadow: гейт вызывается (он только читает таймер и
@@ -2736,7 +2815,7 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
                 (long)g_ai_path_null - d_pathnull,
                 (long)g_ai_pfs_null - d_pfsnull,
                 battle_trace_tick_count());
-        e0c_emit((long)n, filter, (long)iters, code, us_total, us_scan,
+        e0c_emit((long)n, filter, (long)iters, code, capped, us_total, us_scan,
                  d_upd, d_path, d_lbus, d_nodes, live_before, live_after,
                  d_b2, map1_before, ((BattleAI *)this_)->reserved_70,
                  battle_trace_tick_count());
@@ -2786,6 +2865,10 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
     case 3:  InterlockedIncrement(&g_site6_code3); break;
     case 4:  InterlockedIncrement(&g_site6_code4); break;
     default: break;                        /* 0 — пустой скан */
+    }
+    /* 9.1c: сводка E0CAP (только при заданном потолке; не на каждый вызов). */
+    if (cap_iters > 0 && (n % E0CAP_PERIOD) == 0) {
+        e0cap_emit("sum");
     }
     {
         LONGLONG now = ld_now_us();        /* Фаза 4 A/B: длительность вызова */

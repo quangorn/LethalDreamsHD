@@ -52,13 +52,22 @@ P2_KEYS = ["call", "lb", "nbrnull", "dup", "cellnull", "pathnull", "pfsnull",
 # scan / (update − path) / path / other — дизъюнктны и складываются в 100 %,
 # а lb — subset, печатается отдельной долей и в сумму НЕ входит.
 COST_RE = re.compile(
+    r"E0COST call=(\d+) filter=(-?\d+) iters=(\d+) code=(-?\d+) capped=(\d+) us_total=(\d+) "
+    r"us_scan=(\d+) us_update=(\d+) us_path=(\d+) us_lb=(\d+) nodes_scanned=(\d+) "
+    r"live_before=(-?\d+) live_after=(-?\d+) b2=(\d+) map1=(-?\d+)->(-?\d+) "
+    r"tick=(\d+) arm=port( bad=1)?")
+COST_KEYS = ["call", "filter", "iters", "code", "capped", "us_total", "us_scan",
+             "us_update", "us_path", "us_lb", "nodes", "live_before",
+             "live_after", "b2", "map1_0", "map1_1", "tick"]
+# Формат до 9.1c (без capped=): старые логи читаются как capped=0.
+COST_RE_OLD = re.compile(
     r"E0COST call=(\d+) filter=(-?\d+) iters=(\d+) code=(-?\d+) us_total=(\d+) "
     r"us_scan=(\d+) us_update=(\d+) us_path=(\d+) us_lb=(\d+) nodes_scanned=(\d+) "
     r"live_before=(-?\d+) live_after=(-?\d+) b2=(\d+) map1=(-?\d+)->(-?\d+) "
     r"tick=(\d+) arm=port( bad=1)?")
-COST_KEYS = ["call", "filter", "iters", "code", "us_total", "us_scan",
-             "us_update", "us_path", "us_lb", "nodes", "live_before",
-             "live_after", "b2", "map1_0", "map1_1", "tick"]
+COST_KEYS_OLD = ["call", "filter", "iters", "code", "us_total", "us_scan",
+                 "us_update", "us_path", "us_lb", "nodes", "live_before",
+                 "live_after", "b2", "map1_0", "map1_1", "tick"]
 COSTSUM_RE = re.compile(
     r"E0COSTSUM tick=(\d+) call=(\d+) filter=(-?\d+) iters=(\d+) code=(-?\d+) "
     r"calls=(\d+) iters_sum=(\d+) us=(\d+) scan=(\d+) update=(\d+) path=(\d+) "
@@ -97,6 +106,14 @@ def parse(path):
             vals = list(map(int, m.groups()[:len(COST_KEYS)]))
             rec = dict(zip(COST_KEYS, vals))
             rec["bad"] = 1 if m.group(len(COST_KEYS) + 1) else 0
+            cost.append(rec)
+            continue
+        m = COST_RE_OLD.search(line)
+        if m:
+            vals = list(map(int, m.groups()[:len(COST_KEYS_OLD)]))
+            rec = dict(zip(COST_KEYS_OLD, vals))
+            rec["capped"] = 0
+            rec["bad"] = 1 if m.group(len(COST_KEYS_OLD) + 1) else 0
             cost.append(rec)
             continue
         m = COSTSUM_RE.search(line)
@@ -186,10 +203,11 @@ def fmt_cost(base, calls, sums):
         if not group:
             continue
         a = cost_split(group)
-        print("  %-16s n=%d scan=%.1f%% update-minus-path=%.1f%% path=%.1f%% "
+        print("  %-16s n=%d capped=%d scan=%.1f%% update-minus-path=%.1f%% path=%.1f%% "
               "other=%.1f%%  lb=%.1f%% of total  nodes/iter=%.2f "
               "scan_us/iter=%.2f mean_map1=%.1f mean_live_after=%.1f bad=%d b2=%d"
-              % (label, a["n"], a["scan_pct"], a["upd_only_pct"], a["path_pct"],
+              % (label, a["n"], sum(c["capped"] for c in group), a["scan_pct"],
+                 a["upd_only_pct"], a["path_pct"],
                  a["other_pct"], a["lb_pct"], a["nodes_per_iter"],
                  a["scan_us_per_iter"], a["mean_map1_end"],
                  a["mean_live_after"], a["bad"], a["b2"]))
