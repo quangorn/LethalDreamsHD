@@ -104,6 +104,8 @@ python_libs.7z; тот же мандат applies к истории сессий.
 (assets_tier) → установка (`--install`). Чёрные сайдкары
 (`black_btf.py`) — эксперимент, в установку не входят (флагов `.flag` в игре нет;
 sidecar-черные — только в snapshot-архиве).
+Чёрная точка: `qc_blackpoint.py fix --in <каталог .btf> --out <каталог>` вычитает bandmin
+краевой полосы 2 px из аддитивных `.btf` (`BBlend_Add`), пишет `qc_report.txt`.
 
 ## шрифты-пайплайн
 

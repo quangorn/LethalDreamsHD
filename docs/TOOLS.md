@@ -77,6 +77,9 @@ pycbuild, не CLI). Список всех команд pycbuild: `python3 tools
 python3 tools/btf/unpack_btf.py <btf> <out.png>      # распаковка texture blob
 python3 tools/btf/pack_btf.py <in.png> <template.btf> -o <out.btf>  # запаковка по шаблону
 python3 tools/btf/black_btf.py                      # чёрные сайдкары (эксперимент, sidecar)
+python3 tools/btf/qc_blackpoint.py scan             # аддитивные .btf с ненулевой чёрной точкой
+python3 tools/btf/qc_blackpoint.py extract-orig     # оригиналы offenders из pristine_archive
+python3 tools/btf/qc_blackpoint.py fix --in <каталог .btf> --out <каталог>  # clamp + qc_report.txt
 ```
 
 (массовые pack-прогоны делались историческими скриптами сессий; итоговый

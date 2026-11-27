@@ -77,6 +77,8 @@
 | переход с cave-патчей на DLL: прокси `python22.dll`, C вместо ассмблера, логгер, лимит `.text` | `docs/PLAN_proxy_dll.md` |
 | что передать новому агенту по `.pyd`-хукам: статус, следующий хук, чек-лист перехода | `docs/archive/HANDOFF_ldhook.md` |
 | раскладка UI и baseline-снимки (оверленд, бой, диалоги) | `docs/OBSERVATIONS_UI.md` |
+| вращающаяся подсветка центра главного меню, курсорный свет | `docs/OBSERVATIONS_UI.md` («Центр главного меню»), `tools/btf/qc_blackpoint.py` |
+| светлый квадрат аддитивных текстур, чёрная точка апскейлов | `docs/OBSERVATIONS_TEXTURE.md` («Чёрная точка аддитивных апскейлов»), `tools/btf/qc_blackpoint.py` |
 | геометрия мира, DPI, рендер, матрица проекции | `docs/OBSERVATIONS_ENGINE.md` |
 | Python-слой: какая DLL стоит, зачем `Lib`, что за корневые `.pyc`, обязательность слоя, восстановление | `docs/OBSERVATIONS_ENGINE.md` (раздел «Python-слой»), `docs/PITFALLS.md` |
 | масштаб текста, природа глифов, коэффициент A | `docs/OBSERVATIONS_FONT.md` |
