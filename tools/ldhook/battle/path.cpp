@@ -226,6 +226,82 @@ void s6_pfs_snapshot(long *out7)
     out7[6] = (long)g_pfs_res;
 }
 
+/* ------------------------------------------------------------------ */
+/* E0PATH — разложение µs внутри FUN_0045cb40 (план 9.2a).              */
+/*                                                                      */
+/* env LDHOOK_E0_DIAG=1 + порт site6. Счётчики interlocked; при env      */
+/* не заданом ни одна ветка ниже не выполняется — поведение побайтно     */
+/* прежнее (один предсказуемый branch на горячих точках).               */
+/* Дизъюнктность: lower_bound, grid-lookup и 0x45c3a0 зовутся из         */
+/* grid-цикла cb40 по одному разу за итерацию; их µs-суммы — подмножества */
+/* us_path (E0COST), между собой не пересекаются. «прочее» = us_path −    */
+/* (lb_us + grid_us + ts_us) = цикл окна, гейты и финальный порог.       */
+/* Рекурсия считается верхним уровнем: 0x45c3a0 не зовёт ни cb40, ни      */
+/* сам себя, вложенность всегда 1 → µs не умножаются на nesting.          */
+/* Ключ повтора — (spec->pos = стартовая клетка, target вызова e0a0):     */
+/* cb40 зависит от клетки и состояния карт; target в ключ входит, чтобы   */
+/* не склеивать запросы разных целей одного тика.                        */
+/* Таблица — фиксированная, 4096 слотов, open-addressing, без аллокаций;  */
+/* сброс на входе тика (H1). Слот занят = cell != NULL.                 */
+/* ------------------------------------------------------------------ */
+
+#define E0P_TABLE   4096               /* слотов повторов (степень двойки) */
+#define E0P_PROBE   8                  /* линейный пробой на вызов */
+
+volatile LONG g_e0p_calls = 0, g_e0p_null = 0, g_e0p_lb = 0, g_e0p_grid = 0;
+volatile LONG g_e0p_ts = 0, g_e0p_recur = 0, g_e0p_cells = 0;
+volatile LONG g_e0p_dup_call = 0, g_e0p_dup_tick = 0, g_e0p_ovf = 0;
+volatile LONG g_e0p_depth = 0, g_e0p_ts_depth = 0, g_e0p_depth_max = 0;
+volatile LONG g_e0p_loop = 0;   /* 1 = grid-цикл cb40 открыт: входы 0x45c3a0 рекурсивные */
+volatile LONGLONG g_e0p_lb_us = 0, g_e0p_grid_us = 0, g_e0p_ts_us = 0;
+
+static void *g_e0p_key_cell[E0P_TABLE];        /* ключ занят: cell != NULL */
+static void *g_e0p_key_target[E0P_TABLE];
+static LONG  g_e0p_key_call[E0P_TABLE];        /* номер вызова e0a0 при вставке */
+static LONG  g_e0p_cur_call = 0;
+static void  *g_e0p_cur_target = NULL;
+
+void e0path_target(void *target) { g_e0p_cur_target = target; }
+void e0path_call(long call_no) { g_e0p_cur_call = (LONG)call_no; }
+int  e0_path_inside(void) { return (g_e0p_depth > 0) ? 1 : 0; }
+
+void e0path_tick_reset(void)
+{
+    if (!e0_diag_on()) {
+        return;
+    }
+    memset(g_e0p_key_cell, 0, sizeof(g_e0p_key_cell));
+    memset(g_e0p_key_target, 0, sizeof(g_e0p_key_target));
+    memset(g_e0p_key_call, 0, sizeof(g_e0p_key_call));
+}
+
+/* Один path-вызов: ключ (cell, target) в таблицу тика. Первый sighting —
+ * вставка; повтор → dup_tick, и dup_call, если вставлен тем же вызовом e0a0. */
+static void e0path_repeat_note(void *cell)
+{
+    LONG j, i, k;
+    void *tgt = g_e0p_cur_target;
+
+    j = (LONG)(((UINT_PTR)cell >> 4) * 2654435761u) & (E0P_TABLE - 1);
+    for (k = 0; k < E0P_PROBE; k++) {
+        i = (j + k) & (E0P_TABLE - 1);
+        if (g_e0p_key_cell[i] == NULL) {
+            g_e0p_key_cell[i] = cell;
+            g_e0p_key_target[i] = tgt;
+            g_e0p_key_call[i] = g_e0p_cur_call;
+            return;
+        }
+        if (g_e0p_key_cell[i] == cell && g_e0p_key_target[i] == tgt) {
+            InterlockedIncrement(&g_e0p_dup_tick);
+            if (g_e0p_key_call[i] == g_e0p_cur_call) {
+                InterlockedIncrement(&g_e0p_dup_call);
+            }
+            return;
+        }
+    }
+    InterlockedIncrement(&g_e0p_ovf);          /* пробой исчерпан — повторов не учтено */
+}
+
 /* FUN_0045c390 (15 байт, 0x45c390..0x45c39e) — знаковый max(a,b).
  *   0x45c390: MOV EAX,[ESP+0x4] ; 0x45c394: MOV ECX,[ESP+0x8]
  *   0x45c398: CMP EAX,ECX ; 0x45c39a: JG 0x45c39e      (a>b → вернуть a)
@@ -322,6 +398,10 @@ GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
     LD_CRASH_SCOPE(4);           /* LDHOOK_CRASHLOG: stage 4 (no-op off) */
     GridCell *cur;
     GridCell *best = NULL;
+    /* E0PATH (план 9.2a) — локальные мерки этого входа. */
+    const int diag = e0_diag_on();
+    LONGLONG tp = -1;
+    LONG tsdepth;
 #ifdef BATTLE_REPLAY
     int n_walked = 0;               /* число узлов цепочки, прочитанных циклом */
     int p5before = (p5 != NULL) ? *p5 : 0, p6before = (p6 != NULL) ? *p6 : 0;
@@ -329,6 +409,21 @@ GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
 #endif
 
     InterlockedIncrement(&g_ts_calls);
+    /* E0PATH (план 9.2a): diag==0 → ни записей, ни замеров (env не задан).
+     * Вход в 0x45c3a0: верхний (первый c3a0 cb40) или рекурсивный — по флагу
+     * grid-цикла. Вложенность считается и не умножается: 0x45c3a0 не зовёт ни
+     * 45cb40, ни себя, nesting всегда 1 → µs каждого входа идут в сумму один раз. */
+    if (diag) {
+        InterlockedIncrement(&g_e0p_ts);
+        if (g_e0p_loop != 0) {
+            InterlockedIncrement(&g_e0p_recur);
+        }
+        tsdepth = InterlockedIncrement(&g_e0p_ts_depth);
+        if (tsdepth > g_e0p_depth_max) {
+            g_e0p_depth_max = tsdepth;
+        }
+        tp = ld_now_us();
+    }
     (void)p2;                          /* 0x45c3a0 p2 не читает */
     /* p4: store @0x45c43d (FSTPS [EDX]) и numerator гейта @0x45c45a ([ESP+0x20]
      * при ESP=A−16) — p4 читается, слот p4 = адрес store/numerator. */
@@ -340,6 +435,10 @@ GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
 
     if (p1 == NULL) {                  /* 0x45c3a6/0x45c3aa → 0x45c479: XOR EAX,EAX */
         InterlockedIncrement(&g_ts_null);
+        if (diag) {
+            InterlockedAdd64(&g_e0p_ts_us, ld_now_us() - tp);
+            InterlockedDecrement(&g_e0p_ts_depth);
+        }
         return NULL;
     }
 
@@ -422,6 +521,10 @@ GridCell *s6_path_tree_search(BattleAI *self, GridCell *p1, int p2, int p3,
     }
     if (best == NULL) {
         InterlockedIncrement(&g_ts_null);
+    }
+    if (diag) {
+        InterlockedAdd64(&g_e0p_ts_us, ld_now_us() - tp);
+        InterlockedDecrement(&g_e0p_ts_depth);
     }
 #ifdef BATTLE_REPLAY
     g_chain[3] = n_walked;
@@ -509,6 +612,9 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
     LDPos *pos = spec->pos;           /* spec[0] — grid-клетка; координаты +0xc/+0x10
                                        * читаются LDPos-раскладкой (@0x45cb4f/0x45cb52) */
     int l[22];                        /* слоты Y+0x00..Y+0x54 */
+    /* E0PATH (план 9.2a): diag==0 → ни одной записи ниже, поведение прежнее. */
+    const int diag = e0_diag_on();
+    LONGLONG tp = -1;
 
 #define LS(k) (l[(k) >> 2])
 
@@ -538,6 +644,9 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
         LS(0x34) = ebp;                           /* @0x45cbbc */
         if (ebp <= ecx + self->x_radius) {        /* @0x45cbc0 JG → пропуск внешнего */
             LS(0x24) = -self->x_radius;           /* @0x45cbca (min_slot, запись до чтения @0x45cd1f) */
+            if (diag) {
+                g_e0p_loop = 1;                   /* E0PATH: входы 0x45c3a0 отсюда — рекурсия */
+            }
             ebx = LS(0x3c);                       /* pos->x (ebx @0x45cb4f, перечитывание @0x45ccce) */
             for (;;) {                            /* внешний цикл (ebp — outer-счётчик); вход @0x45cbd0
                                                    * (капа @0x45cd34 JLE → 0x45cbd0: каждый виток заново
@@ -547,6 +656,11 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
                 if (edi <= ebx + self->y_radius) {    /* @0x45cbdf JG → пропуск внутреннего */
                 LS(0x1c) = -self->y_radius;       /* @0x45cbe9 (loop_base, запись до чтения @0x45cc86) */
                     for (;;) {                    /* внутренний цикл (edi — inner-счётчик) */
+                        if (diag) {
+                            InterlockedIncrement(&g_e0p_cells);  /* ячейка радиального окна
+                                                                  * (y ± x_radius, x ± y_radius);
+                                                                  * центральная — тоже виток */
+                        }
                         if (!(ecx == ebp && ebx == edi)) {   /* @0x45cbf0/0x45cbf4 центр (текущий ecx) */
                         ecx = (int)((unsigned short)ebp << 16)
                             | (int)(unsigned short)edi;       /* @0x45cbfc..0x45cc05: ключ строится В ecx */
@@ -570,9 +684,17 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
                              * маска 0x41 (C3|C0) → выход, когда size_x <= edi. */
                             if (!(grid->size_x > LS(0x30))) { s6_pfs_diag(PFS_R_BOUND); GATE_EXIT(PFS_R_BOUND, 0); return NULL; }  /* @0x45cc4d..0x45cc5b */
                             if (!(grid->size_y > LS(0x34))) { s6_pfs_diag(PFS_R_BOUND); GATE_EXIT(PFS_R_BOUND, 0); return NULL; }  /* @0x45cc61..0x45cc6f */
+                            if (diag) {
+                                tp = ld_now_us();
+                            }
                             node2 = s6_grid_lookup(grid, edi, ebp);  /* @0x45cc77: x=inner, y=outer; ecx НЕ пишется
                                                                        * в 0x4570d0..0x457101 (ecx только читается
                                                                        * @0x4570d4/0x4570de/0x4570eb) → ecx = grid */
+                            if (diag) {
+                                InterlockedIncrement(&g_e0p_grid);
+                                InterlockedAdd64(&g_e0p_grid_us, ld_now_us() - tp);
+                                tp = -1;
+                            }
                             if (node2 == NULL) { s6_pfs_diag(PFS_R_GRID); GATE_EXIT(PFS_R_GRID, 0); return NULL; }  /* @0x45cc80 */
                             /* ESP=Y после add $8 @0x45cc9f; аргументы @0x45cc86..0x45ccc1:
                              * arg7 = MAX(|LS(0x1c)|,|LS(0x28)|) = адрес &spec[0x10] — FIDIV-делитель @0x45c460;
@@ -669,6 +791,23 @@ void *s6_path_search(BattleAI *self, PathState *spec)
         return r;
     }
 #else
-    return s6_path_search_body(self, spec);
+    if (!e0_diag_on()) {
+        return s6_path_search_body(self, spec);   /* env не задан — путь побайтно прежний */
+    }
+    {
+        void *r;
+
+        InterlockedIncrement(&g_e0p_calls);
+        InterlockedIncrement(&g_e0p_depth);
+        e0path_repeat_note(spec->pos);    /* ключ (cell, target) таблицы тика;
+                                           * spec->pos только как ключ, не разыменовывается */
+        r = s6_path_search_body(self, spec);
+        if (r == NULL) {
+            InterlockedIncrement(&g_e0p_null);
+        }
+        g_e0p_loop = 0;                   /* grid-цикл закрыт: все выходы тела */
+        InterlockedDecrement(&g_e0p_depth);
+        return r;
+    }
 #endif
 }

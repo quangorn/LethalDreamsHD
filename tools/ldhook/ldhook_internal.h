@@ -183,6 +183,31 @@ extern volatile LONG g_e0c_b2;         /* исполнения тела ветк
 extern volatile LONGLONG g_e0c_path_us;/* время внутри s6_path_search (45cb40) */
 extern volatile LONGLONG g_e0c_lb_us;  /* время внутри native::lower_bound_slots */
 
+/* E0PATH (план 9.2a) — аккумуляторы path-слоя одного вызова e0a0; определены
+ * в battle/path.cpp, пишутся ТОЛЬКО при LDHOOK_E0_DIAG=1 (env не задан →
+ * ни записей, ни строк). µs-подмножества path дизъюнктны: lower_bound,
+ * grid-lookup и 0x45c3a0 зовутся из grid-цикла cb40, каждый — одна обёртка. */
+extern volatile LONG g_e0p_calls;      /* входы s6_path_search (45cb40) */
+extern volatile LONG g_e0p_null;       /* из них — возврат NULL */
+extern volatile LONG g_e0p_lb;         /* lower_bound (map2) ВНУТРИ path */
+extern volatile LONG g_e0p_grid;       /* 0x4570d0 ВНУТРИ path */
+extern volatile LONG g_e0p_ts;         /* входы 0x45c3a0 (path + рекурсия) */
+extern volatile LONG g_e0p_recur;      /* из них — рекурсивные (из grid-цикла) */
+extern volatile LONG g_e0p_cells;      /* ячейки радиального окна (двойной цикл) */
+extern volatile LONG g_e0p_dup_call;   /* повторов (cell,target) в одном вызове e0a0 */
+extern volatile LONG g_e0p_dup_tick;   /* повторов (cell,target) в одном тике */
+extern volatile LONG g_e0p_ovf;        /* таблица повторов: пробой исчерпан */
+extern volatile LONG g_e0p_depth_max;  /* макс. вложенность 0x45c3a0 за прогон */
+extern volatile LONGLONG g_e0p_lb_us;  /* µs lower_bound внутри path */
+extern volatile LONGLONG g_e0p_grid_us;/* µs 0x4570d0 внутри path */
+extern volatile LONGLONG g_e0p_ts_us;  /* µs 0x45c3a0 (сумма по верхним входам) */
+extern volatile LONG g_e0p_depth;      /* 1 = внутри s6_path_search */
+
+void e0path_target(void *target);      /* target текущего вызова e0a0 (ключ повторов) */
+void e0path_call(long call_no);        /* номер вызова e0a0: метка вставки в таблицу */
+void e0path_tick_reset(void);          /* сброс таблицы повторов на входе тика */
+int  e0_path_inside(void);             /* глубина path > 0 (читает native.cpp) */
+
 /* ---------------- 4.2: detour 45eee0 (тик юнит-AI) ---------------- */
 #define S7_ENTRY_SIG   "\x83\xec\x58\x53\x55"   /* sub $0x58,%esp; push ebx; push ebp */
 #define S7_ENTRY_LEN   5

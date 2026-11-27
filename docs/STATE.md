@@ -181,6 +181,9 @@
 - `[P]` Контрольный прогон боя — обёртки `tools/probes/battle_169.ps1` (16:9) и `battle_43.ps1` (4:3) над раннером
   `perform_action_in_game.ps1` (20.11.2026): `MenuSec=6`, `-Waves 3`, снимок `shot:summons`; Enter×2 при загрузке
   сейва, Enter на «Атака?», один `key:32` сразу после входа в бой (снимает стартовую паузу боя). Грабля — `docs/PITFALLS.md`.
+  Принято (27.11.2026): `-HoldMs 6000` постоянный дефолт (каст 5 с из-за лага иногда даёт 1 саммон вместо 2;
+  гейт ≥2 саммона за волну, снимок это подтверждает), `-AfterWavesWait SEC` (дефолт 1 = прежний гейт);
+  стресс «много монстров» — `-Waves 8 -AfterWavesWait 20` (враг успевает призвать: в трассе 35 юнитов).
 - `[P]` Порт боя: Фазы 0–5 закрыты (19–22.11.2026); гейты — офлайн per-call replay: Ф3 capture v8
   (`battle_replay_diff.py`), Ф4 capture v9 + replay `eee0` (решение 4.8), Ф5 capture v12 + `bdd0_harness`
   (решения 5.1c/5.1d); живой A/B — санитарный.
@@ -243,6 +246,9 @@
   (`LDHOOK_E0_HEAP=off`, `LDHOOK_E0_MAXITER=0` — откат). Медиана µs/тик 1161 против 2916 натива,
   `latency`/1000 0.8 против 31.0, тиков >20 ms 5 против 279; `code=1` не ниже; guard 0/18.
   Остаток — первый тик (181 ms, `i1=0`), цель 9.2.
+- `[P]` 9.2a принято (27.11.2026): path-слой = 80–90 % µs `e0a0` (window-цикл+гейты 53 %, `map2`
+  `lower_bound` 23 %, grid-lookup 10 %, tree-walk 13 %); повторы `(cell,target)` 2.7–9 %, все внутри
+  одного вызова. Разложение — `E0PATH`/`E0PATHSUM`/`E0TICK` (`LDHOOK_E0_DIAG=1`, `battle/path.cpp`).
 - `[P]` Офлайн-гейт `458050`: `bdd0_grid_level_modelled()` (сетки в v12..v15 нет) — сводка
   `grid_anchor_replayed`, включение — `docs/PITFALLS.md`. Out-writes сверяет `B0_LEAF_CLAIM_W` (`ported.h`).
 - `[P]` Офлайн-гейт `45b150`/`45b3e0` (`battle/tick.cpp`): порты `s6_band_interp_gate`/`s6_band_target_moved`

@@ -12,7 +12,11 @@
     --arm native:LDHOOK_SITE6=0 \\
     --arm e0a0:LDHOOK_SITE6=1,LDHOOK_SITE6_EEE0=0 \\
     --arm both:LDHOOK_SITE6=1 [--shots DIR] [--out JSON] [--tree DIR]
-    [--baseline JSON] [--timeout SEC]
+    [--baseline JSON] [--timeout SEC] [--waves N] [--after-waves-wait SEC]
+
+Стресс «много монстров»: `--waves 8 --after-waves-wait 20` — 20 с после последней
+волны нужны, чтобы враг успел сам призвать юнитов; дефолт `--waves 3
+--after-waves-wait 1` = канонический боевой гейт.
 
 Правило приёмки объявлено до прогона и не подстраивается под результат: вариант
 «не хуже» ⇔ (а) ни один прогон не даёт НОВЫХ провалов в `domains`/`engagement`/
@@ -52,9 +56,25 @@ ALWAYS_ENV = {"LDHOOK_LOG": "1", "LDHOOK_BATTLE_TRACE": "1"}
 GUARD_CHECKS = ("domains", "engagement", "no_path")
 GAME = "LETHALDREAMS.EXE"
 EXIT_RE = re.compile(r"EXITED (?:step=\d+|menu).*code=0x([0-9A-Fa-f]+)")
+# E0TICK (план 9.2a) — итог тика по вызовам e0a0 (battle/trace.cpp).
+TICK_RE = re.compile(r"E0TICK tick=(\d+) calls=(\d+) us=(\d+) max_us=(\d+) "
+                     r"cap_hits=(\d+) path_us=(\d+) lb_us=(\d+)")
+# E0PATH — разложение µs внутри 45cb40 одного длинного вызова (battle/path.cpp).
+PATH_RE = re.compile(r"E0PATH call=(\d+) path_calls=(\d+) us_path=(\d+) lb=(\d+) "
+                     r"lb_us=(\d+) grid=(\d+) grid_us=(\d+) ts=(\d+) recur=(\d+) "
+                     r"ts_us=(\d+) depthmax=(\d+) cells=(\d+) null=(\d+) "
+                     r"dup_call=(\d+) dup_tick=(\d+) ovf=(\d+) iters=(\d+) "
+                     r"tick=(\d+) arm=port")
+PATHSUM_KEYS = ["tick", "calls", "null", "lb", "lb_us", "grid", "grid_us", "ts",
+                "recur", "ts_us", "depthmax", "cells", "dup_call", "dup_tick", "ovf"]
+# E0PATHSUM — полные итоги прогона по всем вызовам (короткие тоже).
+PATHSUM_RE = re.compile(r"E0PATHSUM tick=(\d+) calls=(\d+) null=(\d+) lb=(\d+) "
+                        r"lb_us=(\d+) grid=(\d+) grid_us=(\d+) ts=(\d+) "
+                        r"recur=(\d+) ts_us=(\d+) depthmax=(\d+) cells=(\d+) "
+                        r"dup_call=(\d+) dup_tick=(\d+) ovf=(\d+)")
 USAGE = ("usage: battle_ab_runs.py --arm NAME:ENV=VAL,ENV=VAL [--arm ...] "
          "[--runs N] [--tag TAG] [--shots DIR] [--out JSON] [--tree DIR] "
-         "[--baseline JSON] [--timeout SEC]")
+         "[--waves N] [--after-waves-wait SEC] [--baseline JSON] [--timeout SEC]")
 
 # Дефолты проверок берём у battle_invariants (parse_args на вымышленном логе),
 # чтобы не плодить константы: --max-tick-us 20000, --spin-vis 1000, --max-iter 200.
@@ -115,7 +135,7 @@ def parse_args(argv):
                 return None, "повторяющееся имя варианта: %s" % arm[0]
             arms.append(arm)
         elif key in ("--runs", "--tag", "--shots", "--out", "--tree",
-                     "--baseline", "--timeout"):
+                     "--waves", "--after-waves-wait", "--baseline", "--timeout"):
             opts[key[2:]] = val
         else:
             return None, "unknown flag %s" % key
@@ -131,6 +151,53 @@ def p95(vals):
         return None
     s = sorted(vals)
     return s[min(len(s) - 1, int(round(0.95 * (len(s) - 1))))]
+
+
+def p90(vals):
+    """p90 как элемент sorted-списка по индексу round(0.90*(n-1))."""
+    if not vals:
+        return None
+    s = sorted(vals)
+    return s[min(len(s) - 1, int(round(0.90 * (len(s) - 1))))]
+
+
+def e0_stats(lines):
+    """E0TICK/E0PATH/E0PATHSUM одного лога (план 9.2a). Нечего возвращает None."""
+    ticks = [tuple(map(int, m.groups())) for m in
+             (TICK_RE.search(l) for l in lines) if m]
+    path = [tuple(map(int, m.groups())) for m in
+            (PATH_RE.search(l) for l in lines) if m]
+    sums = [dict(zip(PATHSUM_KEYS, map(int, m.groups()))) for m in
+            (PATHSUM_RE.search(l) for l in lines) if m]
+    out = {"tick_lines": len(ticks), "path_lines": len(path),
+           "pathsum_lines": len(sums)}
+    if ticks:
+        us = [t[2] for t in ticks]
+        calls = [t[1] for t in ticks]
+        out.update({
+            "tick_us_med": statistics.median(us),
+            "tick_us_p90": p90(us),
+            "tick_us_max": max(us),
+            "tick_calls_med": statistics.median(calls),
+            "tick_calls_max": max(calls),
+            "tick_us_sum": sum(us),
+            "tick_us_mean": sum(us) / len(us),
+            "ticks_over_50ms": sum(1 for u in us if u > 50000),
+            "ticks_over_20ms": sum(1 for u in us if u > 20000),
+            "tick_cap_hits": sum(t[4] for t in ticks),
+            "tick_path_us": sum(t[5] for t in ticks),
+            "tick_lb_us": sum(t[6] for t in ticks),
+            "tick_path_share": (sum(t[5] for t in ticks) / sum(us)) if sum(us) else None,
+            "ticks_calls1": sum(1 for c in calls if c <= 1),
+            "ticks_calls5": sum(1 for c in calls if c >= 5),
+        })
+    if sums:
+        out["pathsum"] = sums[-1]          # последняя сводка = итоги прогона
+    if path:
+        out["path_dup_call_sum"] = sum(p[13] for p in path)
+        out["path_dup_tick_sum"] = sum(p[14] for p in path)
+        out["path_calls_sum_long"] = sum(p[1] for p in path)
+    return out
 
 
 def run_checks(battle, statefp):
@@ -190,8 +257,8 @@ def tail_flags(lines):
     return exit_line, exit_code, has_end, has_kill, crashed
 
 
-def run_one(arm, n, tag, tree, shots, outdir, timeout, base):
-    """Один прогон: powershell-раннер, копия hdlog.txt, разбор 9.d1."""
+def run_one(arm, n, tag, tree, shots, outdir, timeout, base, waves, after):
+    """Один прогон: powershell-раннер, копия hdlog.txt, разбор 9.d1 + E0-диаг."""
     name = arm[0]
     log_tag = "%s_%s_%d" % (tag, name, n)
     env = dict(os.environ)
@@ -199,7 +266,8 @@ def run_one(arm, n, tag, tree, shots, outdir, timeout, base):
     env.update(ALWAYS_ENV)
     cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
            "-File", paths.win_path(PS1), "-Tag", log_tag,
-           "-GameRoot", tree, "-ShotsDir", shots]
+           "-GameRoot", tree, "-ShotsDir", shots,
+           "-Waves", str(waves), "-AfterWavesWait", str(after)]
     t0 = time.time()
     timed_out = False
     p = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE,
@@ -236,7 +304,11 @@ def run_one(arm, n, tag, tree, shots, outdir, timeout, base):
     fixed = {c.name: sorted(base.get(c.name, set()) - set(c.fail_keys))
             for c in checks if base.get(c.name, set()) - set(c.fail_keys)}
     exit_line, exit_code, has_end, has_kill, crashed = tail_flags(lines)
+    units = len({r.get("unit") for r in battle
+                 if r.get("unit") not in (None, -1)})
     return {"run": log_tag, "arm": name, "n": n, "dur_s": round(dur, 1),
+            "waves": waves, "after_waves_wait": after,
+            "units": units, "e0": e0_stats(lines),
             "timed_out": timed_out, "ps_rc": p.returncode,
             "log_copied": copied, "log": dst, "env": arm[1],
             "battle_lines": len(battle), "active": n_act,
@@ -266,6 +338,23 @@ def aggregate(runs):
         vals = [r[key] for r in reached if r[key] is not None]
         agg["med_" + key] = statistics.median(vals) if vals else None
         agg["n_med_" + key] = len(vals)
+    # E0-диаг (план 9.2a): медианы по прогонам с E0TICK-строками.
+    e0r = [r["e0"] for r in reached if r.get("e0") and r["e0"].get("tick_lines")]
+    for key in ("tick_us_med", "tick_us_p90", "tick_us_max", "tick_calls_med",
+                "tick_calls_max", "tick_path_share"):
+        vals = [e[key] for e in e0r if e.get(key) is not None]
+        agg["med_" + key] = statistics.median(vals) if vals else None
+        agg["n_med_" + key] = len(vals)
+    for key in ("ticks_over_20ms", "ticks_over_50ms", "tick_cap_hits"):
+        vals = [r["e0"].get(key) for r in reached
+                if r.get("e0") and r["e0"].get(key) is not None]
+        agg["sum_" + key] = sum(vals)
+    vals = [r["units"] for r in reached if r.get("units") is not None]
+    agg["max_units"] = max(vals) if vals else None
+    # pathsum-итог последнего дошедшего прогона варианта: итоги по всем вызовам.
+    sums = [r["e0"].get("pathsum") for r in reached
+            if r.get("e0") and r["e0"].get("pathsum")]
+    agg["pathsum"] = sums[-1] if sums else None
     names = set()
     for r in runs:
         names.update(c for c, keys in r["new_fails"].items() if keys)
@@ -303,6 +392,8 @@ def main():
         return 2
     runs_n = int(opts.get("runs", 5))
     tag = opts.get("tag", "ab")
+    waves = int(opts.get("waves", 3))
+    after = float(opts.get("after-waves-wait", 1))
     base_dir = paths.cache_dir("battle_trace")
     shots = opts.get("shots") or os.path.join(base_dir, "%s_shots" % tag)
     out = opts.get("out") or os.path.join(base_dir, "%s_ab.json" % tag)
@@ -337,8 +428,8 @@ def main():
 
     ref = arms[0][0]
     order = [(arm, n) for n in range(1, runs_n + 1) for arm in arms]
-    print("tag=%s runs=%d tree=%s shots=%s out=%s timeout=%ds" %
-          (tag, runs_n, tree, shots, out, timeout))
+    print("tag=%s runs=%d waves=%d after-waves-wait=%s tree=%s shots=%s out=%s timeout=%ds" %
+          (tag, runs_n, waves, after, tree, shots, out, timeout))
     print("arms: %s  (reference=%s)" % (
         "; ".join("%s: %s" % (a[0], ",".join("%s=%s" % kv for kv in sorted(a[1].items())))
                   for a in arms), ref))
@@ -346,8 +437,9 @@ def main():
     all_runs, streak, aborted = [], 0, None
     t_start = time.time()
     for arm, n in order:
-        r = run_one(arm, n, tag, tree, shots, outdir, timeout, base)
+        r = run_one(arm, n, tag, tree, shots, outdir, timeout, base, waves, after)
         all_runs.append(r)
+        e0 = r["e0"]
         print("run %s dur=%.1f BATTLE=%d active=%d us_sum=%d us_med=%s us_p95=%s "
               "lat=%s spin=%s run=%s exit=%s crashed=%s%s"
               % (r["run"], r["dur_s"], r["battle_lines"], r["active"],
@@ -355,6 +447,15 @@ def main():
                  r["latency"], r["spin"], r["runaway"], r["exit_code"],
                  r["crashed"], " TIMED OUT" if r["timed_out"] else ""),
               flush=True)
+        if e0 and e0.get("tick_lines"):
+            print("     units=%d ticks=%d us_med=%s us_p90=%s us_max=%s calls_med=%s "
+                  "calls_max=%s >20ms=%d >50ms=%d cap=%d path_share=%s"
+                  % (r["units"], e0["tick_lines"], fmt(e0["tick_us_med"]),
+                     fmt(e0["tick_us_p90"]), fmt(e0["tick_us_max"]),
+                     fmt(e0["tick_calls_med"]), fmt(e0["tick_calls_max"]),
+                     e0["ticks_over_20ms"], e0["ticks_over_50ms"],
+                     e0["tick_cap_hits"], fmt(e0["tick_path_share"])),
+                  flush=True)
         if arm[0] == ref:
             streak = streak + 1 if r["battle_lines"] == 0 else 0
             if streak >= 2:
@@ -403,6 +504,28 @@ def main():
                       nf or "none"))
 
     print("")
+    print("E0-диаг (медианы по прогонам с E0TICK; суммы — по всем дошедшим прогонам):")
+    ehdr = "  %-7s %5s %8s %8s %8s %6s %6s %4s %4s %4s %7s %7s %s"
+    print(ehdr % ("arm", "ticks", "us_med", "us_p90", "us_max", "calls_med",
+                  "calls_max", ">20ms", ">50ms", "cap", "path_us", "lb_us",
+                  "pathsum calls/µs split"))
+    for a in arms:
+        g = aggs[a[0]]
+        ps = g.get("pathsum")
+        pss = ("NA" if ps is None else
+               "calls=%d us_lb=%d us_grid=%d us_ts=%d cells=%d dupc=%d dupt=%d ovf=%d"
+               % (ps["calls"], ps["lb_us"], ps["grid_us"], ps["ts_us"],
+                  ps["cells"], ps["dup_call"], ps["dup_tick"], ps["ovf"]))
+        print(ehdr % (a[0], g.get("n_med_tick_us_med", 0),
+                      fmt(g.get("med_tick_us_med")), fmt(g.get("med_tick_us_p90")),
+                      fmt(g.get("med_tick_us_max")), fmt(g.get("med_tick_calls_med")),
+                      fmt(g.get("med_tick_calls_max")),
+                      g.get("sum_ticks_over_20ms"), g.get("sum_ticks_over_50ms"),
+                      g.get("sum_tick_cap_hits"),
+                      fmt((g.get("med_tick_path_share") or 0) * 100),
+                      "", pss))
+
+    print("")
     print("rule (объявлено до прогона, пороги не подстраиваются):")
     print("  arm «не хуже» ⇔ (а) ни одного прогона с НОВЫМИ провалами в "
           "domains/engagement/no_path; (б) медиана µs на активный тик <= эталонной; "
@@ -416,6 +539,7 @@ def main():
                                          "PASS" if ok else "FAIL", detail))
 
     doc = {"tag": tag, "tree": tree, "shots": shots,
+           "waves": waves, "after_waves_wait": after,
            "baseline": paths.norm(baseline), "reference": ref,
            "arms": {a[0]: a[1] for a in arms}, "opts": OPTS,
            "runs": all_runs, "aggregates": aggs,

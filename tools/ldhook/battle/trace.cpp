@@ -70,6 +70,16 @@ static void *g_tick_unit = NULL;   /* сохранён H1; читается H2 *
 static volatile LONGLONG g_tick_t0 = 0;
 static volatile LONG g_vis = 0;
 
+/* E0TICK (план 9.2a, LDHOOK_E0_DIAG=1): аккумуляторы вызовов e0a0 за тик.
+ * Боевой AI — главный поток (ab_method §2.6), блокировки не нужны. Сброс на
+ * входе тика (H1), строка на выходе (H2). Кап строк на прогон — один объявленный. */
+#define E0TICK_LINES 6000
+static volatile LONG g_tick_calls = 0;
+static volatile LONGLONG g_tick_us = 0, g_tick_max = 0;
+static volatile LONG g_tick_cap = 0;
+static volatile LONGLONG g_tick_path_us = 0, g_tick_lb_us = 0;
+static volatile LONG g_tick_lines = 0, g_tick_capann = 0;
+
 /* H3: поля тика (последняя запись 45eee0 за тик; sentinel — не было вызова). */
 static int          g_tick_code = -1;
 static int          g_tick_trk  = -1;
@@ -283,6 +293,16 @@ void __cdecl battle_trace_tick_begin(void *unit)
     }
     g_tick_t0 = ld_now_us();
     g_vis = 0;
+    if (e0_diag_on()) {
+        /* E0PATH/E0TICK (план 9.2a): таблица повторов живёт один тик. */
+        e0path_tick_reset();
+        g_tick_calls = 0;
+        g_tick_us = 0;
+        g_tick_max = 0;
+        g_tick_cap = 0;
+        g_tick_path_us = 0;
+        g_tick_lb_us = 0;
+    }
     g_e0a0_calls = 0;
     g_slot_cur = 0;
     g_e0a0_this = NULL;
@@ -405,6 +425,23 @@ void __cdecl battle_trace_tick_end(int al, void *esp)
             c2, x2, y2, i2, g, h10k, cost,
             trk, bd2, s1, s2, vis,
             m0, m1, m2, us, ai);
+
+    /* E0TICK (план 9.2a): итог тика по вызовам e0a0 — только при LDHOOK_E0_DIAG=1. */
+    if (e0_diag_on()) {
+        if (g_tick_lines < E0TICK_LINES) {
+            ld_info("E0TICK tick=%ld calls=%ld us=%I64d max_us=%I64d cap_hits=%ld "
+                    "path_us=%I64d lb_us=%I64d",
+                    tick, (long)g_tick_calls, (LONGLONG)g_tick_us,
+                    (LONGLONG)g_tick_max, (long)g_tick_cap,
+                    (LONGLONG)g_tick_path_us, (LONGLONG)g_tick_lb_us);
+            g_tick_lines++;
+            if (g_tick_lines >= E0TICK_LINES && g_tick_capann == 0) {
+                g_tick_capann = 1;
+                ld_info("E0TICK %d lines (limit %d), capped for this run",
+                        E0TICK_LINES, E0TICK_LINES);
+            }
+        }
+    }
 
     if (trap) {
         static volatile LONG trap_ctr = 0;
@@ -531,6 +568,27 @@ void __cdecl battle_trace_e0a0_latch(void *cand)
         s->lx = -1;
         s->ly = -1;
     }
+}
+
+/* E0TICK (план 9.2a): один вызов e0a0 за тик — аккумуляторы. Вызывается из
+ * порта s6_target_search после выхода; env LDHOOK_E0_DIAG не задан → no-op
+ * (ни записей, ни строк). path_us / lb_us — µs доли path-слоя этого вызова. */
+void battle_trace_e0a0_done(LONGLONG us, int capped, LONGLONG path_us,
+                            LONGLONG lb_us)
+{
+    if (!g_enabled || !e0_diag_on()) {
+        return;
+    }
+    g_tick_calls++;
+    g_tick_us += us;
+    if (us > g_tick_max) {
+        g_tick_max = us;
+    }
+    if (capped != 0) {
+        g_tick_cap++;
+    }
+    g_tick_path_us += path_us;
+    g_tick_lb_us += lb_us;
 }
 
 /* H3: после `call 45eee0` — EAX = код решения (0/1/2/4), ESI = &unit+0x138

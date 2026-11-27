@@ -136,7 +136,12 @@ TreeNode *lower_bound_slots(void *map, int *out_slot, int *key_slot)
         res = NULL;
     }
     if (t >= 0) {
-        InterlockedAdd64(&g_e0c_lb_us, ld_now_us() - t);
+        LONGLONG d = ld_now_us() - t;
+        InterlockedAdd64(&g_e0c_lb_us, d);
+        if (e0_path_inside()) {           /* E0PATH (9.2a): lower_bound внутри 45cb40 */
+            InterlockedIncrement(&g_e0p_lb);
+            InterlockedAdd64(&g_e0p_lb_us, d);
+        }
     }
     LD_CRASH_RET(res);
 }

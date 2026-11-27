@@ -790,6 +790,63 @@ static void e0c_emit(long call, int filter, long iters, int code, int capped,
 }
 
 /* ------------------------------------------------------------------ */
+/* E0PATH (план 9.2a) — разложение µs внутри FUN_0045cb40 за вызов e0a0.   */
+/*                                                                        */
+/* env LDHOOK_E0_DIAG=1 + порт site6. Строка печатается на том же гейте,    */
+/* что E0COST (`iters > E0_DIAG_ITERS`); кап строк общий с E0COST.          */
+/* Дизъюнктность: lb_us / grid_us / ts_us ⊆ us_path и не пересекаются       */
+/* (все три зовутся из grid-цикла cb40 по одному разу за итерацию);         */
+/* «прочее» = us_path − (lb+grid+ts) = цикл окна, проверки границ/знаков   */
+/* и финальный порог. Reкурсия: ts — все входы 0x45c3a0, recur — входы      */
+/* из grid-цикла; nesting меряется (depthmax) и µs не умножаются.           */
+/* dup_call / dup_tick — верхняя оценка мемоизации: path-вызовы с ключом    */
+/* (cell, target), уже виденным в этом вызове / в этом тике.               */
+/* E0PATHSUM — полные итоги прогона по ВСЕМ вызовам (короткие тоже),        */
+/* период тот же, что у E0COSTSUM.                                          */
+/* ------------------------------------------------------------------ */
+
+static volatile LONG g_e0ps_calls = 0, g_e0ps_null = 0, g_e0ps_lb = 0;
+static volatile LONG g_e0ps_grid = 0, g_e0ps_ts = 0, g_e0ps_recur = 0;
+static volatile LONG g_e0ps_cells = 0, g_e0ps_dupc = 0, g_e0ps_dupt = 0;
+static volatile LONG g_e0ps_ovf = 0;
+static volatile LONGLONG g_e0ps_lb_us = 0, g_e0ps_grid_us = 0, g_e0ps_ts_us = 0;
+
+static void e0path_emit(long call, long path_calls, LONGLONG us_path,
+                        long lb, LONGLONG lb_us, long grid, LONGLONG grid_us,
+                        long ts, long recur, LONGLONG ts_us, long depth_max,
+                        long cells, long nulls, long dup_call, long dup_tick,
+                        long ovf, long iters, long tick)
+{
+    if (g_e0c_capped != 0) {
+        return;
+    }
+    ld_info("E0PATH call=%ld path_calls=%ld us_path=%I64d lb=%ld lb_us=%I64d "
+            "grid=%ld grid_us=%I64d ts=%ld recur=%ld ts_us=%I64d depthmax=%ld "
+            "cells=%ld null=%ld dup_call=%ld dup_tick=%ld ovf=%ld iters=%ld "
+            "tick=%ld arm=port",
+            call, path_calls, us_path, lb, lb_us, grid, grid_us, ts, recur,
+            ts_us, depth_max, cells, nulls, dup_call, dup_tick, ovf, iters, tick);
+    g_e0c_lines++;
+    if (g_e0c_lines >= E0C_LINES) {
+        ld_info("E0PATH+E0COST %ld lines (limit %d), capped for this run",
+                (long)g_e0c_lines, E0C_LINES);
+        g_e0c_capped = 1;
+    }
+}
+
+static void e0pathsum_emit(long tick)
+{
+    ld_info("E0PATHSUM tick=%ld calls=%ld null=%ld lb=%ld lb_us=%I64d grid=%ld "
+            "grid_us=%I64d ts=%ld recur=%ld ts_us=%I64d depthmax=%ld cells=%ld "
+            "dup_call=%ld dup_tick=%ld ovf=%ld",
+            tick, (long)g_e0ps_calls, (long)g_e0ps_null, (long)g_e0ps_lb,
+            (LONGLONG)g_e0ps_lb_us, (long)g_e0ps_grid, (LONGLONG)g_e0ps_grid_us,
+            (long)g_e0ps_ts, (long)g_e0ps_recur, (LONGLONG)g_e0ps_ts_us,
+            (long)g_e0p_depth_max, (long)g_e0ps_cells, (long)g_e0ps_dupc,
+            (long)g_e0ps_dupt, (long)g_e0ps_ovf);
+}
+
+/* ------------------------------------------------------------------ */
 /* NATIVE E0-диаг (LDHOOK_E0_DIAG=1 + LDHOOK_SITE6=0): тот же снимок       */
 /* вызова e0a0, что печатает порт, но на нативном цикле.                  */
 /*                                                                        */
@@ -2541,6 +2598,14 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
     LONGLONG us_total = 0, d_upd = 0, d_path = 0, d_lbus = 0;
     LONGLONG d_nodes = 0;
     long d_b2 = 0, live_after = 0;
+    /* E0PATH (план 9.2a): снимок path-аккумуляторов на входе, дельты за вызов.
+     * diag==0 → снимка нет, ни одной записи (аккумуляторы не пишутся). */
+    long p0_calls = 0, p0_null = 0, p0_lb = 0, p0_grid = 0, p0_ts = 0, p0_recur = 0;
+    long p0_cells = 0, p0_dupc = 0, p0_dupt = 0, p0_ovf = 0;
+    LONGLONG p0_lb_us = 0, p0_grid_us = 0, p0_ts_us = 0;
+    long d_pcalls = 0, d_pnull = 0, d_plb = 0, d_pgrid = 0, d_pts = 0, d_precur = 0;
+    long d_pcells = 0, d_dupc = 0, d_dupt = 0, d_povf = 0;
+    LONGLONG d_plb_us = 0, d_pgrid_us = 0, d_pts_us = 0;
     /* 9.1a: индексированная min-куча для filter==1 (LDHOOK_E0_HEAP).
      * heap_owner — токен владения: 0 = куча не наша (off/filter!=1/вложенный
      * вызов/fallback), иначе LD_HEAP_ON или LD_HEAP_SHADOW. heap_on==1 —
@@ -2561,6 +2626,15 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
         c_upd0 = (LONGLONG)g_e0c_upd_us;
         c_path0 = (LONGLONG)g_e0c_path_us;
         c_lb0 = (LONGLONG)g_e0c_lb_us;
+        /* E0PATH: ключ повторов этого вызова + снимок path-аккумуляторов. */
+        e0path_call((long)n);
+        e0path_target(cmp_val);
+        p0_calls  = g_e0p_calls;  p0_null = g_e0p_null;   p0_lb = g_e0p_lb;
+        p0_grid   = g_e0p_grid;   p0_ts   = g_e0p_ts;     p0_recur = g_e0p_recur;
+        p0_cells  = g_e0p_cells;  p0_dupc = g_e0p_dup_call;
+        p0_dupt   = g_e0p_dup_tick; p0_ovf = g_e0p_ovf;
+        p0_lb_us  = g_e0p_lb_us;  p0_grid_us = g_e0p_grid_us;
+        p0_ts_us  = g_e0p_ts_us;
     }
 
     ld_crash_enter(2);          /* LDHOOK_CRASHLOG: stage 2, depth++ (no-op off) */
@@ -2797,6 +2871,28 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
         InterlockedAdd(&g_e0c_live_sum, live_after);
         InterlockedAdd(&g_e0c_map1_sum, map1_now);
         InterlockedAdd(&g_e0c_map1b_sum, map1_before);
+        /* E0PATH: дельты path-аккумуляторов за этот вызов + полные итоги прогона. */
+        d_pcalls  = g_e0p_calls  - p0_calls;   d_pnull = g_e0p_null - p0_null;
+        d_plb     = g_e0p_lb     - p0_lb;      d_pgrid = g_e0p_grid - p0_grid;
+        d_pts     = g_e0p_ts     - p0_ts;      d_precur = g_e0p_recur - p0_recur;
+        d_pcells  = g_e0p_cells  - p0_cells;   d_dupc = g_e0p_dup_call - p0_dupc;
+        d_dupt    = g_e0p_dup_tick - p0_dupt;  d_povf = g_e0p_ovf - p0_ovf;
+        d_plb_us  = g_e0p_lb_us  - p0_lb_us;
+        d_pgrid_us = g_e0p_grid_us - p0_grid_us;
+        d_pts_us  = g_e0p_ts_us  - p0_ts_us;
+        InterlockedAdd(&g_e0ps_calls, d_pcalls);
+        InterlockedAdd(&g_e0ps_null, d_pnull);
+        InterlockedAdd(&g_e0ps_lb, d_plb);
+        InterlockedAdd(&g_e0ps_grid, d_pgrid);
+        InterlockedAdd(&g_e0ps_ts, d_pts);
+        InterlockedAdd(&g_e0ps_recur, d_precur);
+        InterlockedAdd(&g_e0ps_cells, d_pcells);
+        InterlockedAdd(&g_e0ps_dupc, d_dupc);
+        InterlockedAdd(&g_e0ps_dupt, d_dupt);
+        InterlockedAdd(&g_e0ps_ovf, d_povf);
+        InterlockedAdd64(&g_e0ps_lb_us, d_plb_us);
+        InterlockedAdd64(&g_e0ps_grid_us, d_pgrid_us);
+        InterlockedAdd64(&g_e0ps_ts_us, d_pts_us);
     }
 
     /* LDHOOK_E0_DIAG: сводка вызова с итерациями выше порога (runaway-класс). */
@@ -2819,6 +2915,10 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
                  d_upd, d_path, d_lbus, d_nodes, live_before, live_after,
                  d_b2, map1_before, ((BattleAI *)this_)->reserved_70,
                  battle_trace_tick_count());
+        e0path_emit((long)n, d_pcalls, d_path, d_plb, d_plb_us, d_pgrid,
+                    d_pgrid_us, d_pts, d_precur, d_pts_us,
+                    (long)g_e0p_depth_max, d_pcells, d_pnull, d_dupc, d_dupt,
+                    d_povf, (long)iters, battle_trace_tick_count());
     }
     /* E0COSTSUM: агрегат прогона по ВСЕМ измеренным вызовам (короткие тоже) —
      * доля e0a0 во времени боя считается офлайн против суммы `us` всех
@@ -2837,6 +2937,7 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
                 (long)g_e0c_live_sum, (long)g_e0c_b2_sum,
                 (long)g_e0c_map1b_sum, (long)g_e0c_map1_sum,
                 (long)g_e0c_bad, (long)g_e0c_depth);
+        e0pathsum_emit(battle_trace_tick_count());
     }
     /* Периодическая сводка порта (агрегат прогона, каждые 2000 вызовов). */
     if (diag && (n % E0N_SUM_CALLS) == 0) {
@@ -2873,6 +2974,9 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
     {
         LONGLONG now = ld_now_us();        /* Фаза 4 A/B: длительность вызова */
         LONGLONG us = now - t0;
+        /* E0TICK (план 9.2a): аккумулятор тика ( calls/us/max/cap/path/lb ).
+         * Вне диага — no-op: trace-аккумуляторы не пишутся. */
+        battle_trace_e0a0_done(us, capped, d_path, d_lbus);
         InterlockedAdd64(&g_s6_us_sum, us);
         if (us > g_s6_us_max) {
             g_s6_us_max = us;
