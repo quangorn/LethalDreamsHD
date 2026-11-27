@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Каноническая установка загрузчика ldhook.pyd в игру (docs/archive/HANDOFF_ldhook.md, B.2).
-
 Зачем: `.pyd` живёт только если его кто-то загрузит. Загрузчик — блок
 `imp.load_dynamic('ldhook', ...)` в `data/scripts/ui/ui.pyc`: игра исполняет
 этот модуль на старте. Скрипт собирает `ui.pyc` воркером 2.2.3, кладёт
@@ -13,10 +12,15 @@
 
 EXE не трогается: хуки ставятся в памяти (VirtualProtect) при загрузке .pyd.
 Откат = вернуть `ui/ui.pyc` из бэкапа и удалить `ldhook.pyd`.
+
+--install также проверяет AppCompat-флаг `~ HIGHDPIAWARE` для EXE установки
+(без него игра не влезает в 4K) и восстанавливает его, если он слетел.
 """
 import hashlib
 import os
+import re
 import shutil
+import subprocess
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -44,6 +48,54 @@ def work_dir():
     if not os.path.isdir(d):
         os.makedirs(d)
     return d
+
+
+DPIAWARE_KEY = r"HKCU\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+
+
+def ensure_dpi_flag(root):
+    """~ HIGHDPIAWARE для EXE установки: проверить и восстановить, если слетел.
+
+    Флаг живёт в HKCU\\...\\AppCompatFlags\\Layers под полным путём EXE. Он
+    теряется (чистка Windows, обновление, переустановка) и без него игра не
+    влезает в 4K — поэтому установка обязана его проверять. Существующее
+    значение не затирается: HIGHDPIAWARE дописывается к уже имеющимся флагам.
+    """
+    exe = os.path.join(root, "LETHALDREAMS.EXE")
+    if not os.path.isfile(exe):
+        print("dpi: %s нет — флаг не проверялся" % exe)
+        return None
+
+    # Имя значения в реестре — Windows-путь с обратными слэшами; paths.win_path
+    # отдаёт прямые, поэтому нормализуем (иначе создаётся лишнее значение).
+    name = paths.win_path(exe).replace("/", "\\")
+    q = subprocess.run(["reg", "query", DPIAWARE_KEY, "/v", name],
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    text = q.stdout.decode("latin-1", "replace") if hasattr(q.stdout, "decode") else ""
+    cur = ""
+    if q.returncode == 0:
+        m = re.search(r"REG_SZ\s+(.*)$", text, re.M)
+        if m:
+            cur = m.group(1).strip()
+        if "HIGHDPIAWARE" in cur.split():
+            print("dpi: %s ~ HIGHDPIAWARE (есть)" % name)
+            return True
+
+    flags = [f for f in cur.split() if f]
+    if not flags:
+        flags = ["~"]
+    flags.append("HIGHDPIAWARE")
+    value = " ".join(flags)
+    a = subprocess.run(["reg", "add", DPIAWARE_KEY, "/v", name, "/t", "REG_SZ",
+                        "/d", value, "/f"],
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if a.returncode != 0:
+        print("dpi: НЕ удалось выставить флаг (rc=%d): %s"
+              % (a.returncode, a.stdout.decode("latin-1", "replace").strip()))
+        return False
+    print("dpi: %s ~ HIGHDPIAWARE (восстановлен, было %r)" % (name, cur))
+    return True
+
 
 
 def ui_pyc_path(root):
@@ -101,6 +153,7 @@ def install():
     shutil.copyfile(pyc, dst_pyc)
     print("install: %s (md5 %s)" % (dst_pyd, md5(dst_pyd)))
     print("install: %s (md5 %s)" % (dst_pyc, md5(dst_pyc)))
+    ensure_dpi_flag(root)
     print("")
     print("запуск: LDHOOK_CAP=32 -> игра (0 = хук выключен, чистый A/B)")
     print("лог:    <каталог игры>/hdlog.txt")

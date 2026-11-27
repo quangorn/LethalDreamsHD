@@ -224,6 +224,8 @@
   реплеится офлайн без расхождений (`path_post_match`/`path_boundary_args` 386/386, `fail=0`).
 - `[P]` Поставка (26.11.2026): `check_sites` installable, `smoke_api` OK, `probe_exitcode` — без событий
   Application/WER; два прогона A/B расходятся только адресами и временем (`docs/PITFALLS.md`, 22.11.2026).
+  `patch_ui.py --install` (27.11.2026) проверяет и восстанавливает AppCompat-флаг `~ HIGHDPIAWARE`
+  для EXE установки (значение дописывается к существующим флагам, имя — Windows-путь с `\`).
 - `[P]` Фазы 8–9 (26.11.2026): 8.3 — 36 именованных слотов кадра `FR_*` в `battle/tick.cpp`; 9.d1/9.d2/9.m1 —
   `tools/probes/battle_invariants.py` (инварианты, `latency`/`spin`, `--profile`, `--baseline`) и
   `tools/probes/battle_ab_runs.py` (перемежаемые A/B по живому сценарию); `check_state --quick` rc 0.
