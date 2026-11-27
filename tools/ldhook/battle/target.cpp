@@ -1158,6 +1158,533 @@ static int s6_scan_count_safe(void *this_, int filter)
     return n;
 }
 
+/* ==================================================================== */
+/* 9.1a — индексированная min-куча кандидатов поиска цели (e0a0).        */
+/*                                                                      */
+/* Причина: оригинал на каждой итерации делает полный in-order проход     */
+/* map1 (s6_scan_map / FUN_0045ce80), хотя map1 растёт до ~4900 узлов, а  */
+/* меняется только вставкой новых узлов и разметкой выбранного           */
+/* фильтром 3. Замер 9.d2d: скан = 61 % µs длинного вызова.              */
+/*                                                                      */
+/* Контракт (PLAN_BATTLE_AI_CPP.md 9.1a):                                */
+/*   — куча ТОЛЬКО для вызова с filter==1: там ветка 2 FUN_0045dd70      */
+/*     (единственное место, где метрика существующего узла может         */
+/*     измениться) не исполняется (замер: b2=0), т.е. нужны только        */
+/*     build + pop + insert. Для прочих filter остаётся родной скан;      */
+/*   — ключ = (unsigned metric [obj+0x24], LDPos* pos [obj+0x00]); при     */
+/*     равной метрике раньше идёт меньший адрес pos — так сканирует       */
+/*     map1 (ключ карты = pos, std::less<LDPos*>, сырой адрес);           */
+/*   — eligibility ровно как у скана: filter == filter_arg &&             */
+/*     (unsigned)metric < 999999999u (сентинел скана);                    */
+/*   — членство узла НЕ хранится в узле. Контракт 9.1a предлагал          */
+/*     PathState+0x0c, но поле занято игрой: 45eee0 кладёт туда float-биты */
+/*     дельты масштаба (move.cpp:458, сайт 0x45f20b, copy_fields 0x1fff) и */
+/*     потребитель в нативе есть — запись индекса/маркера туда схлопывает */
+/*     активность боя (735 вызовов e0a0 за прогон → 6–9). Поэтому индекс  */
+/*     живёт только в массиве кучи: insert/pop работают без него, а        */
+/*     произвольное удаление (только shadow-зеркало) ищет узел линейно;    */
+/*     дубли отсекаются перепроверкой eligibility при pop (map1 дедуп-     */
+/*     лицирует по ключу, куча — нет);                                     */
+/*   — куча живёт один вызов e0a0, поля узлов не пишутся вообще,           */
+/*     map1/map2 не трогаются.                                            */
+/*                                                                      */
+/* Режимы (env LDHOOK_E0_HEAP):                                          */
+/*   unset/off — прежнее поведение (одна кэшированная проверка режима);   */
+/*   shadow    — выбор ведёт родной скан, куча идёт параллельно: на       */
+/*               каждой выдаче peek() сравнивается со сканом по           */
+/*               указателю (NULL==NULL совпало); первые LD_HEAP_MISM_LINES */
+/*               расхождений логируются; из кучи удаляется взятый сканом   */
+/*               узел (зеркало — расхождения не каскадируются). Таймаут    */
+/*               продолжает вызываться, но его срабатывание подавляется    */
+/*               (лишний скан сделал бы его ранним); выход — по            */
+/*               LDHOOK_E0_HEAP_BUDGET итераций (дефолт 20000) либо        */
+/*               пустой скан;                                             */
+/*   on        — куча заменяет скан для filter==1. Поведение обязано       */
+/*               совпадать со сканом (гейт — shadow, 0 расхождений).      */
+/*                                                                      */
+/* Safety valve: живых узлов больше LD_HEAP_CAP (наблюдаемый максимум     */
+/* 420) — остаток вызова идёт родным сканом, счётчики ovf/fallback.       */
+/* Аллокаций нет: фиксированный static-массив; метрика не                 */
+/* пересчитывается — только чтение поля.                                  */
+/* ==================================================================== */
+
+#define LD_HEAP_ENV        "LDHOOK_E0_HEAP"
+#define LD_HEAP_BUDGET_ENV "LDHOOK_E0_HEAP_BUDGET"
+#define LD_HEAP_CAP        8192u
+#define LD_HEAP_METRIC_MAX 999999999u    /* сентинел s6_scan_map */
+#define LD_HEAP_MISM_LINES 10            /* первые N расхождений — с деталями */
+#define LD_HEAP_SUM_CALLS  25            /* период кумулятивной сводки (вызовов) */
+
+#define LD_HEAP_OFF    0
+#define LD_HEAP_ON     1
+#define LD_HEAP_SHADOW 2
+
+typedef struct {
+    PathState *node;                     /* узел map1 (поля читаются на сравнении) */
+} LdHeapEnt;
+
+static struct {
+    int          mode;                   /* LD_HEAP_OFF/ON/SHADOW (кэш env) */
+    int          filter;                 /* filter аргумент вызова-владельца */
+    int          active;                 /* 1 = куча принадлежит какому-то вызову */
+    int          owner;                  /* 0 = владельца нет, иначе LD_HEAP_ON/SHADOW */
+    int          nest;                   /* глубина входов e0a0 (учитываются все) */
+    int          owner_nest;             /* g_lh.nest вызова-владельца */
+    int          fallback;               /* 1 = куча снята → остаток на скане */
+    unsigned int n;                      /* элементов в куче */
+    LdHeapEnt    a[LD_HEAP_CAP];         /* фиксированное хранилище (32 КБ) */
+    long         budget;                 /* shadow: предел итераций */
+    /* --- счётчики текущего вызова --- */
+    long pops, cmps, mism, missing, skip;
+    long fb_skip;                        /* shadow: итераций без сверки (fallback) */
+    long b2_drop;                        /* ветка 2 при активной куче (defensive) */
+    long iters;                          /* shadow: номер итерации (для лога) */
+    long live_max;                       /* максимум живых за вызов */
+    long budget_hits, suppressed;
+    /* --- сводка прогона --- */
+    long run_calls, run_calls_heap, run_calls_shadow;
+    long run_pops, run_cmps, run_mism, run_missing, run_skip;
+    long run_fb_skip, run_b2_drop;
+    long run_max_live, run_ovf, run_fallback, run_nested;
+    long run_budget, run_supp;
+} g_lh;
+
+/* Компаратор: меньшая unsigned-метрика; при равенстве — меньший адрес pos
+ * (порядок map1). */
+static int ld_heap_less(const LdHeapEnt *x, const LdHeapEnt *y)
+{
+    unsigned int mx = (unsigned int)x->node->metric;
+    unsigned int my = (unsigned int)y->node->metric;
+
+    if (mx != my) {
+        return mx < my;
+    }
+    return (unsigned int)(UINT_PTR)x->node->pos < (unsigned int)(UINT_PTR)y->node->pos;
+}
+
+static void ld_heap_swap(unsigned int i, unsigned int j)
+{
+    PathState *p = g_lh.a[i].node;
+
+    g_lh.a[i].node = g_lh.a[j].node;
+    g_lh.a[j].node = p;
+}
+
+static void ld_heap_up(unsigned int i)
+{
+    while (i > 0) {
+        unsigned int p = (i - 1) / 2;
+
+        if (!ld_heap_less(&g_lh.a[i], &g_lh.a[p])) {
+            break;
+        }
+        ld_heap_swap(i, p);
+        i = p;
+    }
+}
+
+static void ld_heap_down(unsigned int i)
+{
+    for (;;) {
+        unsigned int l = 2 * i + 1;
+        unsigned int r = l + 1;
+        unsigned int m = i;
+
+        if (l < g_lh.n && ld_heap_less(&g_lh.a[l], &g_lh.a[m])) {
+            m = l;
+        }
+        if (r < g_lh.n && ld_heap_less(&g_lh.a[r], &g_lh.a[m])) {
+            m = r;
+        }
+        if (m == i) {
+            break;
+        }
+        ld_heap_swap(i, m);
+        i = m;
+    }
+}
+
+/* Safety valve: живых больше ёмкости — куча отключается до конца вызова. */
+static void ld_heap_overflow(void)
+{
+    g_lh.fallback = 1;
+    g_lh.n = 0;
+    g_lh.run_ovf++;
+    /* iters в режиме on не ведётся (0) — в сообщении число извлечений. */
+    ld_info("E0HEAP ovf: live > %u, fallback to linear scan (call %ld, pops=%ld)",
+            LD_HEAP_CAP, g_lh.run_calls, g_lh.pops);
+}
+
+/* Вставка узла. Вызывается из s6_ai_update сразу после регистрации в map1.
+ * Не активна → no-op. */
+static void ld_heap_insert(PathState *node)
+{
+    /* Только вызов-владелец и только пока он самый внутренний: вложенный e0a0
+     * работает на родном скане и чужую кучу не трогает. */
+    if (!g_lh.active || g_lh.owner == 0 || g_lh.nest != g_lh.owner_nest ||
+        g_lh.fallback || node == NULL) {
+        return;
+    }
+    if (node->filter != g_lh.filter ||
+        (unsigned int)node->metric >= LD_HEAP_METRIC_MAX) {
+        return;                          /* скан такой узел не увидел бы */
+    }
+    if (g_lh.n >= LD_HEAP_CAP) {
+        ld_heap_overflow();
+        return;
+    }
+    g_lh.a[g_lh.n].node = node;
+    g_lh.n++;
+    ld_heap_up(g_lh.n - 1);
+    if ((long)g_lh.n > g_lh.live_max) {
+        g_lh.live_max = (long)g_lh.n;
+    }
+}
+
+/* Eligibility ровно как у скана ce80. */
+static int ld_heap_eligible(const PathState *p)
+{
+    return p != NULL && p->filter == g_lh.filter &&
+           (unsigned int)p->metric < LD_HEAP_METRIC_MAX;
+}
+
+/* Снять минимум без проверки eligibility (индексного поля нет). */
+static PathState *ld_heap_take(void)
+{
+    PathState *top;
+
+    if (g_lh.n == 0) {
+        return NULL;
+    }
+    top = g_lh.a[0].node;
+    g_lh.n--;
+    if (g_lh.n > 0) {
+        g_lh.a[0].node = g_lh.a[g_lh.n].node;
+        ld_heap_down(0);
+    }
+    return top;
+}
+
+/* Извлечение кандидата. NULL — кандидатов больше нет.
+ * Узел перепроверяется на eligibility ровно как скан (filter/метрика): если
+ * в кучу попал дубль одного узла (map1 дедуплицирует по ключу, куча — нет),
+ * второй его экземпляр к этому моменту уже помечен filter=3 и выбрасывается —
+ * скан такой узел тоже не вернул бы. */
+static PathState *ld_heap_pop(void)
+{
+    PathState *top;
+
+    while ((top = ld_heap_take()) != NULL) {
+        if (ld_heap_eligible(top)) {
+            g_lh.pops++;
+            return top;
+        }
+        g_lh.skip++;                     /* дубль/невалидный — скан его не увидит */
+    }
+    return NULL;
+}
+
+/* Defensive (fix 3): ветка 2 FUN_0045dd70 пересчитывает метрику существующего
+ * узла (mask 0x3c6) — ключи кучи после этого stale. При filter==1 ветка мертва
+ * (гейт cur->filter==2, замер b2=0); если всё же исполнится — куча снимается,
+ * остаток вызова идёт родным сканом. */
+static void ld_heap_drop_branch2(void)
+{
+    if (g_lh.active && g_lh.owner != 0 && g_lh.nest == g_lh.owner_nest &&
+        !g_lh.fallback) {
+        g_lh.fallback = 1;
+        g_lh.n = 0;
+        g_lh.b2_drop++;
+        ld_info("E0HEAP b2: branch 2 at filter=%d, heap dropped (call %ld, pops=%ld)",
+                g_lh.filter, g_lh.run_calls, g_lh.pops);
+    }
+}
+
+/* Минимум без извлечения (только shadow-сверка). */
+static PathState *ld_heap_peek(void)
+{
+    return (g_lh.n != 0 && !g_lh.fallback) ? g_lh.a[0].node : NULL;
+}
+
+/* Произвольное удаление (shadow-зеркало): узел ищется линейно по массиву
+ * (индексного поля в узле нет — PathState+0x0c занят игрой).
+ * 0 — узла в куче не было. */
+static int ld_heap_remove(PathState *node)
+{
+    unsigned int i;
+    PathState *moved;
+
+    if (node == NULL || !g_lh.active || g_lh.fallback) {
+        return 0;
+    }
+    for (i = 0; i < g_lh.n; i++) {
+        if (g_lh.a[i].node == node) {
+            break;
+        }
+    }
+    if (i == g_lh.n) {
+        return 0;
+    }
+    g_lh.n--;
+    if (i != g_lh.n) {
+        moved = g_lh.a[g_lh.n].node;
+        g_lh.a[i].node = moved;
+        ld_heap_up(i);
+        for (i = 0; i < g_lh.n; i++) {   /* moved мог уехать вверх */
+            if (g_lh.a[i].node == moved) {
+                break;
+            }
+        }
+        ld_heap_down(i);
+    }
+    return 1;
+}
+
+/* shadow: сверка минимума кучи с результатом полного скана + зеркальное
+ * удаление взятого узла. scan_pick — то, что вернул скан (NULL — скан пуст).
+ * Вызывается только вызовом-владельцем (fix 1). */
+static void ld_heap_shadow_check(void *scan_pick)
+{
+    PathState *top;
+
+    if (!g_lh.active || g_lh.owner != LD_HEAP_SHADOW ||
+        g_lh.nest != g_lh.owner_nest) {
+        return;
+    }
+    if (g_lh.fallback) {
+        g_lh.fb_skip++;                  /* сверять не с чем: куча снята */
+        return;
+    }
+    /* Drain: невалидные вершины скан бы не вернул — снимаем их ДО сверки,
+     * иначе они засчитывались бы как расхождение, а не как skip. */
+    while ((top = ld_heap_peek()) != NULL && !ld_heap_eligible(top)) {
+        ld_heap_take();
+        g_lh.skip++;
+    }
+    top = ld_heap_peek();
+    g_lh.cmps++;
+    if (top != (PathState *)scan_pick) {
+        g_lh.mism++;
+        if (g_lh.mism <= LD_HEAP_MISM_LINES) {
+            int hm = -1, hf = -1, sm = -1, sf = -1;
+
+            if (top != NULL) {
+                hm = top->metric;
+                hf = top->filter;
+            }
+            if (scan_pick != NULL) {
+                sm = ((LDObject *)scan_pick)->metric;
+                sf = ((LDObject *)scan_pick)->filter;
+            }
+            ld_info("E0HEAPMISM n=%ld it=%ld heap=%p m=%u f=%d scan=%p m=%d f=%d",
+                    g_lh.run_calls, g_lh.iters, (void *)top,
+                    (top != NULL) ? (unsigned int)top->metric : 0u, hf,
+                    scan_pick, sm, sf);
+        }
+    }
+    if (!ld_heap_remove((PathState *)scan_pick) && scan_pick != NULL) {
+        g_lh.missing++;                  /* скан взял узел, которого в куче нет */
+    }
+}
+
+static void ld_heap_summary(const char *why)
+{
+    static const char *const names[3] = { "off", "on", "shadow" };
+
+    if (g_lh.mode == LD_HEAP_OFF) {
+        return;
+    }
+    ld_info("E0HEAP %s mode=%s calls=%ld heap_calls=%ld shadow_calls=%ld "
+            "pops=%ld cmps=%ld mism=%ld max_live=%ld ovf=%ld fallback=%ld "
+            "nested=%ld skip=%ld missing=%ld fb_skip=%ld b2_drop=%ld "
+            "budget_hits=%ld suppressed=%ld",
+            why, names[g_lh.mode], g_lh.run_calls, g_lh.run_calls_heap,
+            g_lh.run_calls_shadow, g_lh.run_pops, g_lh.run_cmps, g_lh.run_mism,
+            g_lh.run_max_live, g_lh.run_ovf, g_lh.run_fallback, g_lh.run_nested,
+            g_lh.run_skip, g_lh.run_missing, g_lh.run_fb_skip, g_lh.run_b2_drop,
+            g_lh.run_budget, g_lh.run_supp);
+}
+
+/* Финальная сводка процесса (atexit). Игру наш раннер гасит taskkill /F —
+ * тогда строки нет, и данные несёт периодическая E0HEAPSUM. */
+static void __cdecl ld_heap_atexit(void)
+{
+    ld_heap_summary("final");
+}
+
+static void ld_heap_init_once(void)
+{
+    const char *e = getenv(LD_HEAP_ENV);
+    const char *b;
+    int budget;
+
+    if (e == NULL || *e == '\0') {
+        g_lh.mode = LD_HEAP_OFF;
+    } else if (e[0] == 's' || e[0] == 'S') {
+        g_lh.mode = LD_HEAP_SHADOW;
+    } else if ((e[0] == 'o' || e[0] == 'O') && (e[1] == 'n' || e[1] == 'N')) {
+        g_lh.mode = LD_HEAP_ON;
+    } else {
+        g_lh.mode = (atoi(e) != 0) ? LD_HEAP_ON : LD_HEAP_OFF;
+    }
+    b = getenv(LD_HEAP_BUDGET_ENV);
+    budget = (b != NULL) ? atoi(b) : 0;
+    g_lh.budget = (budget > 0) ? (long)budget : 20000L;
+    if (g_lh.mode != LD_HEAP_OFF) {
+        atexit(ld_heap_atexit);
+        ld_info("E0HEAP mode=%s cap=%u budget=%ld (%s)",
+                (g_lh.mode == LD_HEAP_ON) ? "on" : "shadow", LD_HEAP_CAP,
+                g_lh.budget, LD_HEAP_ENV);
+    }
+}
+
+static int ld_heap_mode(void)
+{
+    static int on = -1;
+
+    if (on < 0) {
+        ld_heap_init_once();
+        on = g_lh.mode;
+    }
+    return on;
+}
+
+/* shadow: таймаут выключен, покрытие ограничено бюджетом итераций.
+ * Только для вызова-владельца. */
+static int ld_heap_shadow_stop(long iters)
+{
+    if (!g_lh.active || g_lh.owner != LD_HEAP_SHADOW ||
+        g_lh.nest != g_lh.owner_nest) {
+        return 0;
+    }
+    if (iters <= g_lh.budget) {
+        return 0;
+    }
+    g_lh.budget_hits++;
+    return 1;
+}
+
+/* Начало вызова: build одним проходом map1.
+ * Возврат — токен владения кучей:
+ *   0              — куча НЕ принадлежит этому вызову (off, filter!=1,
+ *                    вложенный вход, fallback): кандидатов даёт родной скан;
+ *   LD_HEAP_ON     — вызов владеет кучей, выбор из кучи;
+ *   LD_HEAP_SHADOW — вызов владеет кучей, выбор у скана (сверка).
+ * Владелец ровно один: вложенный e0a0 (g_lh.owner != 0) получает 0 и чужую
+ * кучу не трогает — ни insert, ни сверкой, ни сбросом на выходе. */
+static int ld_heap_begin(BattleAI *self, int filter)
+{
+    TreeNode *head;
+    TreeNode *cur;
+    int live = 0;
+    int token;
+
+    if (ld_heap_mode() == LD_HEAP_OFF) {
+        return 0;                        /* off: только чтение кэша режима */
+    }
+    g_lh.nest++;                         /* учитываются все входы e0a0 */
+    if (filter != 1) {
+        return 0;                        /* контракт 9.1a: куча только для filter==1 */
+    }
+    if (g_lh.owner != 0) {
+        g_lh.run_nested++;               /* вложенный e0a0: родной скан */
+        return 0;
+    }
+    token = (g_lh.mode == LD_HEAP_ON) ? LD_HEAP_ON : LD_HEAP_SHADOW;
+    g_lh.active = 1;
+    g_lh.owner = token;
+    g_lh.owner_nest = g_lh.nest;
+    g_lh.fallback = 0;
+    g_lh.n = 0;
+    g_lh.filter = filter;
+    g_lh.pops = g_lh.cmps = g_lh.mism = g_lh.missing = g_lh.skip = 0;
+    g_lh.fb_skip = g_lh.b2_drop = 0;
+    g_lh.live_max = 0;
+    g_lh.budget_hits = g_lh.suppressed = 0;
+    g_lh.iters = 0;
+    g_lh.run_calls++;
+    if (g_lh.mode == LD_HEAP_ON) {
+        g_lh.run_calls_heap++;
+    } else {
+        g_lh.run_calls_shadow++;
+    }
+
+    /* Build: один проход map1, вставляем подходящие. Порядок обхода не важен —
+     * кучу упорядочивает компаратор. Полей узлов не пишем вообще (в т.ч.
+     * PathState+0x0c — он занят игрой, см. комментарий в шапке блока). */
+    head = self->cand_head;
+    if (head != NULL) {
+        cur = head->left;
+        while (cur != head && cur != NULL) {
+            PathState *node = (PathState *)cur->value;
+
+            if (node != NULL) {
+                ld_heap_insert(node);    /* eligibility — внутри */
+            }
+            cur = s6_tree_next(cur);
+        }
+        if (g_lh.n > 0) {
+            live = (int)g_lh.n;
+        }
+    }
+    if (live > g_lh.live_max) {
+        g_lh.live_max = live;
+    }
+    return g_lh.fallback ? 0 : token;
+}
+
+/* Конец вызова. Кучу сбрасывает и сводку накапливает только владелец
+ * (token != 0); любой другой вызов лишь выходит из вложенности. */
+static void ld_heap_end(int token)
+{
+    if (g_lh.mode == LD_HEAP_OFF) {
+        return;
+    }
+    if (token != 0) {
+        g_lh.run_pops += g_lh.pops;
+        g_lh.run_cmps += g_lh.cmps;
+        g_lh.run_mism += g_lh.mism;
+        g_lh.run_missing += g_lh.missing;
+        g_lh.run_skip += g_lh.skip;
+        g_lh.run_fb_skip += g_lh.fb_skip;
+        g_lh.run_b2_drop += g_lh.b2_drop;
+        g_lh.run_budget += g_lh.budget_hits;
+        g_lh.run_supp += g_lh.suppressed;
+        if (g_lh.live_max > g_lh.run_max_live) {
+            g_lh.run_max_live = g_lh.live_max;
+        }
+        if (g_lh.fallback) {
+            g_lh.run_fallback++;
+        }
+        g_lh.active = 0;
+        g_lh.owner = 0;
+        g_lh.fallback = 0;
+        g_lh.n = 0;
+    }
+    if (g_lh.nest > 0) {
+        g_lh.nest--;
+    }
+    /* Сводка: первые 8 вызовов (короткий прогон в arm EEE0=0 даёт единицы
+     * вызовов) и далее каждые LD_HEAP_SUM_CALLS. Только от владельца. */
+    if (token != 0 &&
+        (g_lh.run_calls <= 8 || (g_lh.run_calls % LD_HEAP_SUM_CALLS) == 0)) {
+        ld_heap_summary("sum");
+    }
+}
+
+/* Следующий кандидат: куча (heap_on) либо родной скан. Переполнение кучи
+ * снимает heap_on на остаток вызова — поведение остаётся родным. */
+static LDObject *s6_take_candidate(void *this_, int filter, int *heap_on)
+{
+    if (*heap_on) {
+        if (!g_lh.fallback) {
+            return (LDObject *)ld_heap_pop();
+        }
+        *heap_on = 0;                    /* safety valve */
+    }
+    return s6_scan_map(this_, filter);
+}
+
 /* FUN_0045c480 — distance²: (a->x−b->x)² + (a->y−b->y)², коорд. +0x0c/+0x10.
  * 32-битная арифметика (как IMUL/ADD оригинала): младшие 32 бита знакового
  * произведения; сравнение в c880 — беззнаковое (JA). */
@@ -1825,6 +2352,10 @@ int s6_ai_update(void *this_, void *cand, int arg2)
                             InterlockedIncrement(&g_ai_reg_dup);  /* ключ уже в map2 */
                         }
                         native::register_occupied_slot(self, (LDObject *)nbr);  /* CALL 0x45dd00 @0x45dfa6 — только ветка 1 */
+                        /* 9.1a: узел попал в map1 — в кучу. Строго после copy_fields
+                         * (бит 3 маски 0x1fff пишет +0x0c=0) и после регистрации
+                         * (видимость узла = видимости скана). Куча не активна → no-op. */
+                        ld_heap_insert(nbr);
                         free_done = 1;                        /* @0x45dfab JMP 0x45e040 */
                     }
                 }
@@ -1832,6 +2363,11 @@ int s6_ai_update(void *this_, void *cand, int arg2)
                 if (!free_done) {                             /* ветка 2 (@0x45dfb0..0x45e037) */
                     ai_stage = 80;                            /* branch 2 */
                     if (cur->filter == 2 && nbr->filter != 3) {  /* @0x45dfb0/0x45dfba/0x45dfc0 */
+                        /* 9.1a (fix 3): здесь пересчитывается метрика существующего
+                         * узла (mask 0x3c6) — ключи кучи стали бы stale. При
+                         * filter==1 гейт не проходит (замер b2=0); срабатывание —
+                         * сигнал нарушения контракта: снимаем кучу до конца вызова. */
+                        ld_heap_drop_branch2();
                         if (diag) {
                             InterlockedIncrement(&g_e0c_b2);  /* E0COST: тело ветки 2 исполнено */
                         }
@@ -1945,6 +2481,12 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
     LONGLONG us_total = 0, d_upd = 0, d_path = 0, d_lbus = 0;
     LONGLONG d_nodes = 0;
     long d_b2 = 0, live_after = 0;
+    /* 9.1a: индексированная min-куча для filter==1 (LDHOOK_E0_HEAP).
+     * heap_owner — токен владения: 0 = куча не наша (off/filter!=1/вложенный
+     * вызов/fallback), иначе LD_HEAP_ON или LD_HEAP_SHADOW. heap_on==1 —
+     * кандидата даёт куча; 0 — родной скан (off/shadow/fallback). */
+    int heap_owner = 0;
+    int heap_on = 0;
 
     if (diag) {
         memset(e0sl, 0, sizeof(e0sl));   /* count==0 = слот пуст */
@@ -1979,13 +2521,22 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
      * затем гейты в родном порядке: pos==cmp → code=1; c880 → code=4;
      * c5a0 → code=3. Rescan после каждого не-сработавшего кандидата; пустой
      * скан → выход без кода, return NULL. */
+    /* 9.1a: куча строится на входе (один проход map1) и отдаёт минимум вместо
+     * полного пере-скана; filter!=1 → heap_on=0, всё как раньше. */
+    heap_owner = ld_heap_begin((BattleAI *)this_, filter);
+    heap_on = (heap_owner == LD_HEAP_ON);
     if (diag) {
         ts = ld_now_us();                   /* E0COST: время первого скана */
     }
-    cur = s6_scan_map(this_, filter);      /* @0x45e103 */
+    cur = s6_take_candidate(this_, filter, &heap_on);   /* @0x45e103 */
     if (ts >= 0) {
-        us_scan += ld_now_us() - ts;
+        if (!heap_on) {
+            us_scan += ld_now_us() - ts;
+        }
         ts = -1;
+    }
+    if (heap_owner == LD_HEAP_SHADOW) {
+        ld_heap_shadow_check(cur);          /* 9.1a: peek() против полного скана */
     }
     if (diag && cur == NULL) {
         e0nulls++;                          /* скан пуст: цикл не начнётся */
@@ -2017,6 +2568,12 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
     map1_before = ((BattleAI *)this_)->reserved_70;
     while (cur != NULL) {                  /* @0x45e10a / @0x45e165 */
         iters++;
+        /* 9.1a shadow: выход по таймауту выключен (лишний скан сделал бы его
+         * ранним), покрытие ограничено бюджетом итераций. */
+        if (heap_owner == LD_HEAP_SHADOW && ld_heap_shadow_stop(iters)) {
+            g_lh.iters = iters;
+            break;
+        }
         if (diag) {
             /* Снимок ДО ai_update и разметки: фильтр/метрика в момент, когда
              * скан выбрал кандидата (разметка filter=3 идёт @0x45e132). */
@@ -2081,17 +2638,31 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
             break;
         }
         if (s6_check_timeout(this_, arg2)) {               /* @0x45e14e */
-            code = 3;                                      /* @0x45e1af: *param_4 = 3 */
-            result = cur;
-            break;
+            if (heap_owner == LD_HEAP_SHADOW) {
+                /* 9.1a shadow: гейт вызывается (он только читает таймер и
+                 * this->timer_start_sec), но выход подавлен — нужен полный
+                 * охват итераций; срабатывание считается. */
+                g_lh.iters = iters;
+                g_lh.suppressed++;
+            } else {
+                code = 3;                                  /* @0x45e1af: *param_4 = 3 */
+                result = cur;
+                break;
+            }
         }
         if (diag) {
             ts = ld_now_us();               /* E0COST: время rescan-прохода */
         }
-        cur = s6_scan_map(this_, filter);                  /* @0x45e15e: rescan */
+        cur = s6_take_candidate(this_, filter, &heap_on);   /* @0x45e15e: rescan */
         if (ts >= 0) {
-            us_scan += ld_now_us() - ts;
+            if (!heap_on) {
+                us_scan += ld_now_us() - ts;
+            }
             ts = -1;
+        }
+        if (heap_owner == LD_HEAP_SHADOW) {
+            g_lh.iters = iters;
+            ld_heap_shadow_check(cur);      /* 9.1a: peek() против полного скана */
         }
         if (diag && cur == NULL) {
             e0nulls++;                                     /* пустой скан → выход */
@@ -2102,6 +2673,9 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
 #endif
         InterlockedIncrement(&g_site6_rot);                /* ротация (п. 3.4) */
     }
+
+    /* 9.1a: куча живёт один вызов — сброс/сводка только у владельца. */
+    ld_heap_end(heap_owner);
 
     /* Единственная запись кода — под guard'ом param_4 != NULL; при пустом скане
      * code==0 и запись не делается (в *param_4 уже 0 из entry-записи @0x45e0b2). */

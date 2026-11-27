@@ -75,7 +75,7 @@ PathState (0x58; ctor `45c2e0` аллоцирует сам через `4cfa11`; 
 | поле | offset | смысл |
 |---|---|---|
 | pos / parent | `+0x00` / `+0x04` | LDPos* (`+0x0c`=X, `+0x10`=Y) / родитель |
-| filter / reserved_0c | `+0x08` / `+0x0c` | 1/2/3 / ctor обнуляет, потребитель не найден |
+| filter / reserved_0c | `+0x08` / `+0x0c` | 1/2/3 / float-биты масштабной дельты из `45eee0` (`move.cpp:458`, сайт `0x45f20b`) — не свободно |
 | out_metric / metric_cand | `+0x10` / `+0x14` | float-выход цепочки `45c3a0` / float-метрика |
 | g_cost / dist2 | `+0x18` / `+0x1c` | int g пути / dist² к цели |
 | h10000 / metric | `+0x20` / `+0x24` | h·10000 / h·10000 + dist² + g |

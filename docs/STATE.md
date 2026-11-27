@@ -232,6 +232,9 @@
   `45dd70` 8 %, `b2=0`, живых ≈380; `e0a0` ≈94 % времени боя; потолок одной кучи 70→28–30 ms.
 - `[P]` Гейты порта (26.11.2026): `LDHOOK_SITE6` (e0a0) и `LDHOOK_SITE6_EEE0` (тик `45eee0`) независимы,
   второй по умолчанию = первому; краш-логгер `LDHOOK_CRASHLOG` (VEH, стадии, глубина) — no-op без env.
+- `[P]` 9.1a (27.11.2026): куча `(unsigned metric, LDPos*)` в `s6_target_search` (`LDHOOK_E0_HEAP=off|shadow|on`,
+  по умолчанию off; членство — только в массиве кучи, поля `PathState` не пишутся). Тень: 193 377 сравнений,
+  0 расхождений. Латентность не изменилась: цикл ограничен бюджетом `ctx[0x14]` (~70 ms), итераций за бюджет 4.2k→11k.
 - `[P]` Офлайн-гейт `458050`: `bdd0_grid_level_modelled()` (сетки в v12..v15 нет) — сводка
   `grid_anchor_replayed`, включение — `docs/PITFALLS.md`. Out-writes сверяет `B0_LEAF_CLAIM_W` (`ported.h`).
 - `[P]` Офлайн-гейт `45b150`/`45b3e0` (`battle/tick.cpp`): порты `s6_band_interp_gate`/`s6_band_target_moved`
