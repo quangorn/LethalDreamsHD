@@ -60,6 +60,7 @@ rewrite даёт header build-time (`2026-11-17 10:42`) и md5, не равны�
 | ui/olmenu | ui_olmenu.patch (2237 B) | 1794778203 |
 | ui/battlemenu | ui_battlemenu.patch (4813 B) | 1794778202 |
 | ui/btutorial | ui_btutorial.patch (599 B) | 1794778203 |
+| mentality/battlecharacters | mentality_battlecharacters.patch (790 B) | 1052156450 |
 
 - `ui/types.pyc`, `ui/hd_res.pyc` — новые модули, без патча.
 - base-печать vs установленный md5 различаются для `ui/cursor.pyc`
