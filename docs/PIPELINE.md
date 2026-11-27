@@ -80,6 +80,8 @@ python_libs.7z; тот же мандат applies к истории сессий.
      [--baseline tools/probes/battle_invariants_baseline.json]` — rc 0 только без
      НОВЫХ провалов относительно нативного эталона; натив сам даёт rc 1
      (`runaway`/`stall` — измеренные дефекты).
+   - разбор дампа краха без отладчика: `python3 tools/probes/minidump_stack.py <dump.dmp>`
+     (WER `LocalDumps` → модули, исключение, контекст, скан стека «модуль+смещение»).
 
 8. Захват v12 `bdd0_native` (не-листовые RECORD-нативы тела `44bdd0`):
    - `python3 tools/probes/gen_native_sites.py [--check|--report]` — таблица сайтов из EXE

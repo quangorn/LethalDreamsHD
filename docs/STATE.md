@@ -12,10 +12,12 @@
   установкой `release/patches/ui_cursor.patch`; копия v6 `4a8eb4bab413…` — в
   `scratch_dir('battle_baseline')/cursor_installed_v6.pyc`). `check_state --quick` rc 0.
   Разбор и команда применения: `docs/VERIFY.md`.
-- `ldhook.pyd` в установке + `ui/ui.pyc` с блоком загрузчика (`31dd9064…` против эталона
+- `ldhook.pyd` в установке + `ui/ui.pyc` с блоком загрузчика (`d9a55bdf…` против эталона
   `ae59f601…`) — dev-состояние для живых прогонов боевого AI; ставится
   `python3 tools/ldhook/patch_ui.py --install`, откат `--restore` (после отката rc 0).
-  Грабли: `docs/PITFALLS.md`.
+  `.pyd` в установке = артефакт `build/ldhook/ldhook.pyd`; header загрузчика прибит к
+  `pyc_source_mtime` ui/ui (md5 сборки воспроизводим), бэкап отката сверяется с эталоном
+  манифеста. Грабли: `docs/PITFALLS.md`.
 - Реестр:
   `HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\App Compat Flags\LETHALDREAMS.EXE` =
   строковый `~ HIGHDPIAWARE` (флаг совместимости, отключает системное масштабирование exe).
@@ -78,7 +80,7 @@
   (`InitializeData`, `patches/bdomain.py`), случайного выбора нет; установленный md5 = base-печать
   `957bc9d86ccc…`, state `MATCH`; патч — `docs/PATCHES.md` («Точка входа отряда в бой»).
 - `[P]` Mentality-слой боя (27.11.2026, план 10.1–10.4): `patches/mentality/std_brains.py` + `std_bstates.py`
-  (`release/patches/mentality_*.patch`, записи `mentality/*` в манифесте); установлены, md5 `a694e49d…`/`607efecd…`.
+  (`release/patches/mentality_*.patch`, записи `mentality/*` в манифесте); установлены, md5 `8f9dc423…`/`ce0d5eed…`.
   Радиус агро 6.0 союзники / 8.0 враги — предикат `FilterAggroObjs` (`CHAR_FUNCTION` в `SetRoTCS`);
   `SetVisibilityRange` не трогается. `move_order` (только сторона игрока) глушит агро до прибытия, цель держится до смерти.
   Диагностика — файл `aggro.flag` в корне игры → `ld_aggro.log` (строка в секунду на юнита).
@@ -184,6 +186,9 @@
 - `[P]` Эталон `.pyd` = артефакт `python3 tools/ldhook/build.py` (`build/ldhook/ldhook.pyd`, gitignored);
   эталоны харнесса = `build/ldhook/battle_replay.exe`, `build/ldhook/bdd0_harness.exe`,
   `build/ldhook/bdd0_synth.exe` (сборка — `tools/probes/*_build.py`). md5 не фиксируется.
+- `[P]` Краши `0x45046000` (unknown) и `ntdll+0x5FB03` (27.11.2026): на 14 прогонах канонического
+  сценария (загрузка сейва, 3 волны) не воспроизвелись; источник не установлен, след не в `LDHOOK_SITE6`.
+  Дамп WER снимать через `LocalDumps` + `tools/probes/minidump_stack.py`; разбор — `E:/LocalTemp/opencode/crash_report_2026-11-27.md`.
 - `[P]` Scratch-дерево для живых прогонов = копия установки + baseline EXE + свежий `.pyd` + загрузчик
   `data/scripts/ui/ui.pyc`; источник `spike.py` (`patches/ui/ui.py`) на диске нет, загрузчик берётся из
   сохранённого дерева (`ldhook_prev/tree/data/scripts/ui/ui.pyc`, md5 `cbd4ce2c…`).
