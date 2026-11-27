@@ -1,0 +1,99 @@
+--- a/mentality/std_brains.py
++++ b/mentality/std_brains.py
+@@ -2,12 +2,27 @@
+ from balltecharacters_constants import *
+ from spell_constants import *
+ import std_bstates, spells, whrandom, math, g_defs, units_base
++import formulas
+ AI_LOGGING = 1
+ 
+ def LOG(who, what):
+     if AI_LOGGING:
+         gamemodule.Log('% ' + who.unit.Name + ':' + what)
+     return
++
++# Радиус агро (обнаружения) юнита в бою; задаёт план 10.2.
++AGGRO_RANGE_ALLY = 4.0
++AGGRO_RANGE_ENEMY = 6.0
++
++def IsEnemyOwner(owner):
++    if owner == None:
++        return 0
++    if owner == overlandcharacters.Player:
++        return 0
++    p = overlandcharacters.Player
++    if p == None:
++        return 0
++    return owner.GroupID & p.GetOpponentSides() != 0
+ 
+ 
+ ESCORT_POS = [[[]], [[0.0, 1.0]], [[-1.0, 0.0], [1.0, 0.0]], [[-1.0, 0.0], [0.0, 1.0], [1.0, 0.0]], [[-1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.0, -1.0]], [[-1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [-0.5, -1.0], [0.5, -1.0]], [[-1.5, 0.0], [1.5, 0.0], [-1.0, 1.0], [1.0, 1.0], [-1.0, -1.0], [1.0, -1.0]]]
+@@ -38,6 +53,39 @@
+         self.LoiterFunc = None
+         return
+ 
++    def GetAggroRange(self):
++        vr = AGGRO_RANGE_ENEMY
++        if not IsEnemyOwner(self.unit.Owner):
++            vr = AGGRO_RANGE_ALLY
++        if self.unit.Owner == overlandcharacters.Players['Syrimbel']:
++            vr = vr + formulas.SyrimbelModifier
++        return vr
++
++    def IsWithinAggro(self, unit):
++        r = self.GetAggroRange()
++        if battlecharacters.TwoPointDistance2_2x(self.unit.GetPosition(), unit.GetPosition()) > r * r:
++            return 0
++        return 1
++
++    def FilterAggroObjs(self, objs):
++        # Предикат правила отбора (CHAR_FUNCTION): оставляет кандидатов в радиусе
++        # агро. Пока идёт приказ перемещения игрока, не оставляет никого (план 10.2/10.3).
++        ret = []
++        if self.bs_main and self.bs_main.move_order:
++            return ret
++        r = self.GetAggroRange()
++        r2 = r * r
++        mypos = self.unit.GetPosition()
++        i = len(objs) - 1
++        while i >= 0:
++            ment = objs[i].GetMentalityPart()
++            if ment and ment.GetPythonCharacter():
++                u = ment.GetPythonCharacter()
++                if battlecharacters.TwoPointDistance2_2x(mypos, u.GetPosition()) <= r2:
++                    ret.append(objs[i])
++            i -= 1
++        return ret
++
+     def Dest(self):
+         LOG(self, 'BBrain_Base.Dest: dying ....')
+         self.BStates_Term()
+@@ -111,6 +159,8 @@
+         parm = {}
+         rule |= DISTANCEMIN
+         rule |= OBJECTS_FILTER
++        rule |= CHAR_FUNCTION
++        parm[CHAR_FUNCTION] = self.FilterAggroObjs
+         if self.target_selection_rule & SB_TSR_ATTACK_ALL:
+             parm[OBJECTS_FILTER] = [OBJECT_CLASS | INCLUDE, {OBJECT_CLASS: [MENTALITY_OBJECT, globalscript.MT_CHAR]}]
+         else:
+@@ -180,6 +230,9 @@
+         return
+ 
+     def ext_Reset(self):
++        # Сброс подавления агро от приказа игрока (план 10.3).
++        if self.bs_main:
++            self.bs_main.move_order = 0
+         self.bs_main.u_RewindStateStack()
+         self.ment.StopObject()
+         self.ment.SetTarget(0)
+@@ -664,6 +717,9 @@
+         return
+ 
+     def u_StopObject(self, unit):
++        # Сброс подавления агро от приказа игрока (план 10.3).
++        if self.bs_main:
++            self.bs_main.move_order = 0
+         unit.MentalityObject.SetCurrentBehaviourState('suspend')
+         unit.MentalityObject.StopObject()
+         unit.MentalityObject.SetTarget(0)
