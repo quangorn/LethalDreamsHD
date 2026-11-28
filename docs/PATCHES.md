@@ -212,8 +212,8 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
   (`BE.RotateBillBoardAroundPt = RotateBillBoardAroundPt` в `install()`): pivot поворота передаётся
   движку как `SC(point[0]), SY(point[1])`, оригинал при `HD_K<1` не вызывается; при `k==1` — вызов
   оригинала, 4:3 побитово. Полоса стоит внутри нижнего сектора рамы, как в 4:3.
-- `[P]` Эталон установленной сборки: `data/scripts/hd_scale.pyc` md5 `336867c67316…` (26422 B,
-  crc32 `625669b4`, mtime `1794819372`) == base-печати манифеста, `.py` md5 `b4961b6d05a0…`;
+- `[P]` Эталон установленной сборки: `data/scripts/hd_scale.pyc` md5 `f96c168a0c24…` (27010 B,
+  crc32 `0f466682`, mtime `1794819372`) == base-печати манифеста, `.py` md5 `fadd5cfcce5d…`;
   каноническая сборка — `python3 tools/pyc/install_patch.py hd_scale --install`.
 - грабля — `docs/PITFALLS.md` (pivot поворота без масштаба — полоса вне рамы)
 
