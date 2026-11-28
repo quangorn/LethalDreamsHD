@@ -23,6 +23,8 @@ sys.path.insert(0, _ROOT)
 sys.path.insert(0, _HERE)
 import paths
 
+RAW_STR = False
+
 def r_short(d, i):
     x = d[i] | (d[i+1] << 8)
     x |= -(x & 0x8000)
@@ -63,6 +65,10 @@ def read(d, i):
     if t in (0x73, 0x75):                  # 's' str / 'u' unicode
         n, i = r_long(d, i)
         raw = d[i:i+n]; i += n
+        if RAW_STR:
+            # co_code содержит произвольные байты опкодов/аргументов: декодирование
+            # utf-8 их портит (U+FFFD), для сверки нужны сырые bytes.
+            return raw, i
         return raw.decode('utf-8', 'replace'), i
     if t == 0x28:                          # '(' tuple
         n, i = r_long(d, i)

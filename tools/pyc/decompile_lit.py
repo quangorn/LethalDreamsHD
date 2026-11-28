@@ -557,7 +557,7 @@ def build_pairs(sides, npairs):
     return tok_pairs, unops
 
 
-def apply_pass(text, sides, tok_pairs, unops):
+def apply_pass(text, sides, tok_pairs, unops, seed_used=None):
     """Восстановление литералов построчными мультимножествами.
     Для каждой выровненной пары кодовых объектов группы токенов сортируются по
     строке B-исходника (SLINE). Равные токены (tokA==tokB) защищают позиции
@@ -572,6 +572,10 @@ def apply_pass(text, sides, tok_pairs, unops):
     import ast, collections
     lines = text.split('\n')
     used = {}
+    if seed_used:
+        # позиции уже восстановленных литералов (отдельный проход) не трогаем
+        for k, spans in seed_used.items():
+            used.setdefault(k, []).extend(spans)
     consumed = []  # заменённые строковые литералы: (sl, sc, el, ec), 1-based
     cnt = 0
     log = []

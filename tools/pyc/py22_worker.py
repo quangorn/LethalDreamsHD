@@ -221,6 +221,75 @@ def mode_lit(path):
                 stack = []
 
 
+def mode_purelit(pyc_path):
+    """Чистые литеральные списки/кортежи оригинального .pyc: последовательности
+    LOAD_CONST, завершённые BUILD_LIST/BUILD_TUPLE (все элементы - scalars).
+    Печатаем PURE <индекс кодового объекта> <индекс токена> <hex repr>
+    (порядок токенов тот же, что у litfix2: SET_LINENO не считается)."""
+    d = read_bin(pyc_path)
+    magic = ord(d[1]) << 8 | ord(d[0])
+    if magic != 60717:
+        print 'MAGIC-MISMATCH', pyc_path
+        return
+    code = marshal.loads(d[8:])
+    acc = []
+    code_tree(code, acc)
+    opname = dis.opname
+    HAVE = dis.HAVE_ARGUMENT
+    LOAD_CONST = opname.index('LOAD_CONST')
+    BUILD_LIST = opname.index('BUILD_LIST')
+    BUILD_TUPLE = opname.index('BUILD_TUPLE')
+    SCALARS = (int, long, float, str, complex)
+    idx = 0
+    for c in acc:
+        stack = []
+        i = 0
+        j = 0
+        bc = c.co_code
+        while i < len(bc):
+            op = ord(bc[i])
+            if op < HAVE:
+                i += 1
+                continue
+            arg = ord(bc[i + 1]) | (ord(bc[i + 2]) << 8)
+            i += 3
+            name = opname[op]
+            if name == 'SET_LINENO':
+                continue
+            j += 1
+            if op == LOAD_CONST:
+                v = None
+                if arg < len(c.co_consts):
+                    v = c.co_consts[arg]
+                if hasattr(v, 'co_name'):
+                    stack = []
+                else:
+                    stack.append(v)
+            elif op in (BUILD_LIST, BUILD_TUPLE):
+                items = []
+                if len(stack) >= arg:
+                    items = stack[-arg:]
+                    stack = stack[:-arg]
+                pure = 0
+                if arg > 0 and len(items) == arg:
+                    pure = 1
+                    for x in items:
+                        if not isinstance(x, SCALARS):
+                            pure = 0
+                            break
+                if pure:
+                    val = list(items)
+                    if op != BUILD_LIST:
+                        val = tuple(items)
+                    print 'PURE %d %d %s' % (idx, j, hexstr(repr(val)))
+                    stack.append(val)
+                else:
+                    stack.append(None)
+            else:
+                stack = []
+        idx += 1
+
+
 def hexstr(s):
     out = ''
     i = 0
@@ -444,6 +513,8 @@ def main():
         mode_consts(args[0])
     elif mode == 'lit':
         mode_lit(args[0])
+    elif mode == 'purelit':
+        mode_purelit(args[0])
     elif mode == 'vdiff':
         mode_vdiff(args[0], args[1])
     elif mode == 'fnames':
