@@ -47,6 +47,12 @@ def is_fault(rec):
     return rec["cx"] < 0 and rec["cy"] < 0 and rec["px"] < 0
 
 
+def no_ctx(rec):
+    """ctx-тройка не читается (sentinel cx), но строка валидна по движению:
+    первый тик юнита / game_ctx+0xc == NULL. В клетки не входит."""
+    return rec["cx"] < 0 and rec["cy"] < 0
+
+
 def parse(paths):
     """-> список сессий {recs:[{tick,unit,cx,cy,px,py,...}]} в порядке строк."""
     sessions = []
@@ -89,6 +95,7 @@ def analyze(sessions, gap, window):
     stalls = []
     n_lines = 0
     n_fault = 0
+    n_noctx = 0
     units_seen = set()
     cells_seen = set()
 
@@ -100,7 +107,10 @@ def analyze(sessions, gap, window):
             if is_fault(r):
                 n_fault += 1
                 continue
-            cell = (r["cx"], r["cy"])
+            if no_ctx(r):
+                n_noctx += 1
+                continue
+            cell = (r["cx"], r["cz"])   # pos-тройка = (x, y=0, z); клетка = (x,z)
             shared.setdefault(cell, set()).add(r["unit"])
             cells_seen.add(cell)
             units_seen.add(r["unit"])
@@ -121,16 +131,17 @@ def analyze(sessions, gap, window):
             run = 1
             for i in range(1, len(seq) + 1):
                 if i < len(seq) and seq[i]["cx"] == seq[i - 1]["cx"] and \
-                        seq[i]["cy"] == seq[i - 1]["cy"]:
+                        seq[i]["cz"] == seq[i - 1]["cz"]:
                     run += 1
                 else:
                     if run >= gap:
                         last = seq[i - 1]
                         first = seq[i - run]
                         stalls.append((unit, first["tick"], last["tick"],
-                                       last["cx"], last["cy"],
+                                       as_float(last["cx"]),
+                                       as_float(last["cz"]),
                                        as_float(last["px"]),
-                                       as_float(last["py"])))
+                                       as_float(last["pz"])))
                     run = 1
 
     summary = {
@@ -139,6 +150,7 @@ def analyze(sessions, gap, window):
         "shared_cells": sum(1 for u in shared.values() if len(u) > 1),
         "max_share": max((len(u) for u in shared.values()), default=0),
         "pairs": len(pairs), "stalls": len(stalls), "fault": n_fault,
+        "no_ctx": n_noctx,
     }
     return shared, pairs, stalls, summary
 
@@ -162,31 +174,34 @@ def main():
         print("OCC lines: 0")
         return 0
     print("OCC lines: %d  sessions=%d units=%d cells=%d every=%d gap=%d "
-          "window=%d fault=%d" % (sm["occ"], sm["sessions"], sm["units"],
-                                  sm["cells"], a.every, a.gap, a.window,
-                                  sm["fault"]))
+          "window=%d fault=%d no_ctx=%d" % (sm["occ"], sm["sessions"],
+                                            sm["units"], sm["cells"], a.every,
+                                            a.gap, a.window, sm["fault"],
+                                            sm["no_ctx"]))
 
     hist = sorted(((len(u), c) for c, u in shared.items()),
                   key=lambda kv: (-kv[0], kv[1][0], kv[1][1]))
     n_shared = 0
-    print("\n== SHARED (клетка, в которой побывало >=2 юнитов)")
+    print("\n== SHARED (позиция, в которой побывало >=2 юнитов)")
     for cnt, cell in hist:
         if cnt < 2:
             break
         n_shared += 1
-        print("   (%d,%d): %d юнита %s" % (cell[0], cell[1], cnt,
+        print("   (%.3f,%.3f): %d юнита %s" % (as_float(cell[0]),
+                                               as_float(cell[1]), cnt,
                                           sorted(shared[cell])))
     print("   shared cells: %d / %d" % (n_shared, sm["cells"]))
 
-    print("\n== SHARED pairs (unitA unitB tickA tickB cx cy dt; окно <=%d тиков):"
+    print("\n== SHARED pairs (unitA unitB tickA tickB x z dt; окно <=%d тиков):"
           % a.window)
-    for (u1, u2, t1, t2, cx, cy, dt) in sorted(pairs)[:200]:
-        print("   %d %d %d %d %d %d %d" % (u1, u2, t1, t2, cx, cy, dt))
+    for (u1, u2, t1, t2, cx, cz, dt) in sorted(pairs)[:200]:
+        print("   %d %d %d %d %.3f %.3f %d" % (u1, u2, t1, t2, as_float(cx),
+                                               as_float(cz), dt))
     if not pairs:
         print("   none")
 
-    print("\n== STALL (>= %d подряд выборок в одной клетке; "
-          "unit tick_first tick_last cx cy px py):" % a.gap)
+    print("\n== STALL (>= %d подряд выборок в одной позиции; "
+          "unit tick_first tick_last x z px pz):" % a.gap)
     for st in sorted(stalls, key=lambda s: -(s[2] - s[1]))[:100]:
         print("   %d %d %d %d %d %.3f %.3f" % (st[0], st[1], st[2], st[3],
                                                st[4], st[5], st[6]))
