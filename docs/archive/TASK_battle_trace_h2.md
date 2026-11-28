@@ -1,6 +1,6 @@
 # TASK — battle trace H2: fix field extraction (Phase 2 gate)
 
-Handoff for another agent. Repo: `C:/Projects/HDPatches/LethalDreams`, branch `perf-battle`.
+Handoff for another agent. Repo: `LD_REPO` (local clone of this repository), branch `perf-battle`.
 Start from commit `2e7fcb9` (pushed). Plan: `docs/PLAN_BATTLE_AI_CPP.md` decisions 1.7 and 2.0.
 A/B method reference (scratch, not in git): `<scratch>/re/battle_ai_ab_method.md` §1/§2/§4.
 

@@ -8,8 +8,8 @@ md5, offsets, VA, размеры, термины и формулировки **�
 1. Личные пути заменены нейтральными формами (`config[game.root]`, `py223.dir`,
    `<scratch>/…`, «приватный рабочий каталог») — публикация не содержит личных путей;
    это замена пути, не содержания факта. Затронуты `NOTES_OLD.md` (8 замен),
-   `RESEARCH_PY_DECOMPILE.md` (15 замен), `TASK_phase5_handoff.md` (6),
-   `TASK_battle_trace_h2.md` (6), `PLAN_BATTLE_AI_PORT.md` (3),
+   `RESEARCH_PY_DECOMPILE.md` (15 замен), `TASK_phase5_handoff.md` (7),
+   `TASK_battle_trace_h2.md` (7), `PLAN_BATTLE_AI_PORT.md` (3),
    `HANDOFF_ldhook.md` (1), `ISSUE_tex_upscale.md` (1) и
    `NARRATIVE_2026-11.md` (1).
 2. Ссылки на файлы дополнены адресом и статусом: путь репозитория (источник в git),

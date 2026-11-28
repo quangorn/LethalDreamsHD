@@ -1,4 +1,9 @@
 import frida, json, time
+import os, sys
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))
+sys.path.insert(0, _ROOT)
+import paths
 
 SITES = [0x41cf52,0x43fbc5,0x44058d,0x4405fd,0x4412fa,0x45a260,0x4768bb,
          0x477be9,0x4785d0,0x4b9d7f,0x4d5568,0x4d5777]
@@ -41,7 +46,7 @@ def on_message(m, data):
 
 js = JS.replace("%SITES%", json.dumps(SITES)).replace("%REGS%", json.dumps(REGS))
 dev = frida.get_local_device()
-pid = dev.spawn(["D:\\Games\\LethalDreams\\LETHALDREAMS.EXE"])
+pid = dev.spawn([paths.game_path('LETHALDREAMS.EXE')])
 s = dev.attach(pid)
 sc = s.create_script(js)
 sc.on("message", on_message)

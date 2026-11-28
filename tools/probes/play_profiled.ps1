@@ -5,7 +5,7 @@
 # НЕ гасит.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools/probes/play_profiled.ps1 `
-#       -GameRoot "D:/Games/LethalDreams"
+#       -GameRoot "<tree>"    (или LD_GAME из окружения)
 #
 #   -Trace 2  (по умолчанию) — TICKSEC раз в секунду + полные BATTLE-строки для
 #            тиков длиннее 5 ms; объём ~0.3 МБ/мин, хватает на часы боя.

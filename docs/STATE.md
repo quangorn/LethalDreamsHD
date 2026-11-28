@@ -221,7 +221,8 @@
   `build/ldhook/bdd0_synth.exe` (сборка — `tools/probes/*_build.py`). md5 не фиксируется.
 - `[P]` Краши `0x45046000` (unknown) и `ntdll+0x5FB03` (27.11.2026): на 14 прогонах канонического
   сценария (загрузка сейва, 3 волны) не воспроизвелись; источник не установлен, след не в `LDHOOK_SITE6`.
-  Дамп WER снимать через `LocalDumps` + `tools/probes/minidump_stack.py`; разбор — `E:/LocalTemp/opencode/crash_report_2026-11-27.md`.
+  Дамп WER снимать через `LocalDumps` + `tools/probes/minidump_stack.py`; разбор — приватный отчёт
+  сессии 27.11.2026 (не в git).
 - `[P]` Scratch-дерево для живых прогонов = копия установки + baseline EXE + свежий `.pyd` + загрузчик
   `data/scripts/ui/ui.pyc`; источник `spike.py` (`patches/ui/ui.py`) на диске нет, загрузчик берётся из
   сохранённого дерева (`ldhook_prev/tree/data/scripts/ui/ui.pyc`, md5 `cbd4ce2c…`).

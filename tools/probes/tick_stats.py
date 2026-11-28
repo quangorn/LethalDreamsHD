@@ -15,7 +15,7 @@
 разрыву меток времени > 5 мин.
 
 Запуск:
-  python3 tools/probes/tick_stats.py "D:/Games/LethalDreams/hdlog.txt" [hdlog.txt.1 ...]
+  python3 tools/probes/tick_stats.py "<GameRoot>/hdlog.txt" [hdlog.txt.1 ...]
   python3 tools/probes/tick_stats.py LOG --top 15 --json out.json
 """
 import argparse
