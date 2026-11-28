@@ -27,7 +27,9 @@ fix_command из манифеста.
               DRIFT; файл не найден ни в одном архиве и не в allowlist -> EXTRA;
               запись pristine-архива отсутствует в установке и не в exclude ->
               MISSING. Allowlist = SNAPSHOT_ONLY + REPO + REPO_BASENAME +
-              check.exclude (data/video/**).
+              dev_artifacts + check.exclude (data/video/**) + побитовая пара пути
+              snapshot-архива (классифицируется после PRISTINE; пустая запись архива —
+              пара по размеру).
 """
 import glob
 import hashlib
@@ -291,8 +293,10 @@ def untouched_tier(install_files):
     base_crc_cache = {}
 
     def pair_in(idx, key, rec):
+        # пустая запись архива: 7-Zip печатает CRC пустого файла пустым,
+        # crc32 пустого файла = 0 -> сравнение по размеру (docs/PITFALLS.md)
         for size, crc in idx.get(key, []):
-            if size == rec[0] and crc == rec[1]:
+            if size == rec[0] and (crc == rec[1] or size == 0):
                 return True
         return False
 
@@ -321,6 +325,9 @@ def untouched_tier(install_files):
             continue
         if pair_in(p_idx, rel, rec):
             counts["PRISTINE"] += 1
+            continue
+        if pair_in(s_idx, rel, rec):
+            counts["ALLOWED"] += 1
             continue
         if any(pair_in(idx, base, rec) for idx in (p_idx, h_idx, s_idx)):
             counts["ARCHIVE_BASENAME"] += 1

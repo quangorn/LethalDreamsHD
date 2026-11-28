@@ -455,3 +455,11 @@ attribute 'move_order'` (строка в секунду), радиус агро 
 - **Обход:** числовые зонды — `ld_debug` и гейт `LD_DEBUG` (`battle/target.cpp`); python-зонды
   ярусом env `HD_LOG` (1 = только `SCENE`/`HD_Init`); уровень 1 = ~16 строк на прогон,
   сводки счётчиков — `ldhook.stats()`, загрузка сайтов — `tools/ldhook/report_sites.py`.
+
+## Ложный DRIFT на 0-байтном файле установки (28.11.2026)
+
+- **Симптом:** `--full --untouched` даёт `DRIFT data/scripts/console.py: размер/CRC32 (0, 00000000) != запись архива`.
+- **Причина:** 7-Zip печатает CRC пустой записи пустым полем; crc32 пустого файла = `00000000`, и
+  сравнение пары `(size, crc)` никогда не проходит.
+- **Обход:** `pair_in()` в `tools/check_state.py` — при `size == 0` пара совпадает по размеру;
+  классификация SNAPSHOT path-pair идёт после PRISTINE (иначе весь снапшот считается ALLOWED).
