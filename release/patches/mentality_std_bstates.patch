@@ -1,10 +1,16 @@
 --- a/mentality/std_bstates.py
 +++ b/mentality/std_bstates.py
-@@ -118,9 +118,12 @@
-         self.bstate.AddEventReaction(ORDER, [RESUME_OBJECT, self.h_ResumeTestAnother], FUNCTION_ACTION | NOTIFY_ACTION, {FUNCTION_ACTION: (self.h_ResumeObject), NOTIFY_ACTION: (self.n_ResumeObject)})
-         self.bstate.AddEventReaction(ORDER, [RESUME_OBJECT, self.h_ResumeTestPoint], FUNCTION_ACTION | NOTIFY_ACTION | DIRECT_OBJECT_TO_POINT, {FUNCTION_ACTION: (self.h_ResumeObject), NOTIFY_ACTION: (self.n_ResumeObject)})
-         self.bstate.AddEventReaction(ORDER, [RESUME_OBJECT, self.h_ResumeTestMO], FUNCTION_ACTION | NOTIFY_ACTION | DIRECT_OBJECT_TO_CHAR_RUN | CHANGE_STATE, {FUNCTION_ACTION: (self.h_ResumeObject), NOTIFY_ACTION: (self.n_ResumeObject), CHANGE_STATE: 'attack'})
+@@ -122,12 +122,15 @@
+         self.bstate.AddEventReaction(ORDER, [MISS_ORDER, self.h_MissTest], DEFEND_OBJECT, 0)
+         self.bstate.AddEventReaction(ORDER, [END_STAND_ANIM], FUNCTION_ACTION, {FUNCTION_ACTION: self.h_EndStandAnim})
+         self.bstate.AddEventReaction(ORDER, [WAIT_OBJECT], (FUNCTION_ACTION | NOTIFY_ACTION), {FUNCTION_ACTION: self.h_WaitObject, NOTIFY_ACTION: self.n_WaitObject})
+-        self.bstate.AddEventReaction(ORDER, [RESUME_OBJECT, self.h_ResumeTestAnother], (FUNCTION_ACTION | NOTIFY_ACTION), {FUNCTION_ACTION: self.h_ResumeObject, NOTIFY_ACTION: self.n_ResumeObject})
+-        self.bstate.AddEventReaction(ORDER, [RESUME_OBJECT, self.h_ResumeTestPoint], ((FUNCTION_ACTION | NOTIFY_ACTION) | DIRECT_OBJECT_TO_POINT), {FUNCTION_ACTION: self.h_ResumeObject, NOTIFY_ACTION: self.n_ResumeObject})
+-        self.bstate.AddEventReaction(ORDER, [RESUME_OBJECT, self.h_ResumeTestMO], (((FUNCTION_ACTION | NOTIFY_ACTION) | DIRECT_OBJECT_TO_CHAR_RUN) | CHANGE_STATE), {FUNCTION_ACTION: self.h_ResumeObject, NOTIFY_ACTION: self.n_ResumeObject, CHANGE_STATE: 'attack'})
 -        self.bstate.SetRuleOfTargetCharSelection(DONT_SELECT_TARGET, 0)
++        self.bstate.AddEventReaction(ORDER, [RESUME_OBJECT, self.h_ResumeTestAnother], FUNCTION_ACTION | NOTIFY_ACTION, {FUNCTION_ACTION: (self.h_ResumeObject), NOTIFY_ACTION: (self.n_ResumeObject)})
++        self.bstate.AddEventReaction(ORDER, [RESUME_OBJECT, self.h_ResumeTestPoint], FUNCTION_ACTION | NOTIFY_ACTION | DIRECT_OBJECT_TO_POINT, {FUNCTION_ACTION: (self.h_ResumeObject), NOTIFY_ACTION: (self.n_ResumeObject)})
++        self.bstate.AddEventReaction(ORDER, [RESUME_OBJECT, self.h_ResumeTestMO], FUNCTION_ACTION | NOTIFY_ACTION | DIRECT_OBJECT_TO_CHAR_RUN | CHANGE_STATE, {FUNCTION_ACTION: (self.h_ResumeObject), NOTIFY_ACTION: (self.n_ResumeObject), CHANGE_STATE: 'attack'})
 +        # Правило отбора задаёт SetRoTCS (CHAR_FUNCTION — радиус агро); правило-ноль
 +        # здесь не ставится: массив правил append-only, лишнее правило отбирает всё.
          self.bstate.SetRuleOfTargetPointSelection(DONT_SELECT_TARGET, 0)
@@ -14,29 +20,39 @@
          self.loitering = 0
          self.loiter_cnt = 0
          self.wait_target = None
-@@ -134,6 +137,7 @@
+@@ -143,9 +146,10 @@
  
      def h_EndFunc(self):
          self.unit.SA_Reset()
 +        self.move_order = 0
          self.wait_target = None
          self.waiting = 0
-         return
-@@ -156,8 +160,11 @@
+-        return 
++        return
+ 
+ 
+ 
+@@ -165,12 +169,14 @@
+ 
+     def h_DirectTo_Remote(self, param):
          self.moving = 1
-         if not self.parent.grouping_flags & SB_GF_STRONG_CONNEXITY & SB_GF_ONE_GROUP_PER_CLASS:
+-        if (not ((self.parent.grouping_flags & SB_GF_STRONG_CONNEXITY) & SB_GF_ONE_GROUP_PER_CLASS)):
++        if not self.parent.grouping_flags & SB_GF_STRONG_CONNEXITY & SB_GF_ONE_GROUP_PER_CLASS:
              self.parent.DetachFromGroup_self()
--        if self.parent.target_selection_flags & SB_TSF_EXCEPT_MOVE:
+-        if (self.parent.target_selection_flags & SB_TSF_EXCEPT_MOVE):
 -            self.bstate.SetRuleOfTargetCharSelection(DONT_SELECT_TARGET, 0)
+-
+-
 +        # Агро глушится только у юнитов стороны игрока (план 10.3): ИИ-командиры
 +        # раздают приказы тем же REMOTE_ORDER, и у них подавление ломало бой.
 +        if not std_brains.IsEnemyOwner(self.unit.Owner):
 +            self.move_order = 1
 +            std_brains.AggroLog(self.unit.Name, 'order start')
-         return
++        return
  
      def h_DirectTo(self, param):
-@@ -166,6 +173,9 @@
+         self.moving = 1
+@@ -179,6 +185,9 @@
  
      def EndMove(self):
          self.moving = 0
@@ -46,8 +62,11 @@
          self.loitering = 0
          self.parent.SetRoTCS(self.bstate)
          self.unit.SA_Reset()
-@@ -176,6 +186,9 @@
-         return
+@@ -189,8 +198,12 @@
+         self.EndMove()
+ 
+ 
++        return
  
      def u_AttackTarget_Melee(self, unit):
 +        if self.move_order:
@@ -56,44 +75,81 @@
          mtarget = [MO_TARGET, 0, unit.MentalityObject, 0]
          self.ment.SetTarget(mtarget)
          self.ment.SendOrder(DIRECT_TO, [unit.MentalityObject.GetGraphObject(), 0])
-@@ -226,6 +239,7 @@
-         return
+@@ -245,10 +258,13 @@
+         return 1
  
-     def h_ResumeObject(self, params=None):
+ 
+-
+-    def h_ResumeObject(self, params = None):
++        return
++
++    def h_ResumeObject(self, params=None):
 +        self.move_order = 0
          self.wait_target = None
          self.waiting = 0
-         return
-@@ -246,6 +260,7 @@
-         return
++        return
  
-     def n_TargetFound(self, param=None):
+ 
+ 
+@@ -269,11 +285,12 @@
+         LOG(self, ('n_ResumeObject ' + repr(params)))
+ 
+ 
+-
+-    def n_TargetFound(self, param = None):
++        return
++
++    def n_TargetFound(self, param=None):
 +        std_brains.AggroLog(self.unit.Name, 'new_target')
          LOG(self, 'h_TargetFound')
-         return
+-
+-
++        return
  
-@@ -306,8 +321,9 @@
-             self.bstate.AddEventReaction(ORDER, [DIRECT_TO_POINT, 0], FUNCTION_ACTION | NOTIFY_ACTION | DIRECT_OBJECT_TO_POINT_RUN, {FUNCTION_ACTION: (self.h_DirectTo_Point), NOTIFY_ACTION: (self.n_DirectTo_Point)})
-             self.bstate.AddEventReaction(TARGET_REACHED, [POINT_TARGET, [0, 0]], FUNCTION_ACTION | NOTIFY_ACTION | STOP_OBJECT, {FUNCTION_ACTION: (self.h_TargetReached_Point), NOTIFY_ACTION: (self.n_TargetReached_Point)})
-         self.bstate.AddEventReaction(ORDER, [DIRECT_TO, 0], NOTIFY_ACTION | DIRECT_OBJECT_TO_CHAR_RUN, {NOTIFY_ACTION: (self.n_DirectTo_Run)})
--        self.bstate.AddEventReaction(TARGET_HIDE, [MO_TARGET], END_STATE | NOTIFY_ACTION | DIRECT_OBJECT_TO_POINT, {NOTIFY_ACTION: (self.n_TargetHide)})
--        self.bstate.AddEventReaction(ORDER, [TARGET_UNREACHABLE, 0], STOP_OBJECT | FORGET_TARGET | END_STATE | NOTIFY_ACTION, {NOTIFY_ACTION: (self.n_TargetUnreachable)})
+     def n_DirectTo_Remote(self, param = None):
+         LOG(self, 'n_DirectTo_Remote')
+@@ -338,14 +355,15 @@
+             self.bstate.AddEventReaction(ORDER, [(REMOTE_ORDER | DIRECT_TO), 0], ((LEAVE_COMMAND | NOTIFY_ACTION) | END_STATE), {NOTIFY_ACTION: self.n_DirectTo})
+             self.bstate.AddEventReaction(ORDER, [(REMOTE_ORDER | DIRECT_TO_RUN), 0], ((LEAVE_COMMAND | NOTIFY_ACTION) | END_STATE), {NOTIFY_ACTION: self.n_DirectTo})
+         if (self.parent.attack_type == SB_AT_KICK_N_RUN):
+-            self.bstate.AddEventReaction(ORDER, [DIRECT_TO_POINT, 0], ((FUNCTION_ACTION | NOTIFY_ACTION) | DIRECT_OBJECT_TO_POINT_RUN), {FUNCTION_ACTION: self.h_DirectTo_Point, NOTIFY_ACTION: self.n_DirectTo_Point})
+-            self.bstate.AddEventReaction(TARGET_REACHED, [POINT_TARGET, [0, 0]], ((FUNCTION_ACTION | NOTIFY_ACTION) | STOP_OBJECT), {FUNCTION_ACTION: self.h_TargetReached_Point, NOTIFY_ACTION: self.n_TargetReached_Point})
+-        self.bstate.AddEventReaction(ORDER, [DIRECT_TO, 0], (NOTIFY_ACTION | DIRECT_OBJECT_TO_CHAR_RUN), {NOTIFY_ACTION: self.n_DirectTo_Run})
+-        self.bstate.AddEventReaction(TARGET_HIDE, [MO_TARGET], ((END_STATE | NOTIFY_ACTION) | DIRECT_OBJECT_TO_POINT), {NOTIFY_ACTION: self.n_TargetHide})
+-        self.bstate.AddEventReaction(ORDER, [TARGET_UNREACHABLE, 0], (((STOP_OBJECT | FORGET_TARGET) | END_STATE) | NOTIFY_ACTION), {NOTIFY_ACTION: self.n_TargetUnreachable})
+-        self.bstate.AddEventReaction(NEAR_ATTACK_DISTANCE, [MO_TARGET, [0, 0]], ((STOP_OBJECT | NOTIFY_ACTION) | CHANGE_STATE), {CHANGE_STATE: 'kick', NOTIFY_ACTION: self.n_NearAttackDistance})
+-        self.bstate.AddEventReaction(TARGET_MOVED, [MO_TARGET, [0, 15]], (DIRECT_OBJECT_TO_CHAR | NOTIFY_ACTION), {NOTIFY_ACTION: self.n_TargetMoved})
+-        self.bstate.AddEventReaction(ORDER, [MISS_ORDER, self.h_MissTest], ((DEFEND_OBJECT | NOTIFY_ACTION) | CHANGE_STATE), {NOTIFY_ACTION: self.n_Miss, CHANGE_STATE: 'locked_anim'})
++            self.bstate.AddEventReaction(ORDER, [DIRECT_TO_POINT, 0], FUNCTION_ACTION | NOTIFY_ACTION | DIRECT_OBJECT_TO_POINT_RUN, {FUNCTION_ACTION: (self.h_DirectTo_Point), NOTIFY_ACTION: (self.n_DirectTo_Point)})
++            self.bstate.AddEventReaction(TARGET_REACHED, [POINT_TARGET, [0, 0]], FUNCTION_ACTION | NOTIFY_ACTION | STOP_OBJECT, {FUNCTION_ACTION: (self.h_TargetReached_Point), NOTIFY_ACTION: (self.n_TargetReached_Point)})
++        self.bstate.AddEventReaction(ORDER, [DIRECT_TO, 0], NOTIFY_ACTION | DIRECT_OBJECT_TO_CHAR_RUN, {NOTIFY_ACTION: (self.n_DirectTo_Run)})
 +        self.bstate.AddEventReaction(TARGET_HIDE, [MO_TARGET], STOP_OBJECT | NOTIFY_ACTION, {NOTIFY_ACTION: (self.n_TargetHide)})
 +        # Цель держится до смерти (план 10.4).
 +        self.bstate.AddEventReaction(ORDER, [TARGET_UNREACHABLE, 0], STOP_OBJECT | NOTIFY_ACTION, {NOTIFY_ACTION: (self.n_TargetUnreachable)})
-         self.bstate.AddEventReaction(NEAR_ATTACK_DISTANCE, [MO_TARGET, [0, 0]], STOP_OBJECT | NOTIFY_ACTION | CHANGE_STATE, {CHANGE_STATE: 'kick', NOTIFY_ACTION: (self.n_NearAttackDistance)})
-         self.bstate.AddEventReaction(TARGET_MOVED, [MO_TARGET, [0, 15]], DIRECT_OBJECT_TO_CHAR | NOTIFY_ACTION, {NOTIFY_ACTION: (self.n_TargetMoved)})
-         self.bstate.AddEventReaction(ORDER, [MISS_ORDER, self.h_MissTest], DEFEND_OBJECT | NOTIFY_ACTION | CHANGE_STATE, {NOTIFY_ACTION: (self.n_Miss), CHANGE_STATE: 'locked_anim'})
-@@ -329,6 +345,7 @@
++        self.bstate.AddEventReaction(NEAR_ATTACK_DISTANCE, [MO_TARGET, [0, 0]], STOP_OBJECT | NOTIFY_ACTION | CHANGE_STATE, {CHANGE_STATE: 'kick', NOTIFY_ACTION: (self.n_NearAttackDistance)})
++        self.bstate.AddEventReaction(TARGET_MOVED, [MO_TARGET, [0, 15]], DIRECT_OBJECT_TO_CHAR | NOTIFY_ACTION, {NOTIFY_ACTION: (self.n_TargetMoved)})
++        self.bstate.AddEventReaction(ORDER, [MISS_ORDER, self.h_MissTest], DEFEND_OBJECT | NOTIFY_ACTION | CHANGE_STATE, {NOTIFY_ACTION: (self.n_Miss), CHANGE_STATE: 'locked_anim'})
+         self.bstate.AddEventReaction(ORDER, [PAIN_ORDER, self.h_PainTest], ((PAIN_OBJECT | NOTIFY_ACTION) | CHANGE_STATE), {NOTIFY_ACTION: self.n_Pain, CHANGE_STATE: 'locked_anim'})
+         self.bstate.AddEventReaction(ORDER, [TARGET_DIED, 0], (((FORGET_TARGET | STOP_OBJECT) | END_STATE) | NOTIFY_ACTION), {NOTIFY_ACTION: self.n_TargetDied})
+         self.bstate.AddEventReaction(ORDER, [WAIT_OBJECT], ((LEAVE_COMMAND | STOP_OBJECT) | END_STATE), {})
+@@ -366,9 +384,10 @@
  
      def h_StartFunc(self):
          target = self.ment.GetTarget()
+-        if (not (self.parent.target_selection_flags & SB_TSF_EXCEPT_ATTACK)):
 +        std_brains.AggroLog(self.unit.Name, 'attack start target=' + str(target != None))
-         if not self.parent.target_selection_flags & SB_TSF_EXCEPT_ATTACK:
++        if not self.parent.target_selection_flags & SB_TSF_EXCEPT_ATTACK:
              self.parent.SetRoTCS(self.bstate)
-         if target == None:
-@@ -600,8 +617,14 @@
-         return
+-        if (target == None):
++        if target == None:
+             self.ment.EndCurrentBehaviourState()
+             return 
+         self.mo_target = target[2]
+@@ -671,11 +690,18 @@
+         BattleMain.h_StartFunc(self)
+ 
+ 
++        return
  
      def h_EnemyFound(self, objs):
 +        if self.move_order:
@@ -101,14 +157,19 @@
 +            return
          target = objs[0]
          unit = target.GetMentalityPart().GetPythonCharacter()
+-        if (self.disengage_cnt >= self.parent.disengage_tries_max):
 +        if not self.parent.IsWithinAggro(unit):
 +            std_brains.AggroLog(self.unit.Name, 'sc_enemy far')
 +            return
-         if self.disengage_cnt >= self.parent.disengage_tries_max:
++        if self.disengage_cnt >= self.parent.disengage_tries_max:
              self.u_AttackTarget_Melee(target.GetMentalityPart().GetPythonCharacter())
              self.disengage_cnt = 0
-@@ -1160,7 +1183,11 @@
-         return
+             return 
+@@ -1275,11 +1301,16 @@
+                 return 
+ 
+ 
++        return
  
      def h_EnemyFound(self, objs):
 +        if self.move_order:
@@ -117,10 +178,16 @@
 +        if not self.parent.IsWithinAggro(unit):
 +            return
          self.parent.u_MoveGroup_Free(unit.GetPosition(), self.parent.cl_escort)
-         if self.CurState < CCS2_MELEE and self.unit.CalcDist_Point(unit.GetPosition()) < self.parent.danger_range:
+-        if ((self.CurState < CCS2_MELEE) and (self.unit.CalcDist_Point(unit.GetPosition()) < self.parent.danger_range)):
++        if self.CurState < CCS2_MELEE and self.unit.CalcDist_Point(unit.GetPosition()) < self.parent.danger_range:
              self.u_RewindStateStack()
-@@ -1584,7 +1611,11 @@
-         return
+             self.CurState = CCS2_MELEE
+             self.u_AttackTarget_Melee(unit)
+@@ -1727,11 +1758,16 @@
+                 return 
+ 
+ 
++        return
  
      def h_EnemyFound(self, objs):
 +        if self.move_order:
@@ -129,5 +196,8 @@
 +        if not self.parent.IsWithinAggro(unit):
 +            return
          self.parent.u_MoveGroup_Free(unit.GetPosition(), self.parent.cl_escort)
-         if self.CurState < CCS2_MELEE and self.unit.CalcDist_Point(unit.GetPosition()) < self.parent.danger_range:
+-        if ((self.CurState < CCS2_MELEE) and (self.unit.CalcDist_Point(unit.GetPosition()) < self.parent.danger_range)):
++        if self.CurState < CCS2_MELEE and self.unit.CalcDist_Point(unit.GetPosition()) < self.parent.danger_range:
              self.u_RewindStateStack()
+             self.CurState = CCS2_MELEE
+             self.u_AttackTarget_Melee(unit)

@@ -1,9 +1,12 @@
 --- a/battlecamera.py
 +++ b/battlecamera.py
-@@ -146,6 +146,32 @@
+@@ -155,9 +155,34 @@
          self.shake_time_left = 0
          self.shake_power = 0
          self.PrevPos = []
+-        return 0
+-
+-
 +        # MMB-обзор и зум колесом (добавлено 2026-11-18).
 +        # mmb_look=1, пока зажата средняя кнопка; mmb_anchor — точка нажатия
 +        # (движковые координаты WMO_MOUSEMOVE), от неё считается отклонение.
@@ -30,16 +33,23 @@
 +        # шаг зума на щелчок колеса (120 ед.); 1.0 = в 3 раза слабее исходных 3.0
 +        # по просьбе пользователя (18.11.2026)
 +        self.zoom_step = 1.0
-         return 0
-         return
++        return 0
++        return
  
-@@ -279,7 +305,31 @@
-         return
+     def B_Dest(self):
+         self.UnsubscribeKeyboard()
+@@ -297,24 +322,75 @@
+         return 0
+ 
+ 
++        return
  
      def h_MouseWheel(self, x, y, btns, wheel):
 +        # Колесо = зум (высота камеры над землёй). Оригинал крутил на этом
 +        # событии наклон (is_pitch) и сдвиг (is_slide_ud) - заменено.
          self.ms_wheel_delta = wheel
+-
+-
 +        try:
 +            steps = wheel / 120.0
 +        except Exception:
@@ -62,13 +72,15 @@
 +        if self.zoom_up < self.up_min:
 +            self.zoom_up = self.up_min
 +        return
-         return
++        return
  
      def h_MouseMove(self, x, y, flags):
-@@ -287,11 +337,39 @@
+         if ((self.ms_lastx == -1) and (self.ms_lasty == -1)):
              self.ms_lastx = x
              self.ms_lasty = y
              return 1
+-        self.ms_dx = ((self.ms_dx + x) - self.ms_lastx)
+-        self.ms_dy = ((self.ms_dy + y) - self.ms_lasty)
 +        # MMB: движок отдаёт среднюю кнопку флагом MK_MBUTTON (16) в этом же
 +        # событии (проверено прогоном: flags=16 при зажатой, 0 после отпускания).
 +        mmb = 0
@@ -81,11 +93,13 @@
 +                self.mmb_anchor[1] = y
 +        elif self.mmb_look:
 +            self.mmb_look = 0
-         self.ms_dx = self.ms_dx + x - self.ms_lastx
-         self.ms_dy = self.ms_dy + y - self.ms_lasty
++        self.ms_dx = self.ms_dx + x - self.ms_lastx
++        self.ms_dy = self.ms_dy + y - self.ms_lasty
          self.ms_lastx = x
          self.ms_lasty = y
          return 0
+-
+-
 +        return
 +
 +    def HDEdgeY(self):
@@ -102,14 +116,15 @@
 +            return hd_scale.SY(self.screen_size[1] - 1)
 +        except Exception:
 +            return self.screen_size[1] - 1
-         return
++        return
  
      def hB_Update(self, time):
-@@ -302,15 +380,45 @@
+         if (self.bEnable == 0):
+@@ -324,18 +400,48 @@
          if len(self.PrevPos):
              self.cam.SetPos(self.PrevPos[0], self.PrevPos[1], self.PrevPos[2])
          if self.ms_wheel_delta:
--            if self.ms_wheel_delta > 0:
+-            if (self.ms_wheel_delta > 0):
 -                self.is_pitch = 1
 -                self.is_slide_ud = 1
 -            else:
@@ -117,8 +132,13 @@
 -                self.is_slide_ud = -1
 +            # колесо больше не наклоняет/сдвигает камеру: зум применён в h_MouseWheel
              self.ms_wheel_delta = 0
-         if self.is_turn != 0:
-             self.cam.RotateAroundY(self.is_turn * time * self.turn_speed)
+-        if (self.is_turn != 0):
+-            self.cam.RotateAroundY(((self.is_turn * time) * self.turn_speed))
+-        if (self.is_pitch != 0):
+-            pitch = ((self.is_pitch * time) * self.pitch_speed)
+-            if ((self.cur_pitch + pitch) >= self.max_pitch):
++        if self.is_turn != 0:
++            self.cam.RotateAroundY(self.is_turn * time * self.turn_speed)
 +        if self.mmb_look:
 +            # MMB-обзор: отклонение курсора от точки нажатия. Мёртвая зона по
 +            # каждой оси, скорость растёт с отклонением; по горизонтали есть
@@ -154,28 +174,44 @@
 +                else:
 +                    self.cur_pitch = self.cur_pitch + pitch
 +                self.cam.Rotate(0, -pitch, 0)
-         if self.is_pitch != 0:
-             pitch = self.is_pitch * time * self.pitch_speed
-             if self.cur_pitch + pitch >= self.max_pitch:
-@@ -328,24 +436,39 @@
++        if self.is_pitch != 0:
++            pitch = self.is_pitch * time * self.pitch_speed
++            if self.cur_pitch + pitch >= self.max_pitch:
+                 pitch = (self.max_pitch - self.cur_pitch)
+                 self.cur_pitch = self.max_pitch
+             elif ((self.cur_pitch + pitch) <= self.min_pitch):
+@@ -348,28 +454,43 @@
+         prevYDelta = (prev_cpos[1] - self.scene.GetIHeightInPosCamera(prev_cpos[0], prev_cpos[2]))
+         if (prevYDelta > self.max_up):
              prevYDelta = self.max_up
-         if prevYDelta < self.min_up:
+-        if (prevYDelta < self.min_up):
++        if prevYDelta < self.min_up:
              prevYDelta = self.min_up
+-        if (self.is_move != 0):
+-            self.cam.MoveAlignedXZ(0, 0, ((self.is_move * time) * self.moving_speed))
+-        if (self.is_slide_lr != 0):
+-            self.cam.MoveAlignedXZ(((-self.is_slide_lr * time) * self.moving_speed), 0, 0)
+-        if (self.ms_lastx > (self.screen_size[0] - 1)):
+-            self.cam.MoveAlignedXZ((-time * self.ms_hsens), 0, 0)
+-        if (self.ms_lastx == 0):
+-            self.cam.MoveAlignedXZ((time * self.ms_hsens), 0, 0)
+-        if (self.ms_lasty == 0):
+-            self.cam.MoveAlignedXZ(0, 0, (time * self.ms_vsens))
+-        if (self.ms_lasty > (self.screen_size[1] - 1)):
+-            self.cam.MoveAlignedXZ(0, 0, (-time * self.ms_vsens))
+-        if (self.is_slide_ud != 0):
+-            prevYDelta += ((-self.is_slide_ud * time) * self.moving_speed)
+-            if (prevYDelta > self.max_up):
+-                prevYDelta = self.max_up
+-            if (prevYDelta < self.min_up):
+-                prevYDelta = self.min_up
 +        if self.zoom_active:
 +            # зум: держим заданную высоту над землёй (terrain following сохранён)
 +            prevYDelta = self.zoom_up
-         if self.is_move != 0:
-             self.cam.MoveAlignedXZ(0, 0, self.is_move * time * self.moving_speed)
-         if self.is_slide_lr != 0:
-             self.cam.MoveAlignedXZ(-self.is_slide_lr * time * self.moving_speed, 0, 0)
--        if self.ms_lastx > self.screen_size[0] - 1:
--            self.cam.MoveAlignedXZ(-time * self.ms_hsens, 0, 0)
--        if self.ms_lastx == 0:
--            self.cam.MoveAlignedXZ(time * self.ms_hsens, 0, 0)
--        if self.ms_lasty == 0:
--            self.cam.MoveAlignedXZ(0, 0, time * self.ms_vsens)
--        if self.ms_lasty > self.screen_size[1] - 1:
--            self.cam.MoveAlignedXZ(0, 0, -time * self.ms_vsens)
++        if self.is_move != 0:
++            self.cam.MoveAlignedXZ(0, 0, self.is_move * time * self.moving_speed)
++        if self.is_slide_lr != 0:
++            self.cam.MoveAlignedXZ(-self.is_slide_lr * time * self.moving_speed, 0, 0)
 +        if not self.mmb_look:
 +            # краевой скролл подавляется, пока зажата MMB (иначе у края экрана
 +            # одновременно и вращение, и перенос камеры)
@@ -187,12 +223,7 @@
 +                self.cam.MoveAlignedXZ(0, 0, time * self.ms_vsens)
 +            if self.ms_lasty > self.HDEdgeY():
 +                self.cam.MoveAlignedXZ(0, 0, -time * self.ms_vsens)
-         if self.is_slide_ud != 0:
--            prevYDelta += -self.is_slide_ud * time * self.moving_speed
--            if prevYDelta > self.max_up:
--                prevYDelta = self.max_up
--            if prevYDelta < self.min_up:
--                prevYDelta = self.min_up
++        if self.is_slide_ud != 0:
 +            if self.zoom_active:
 +                # клавиши «вверх/вниз» при активном зуме меняют zoom_up
 +                self.zoom_up = self.zoom_up - self.is_slide_ud * time * self.moving_speed
@@ -208,5 +239,8 @@
 +                if prevYDelta < self.min_up:
 +                    prevYDelta = self.min_up
          cpos = self.cam.GetPos()
-         self.cam.MoveY(cpos[1] - (prevYDelta + self.scene.GetIHeightInPosCamera(cpos[0], cpos[2])))
+-        self.cam.MoveY((cpos[1] - (prevYDelta + self.scene.GetIHeightInPosCamera(cpos[0], cpos[2]))))
++        self.cam.MoveY(cpos[1] - (prevYDelta + self.scene.GetIHeightInPosCamera(cpos[0], cpos[2])))
          cpos = self.cam.GetPos()
+         cpos[0] = (cpos[0] - self.dom_center[0])
+         cpos[1] = (cpos[1] - self.dom_center[1])

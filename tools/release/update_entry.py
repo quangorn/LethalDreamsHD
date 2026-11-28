@@ -65,7 +65,7 @@ def main():
     base_path = os.path.join(_ROOT, e["base"])
     py_path = os.path.join(_ROOT, e["repo_py"])
     if not os.path.exists(base_path):
-        raise SystemExit("нет базы %s (декомпилят: tools/pyc/decompile_lit.py %s)" % (e["base"], module))
+        raise SystemExit("нет базы %s (декомпилят: python3 tools/pyc/decompyle_base.py --write)" % e["base"])
     if not os.path.exists(py_path):
         raise SystemExit("нет %s" % e["repo_py"])
 

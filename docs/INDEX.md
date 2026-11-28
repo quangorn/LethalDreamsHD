@@ -9,7 +9,7 @@
 | состояние проекта и установки (срезы дат) | `docs/STATE.md` |
 | модель проверки, ярусы чекера, контрольные точки | `docs/VERIFY.md` |
 | все патчи (EXE-цепочка, borderless, шрифты, UI-правки, k-схема) | `docs/PATCHES.md` |
-| канонические пайплайны, recovery-декомпилят, база `decompiled_fixed/` | `docs/PIPELINE.md` |
+| канонические пайплайны, база `decompiled_fixed/` (decompyle 2.3.2) | `docs/PIPELINE.md` |
 | инструментальный инвентарь и тулчейн сессий | `docs/TOOLS.md` |
 | факты о движке, форматах, поведении игры, chokepoint'ах, пути в бой | `docs/KNOWLEDGE.md` |
 | наблюдения: рендер, DPI, геометрия мира и проекция, Python-слой (`python22.dll`, `Lib`, корневые `.pyc`) | `docs/OBSERVATIONS_ENGINE.md` |
@@ -54,7 +54,7 @@
 | `docs/OBSERVATIONS_TEXTURE.md` | наблюдения: раскод/формат `.btf`, packer, курсоры, иконки, апскейлы |
 | `docs/OBSERVATIONS_BATTLE_AI.md` | наблюдения: боевой AI — автомат тика `44bdd0`, цикл `45e0a0`, A* (PathState/карты/маски), метрика и выбор цели, бюджет вызовов |
 | `docs/PITFALLS.md` | известные грабли: симптом → причина → обход |
-| `docs/DECOMP_DEFECTS.md` | каталог дефектов декомпиллятора (uncompyle6) в базе `decompiled_fixed/`: классы порчи, что фиксилось, критерии проверки, требования к заменяющему декомпиллятору |
+| `docs/DECOMP_DEFECTS.md` | дефекты декомпиляторов базы `decompiled_fixed/`: почему заменён uncompyle6 на decompyle 2.3.2, что осталось, критерии проверки, требования к декомпилятору |
 | `docs/CONTRADICTIONS.md` | реестр опровергнутых утверждений (фиксировать, не «починить» молча) |
 | `docs/PLAN_proxy_dll.md` | план исследования: прокси-`python22.dll` вместо cave-патчей (C, логгер, снятие лимита 238 байт) |
 | `docs/archive/HANDOFF_ldhook.md` | передача по `.pyd`-хукам: что сделано/проверено, чего нет, варианты A–E и гейты |

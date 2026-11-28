@@ -76,9 +76,9 @@ python3 tools/apply_patch.py <модуль> && python3 tools/pyc/install_patch.p
   фактическая строки. Повторный прогон идемпотентен. Модули:
   `gamescript, ui/ui, ui/cursor, ui/olmenu, ui/battlemenu, ui/btutorial`. Запись в игру —
   только с `--install` (делегирование install_patch.py).
-- База декомпилята создаётся из **вашей** копии игры:
-  `python3 tools/pyc/decompile_lit.py <module>` (список инструментов и py2-only скриптов —
-  `tools/pyc/README.md`).
+- База декомпилята создаётся из **вашей** копии игры (родные `.pyc` из архива):
+  `python3 tools/pyc/fetch_decompyle.py` и `python3 tools/pyc/decompyle_base.py --write`
+  (список инструментов и py2-only скриптов — `tools/pyc/README.md`).
 - `python3 tools/pyc/install_patch.py <module>` — компилирует `.py` воркером 2.2.3
  (`--install` — записывает `.pyc` в игру; без флага игра не трогается, печатается
   цель записи).

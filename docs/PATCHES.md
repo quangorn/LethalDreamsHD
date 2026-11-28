@@ -15,6 +15,11 @@
   (md5 базы + строковые контексты); при конфликте не пишет ничего и печатает
   ожидаемую/фактическую строки; идемпотентен (повторный прогон = byte-identical
   результат).
+- Смена базы-декомпилята: `tools/pyc/port_patch.py --all --base <dir>` переносит
+  правки на новую базу (выравнивание строк + гейт байткодом), затем
+  `tools/release/update_entry.py <м>` пересобирает `.patch` и запись манифеста.
+- Гейт «патч ↔ база»: `python3 tools/pyc/check_patches.py [--base DIR]` — rc≠0
+  значит хунки не ложатся или патч перестал давать установленный bytecode.
 - Расположение: `tools/apply_patch.py` рядом с `tools/check_state.py` — это место
   зафиксировано в `fix_command` манифеста
   (`python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>`),
@@ -55,19 +60,19 @@ rewrite даёт header build-time (`2026-11-17 10:42`) и md5, не равны�
 | модуль | патч (размер) | pyc_source_mtime |
 |---|---|---|
 | data/scripts/gamescript | gamescript.patch (554 B) | 1794778202 |
-| ui/ui | ui_ui.patch (3574 B) | 1794778202 |
-| ui/cursor | ui_cursor.patch (4120 B) | 1794778645 |
-| ui/olmenu | ui_olmenu.patch (2237 B) | 1794778203 |
-| ui/battlemenu | ui_battlemenu.patch (5579 B) | 1794778202 |
-| ui/btutorial | ui_btutorial.patch (599 B) | 1794778203 |
-| ui/olcamera | ui_olcamera.patch (1481 B) | 1794778203 |
-| battlecamera | battlecamera.patch (11241 B) | 1794778203 |
-| bdomain | bdomain.patch (1388 B) | 1794778203 |
-| mentality/std_brains | mentality_std_brains.patch (4995 B) | 1047745868 |
-| mentality/std_bstates | mentality_std_bstates.patch (7208 B) | 1052809502 |
-| mentality/battlecharacters | mentality_battlecharacters.patch (790 B) | 1052156450 |
+| ui/ui | ui_ui.patch (4764 B) | 1794778202 |
+| ui/cursor | ui_cursor.patch (4196 B) | 1794778645 |
+| ui/olmenu | ui_olmenu.patch (2758 B) | 1794778203 |
+| ui/battlemenu | ui_battlemenu.patch (6237 B) | 1794778202 |
+| ui/btutorial | ui_btutorial.patch (864 B) | 1794778203 |
+| ui/olcamera | ui_olcamera.patch (1943 B) | 1794778203 |
+| battlecamera | battlecamera.patch (12473 B) | 1794778203 |
+| mentality/std_brains | mentality_std_brains.patch (5655 B) | 1047745868 |
+| mentality/std_bstates | mentality_std_bstates.patch (11577 B) | 1052809502 |
+| mentality/battlecharacters | mentality_battlecharacters.patch (996 B) | 1052156450 |
 
-- 12 патчей; новые модули без патча: `data/scripts/types.pyc`, `data/scripts/hd_res.pyc`,
+- 11 патчей (патч `bdomain` снят 27.11.2026, модуль родной); новые модули без патча:
+  `data/scripts/types.pyc`, `data/scripts/hd_res.pyc`,
   `data/scripts/hd_scale.pyc`, `data/scripts/hd_tex.pyc`.
 - base-печать == установленный md5 для всех модулей, кроме загрузчика `ui/ui.pyc`
   (KNOWN-drift, `docs/VERIFY.md`); дрейф `ui/cursor.pyc` закрыт 19.11.2026.

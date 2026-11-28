@@ -1,8 +1,11 @@
---- a/ui_olcamera.py
-+++ b/ui_olcamera.py
-@@ -99,3 +99,19 @@
-         return
+--- a/ui/olcamera.py
++++ b/ui/olcamera.py
+@@ -102,6 +102,22 @@
+         self.ms_lasty = y
  
+ 
++        return
++
 +    def HDEdgeY(self):
 +        # 16:9: движок отдаёт мышь в своих единицах, Y-диапазон = h/s = 768*k < 768;
 +        # родной канвасный порог screen_size[1]-1 = 766 в движковых единицах
@@ -17,12 +20,21 @@
 +        except Exception:
 +            return self.screen_size[1] - 1
 +        return
-+
+ 
      def h_Update(self, time):
-@@ -110,5 +126,5 @@
-         if self.ms_lasty == 0:
-             self.cam.MoveAlignedXZ(0, 0, time * self.ms_vsens)
--        if self.ms_lasty > self.screen_size[1] - 1:
+         if (self.is_scrollud != 0):
+@@ -112,10 +128,10 @@
+             self.cam.MoveAlignedXZ((-time * self.ms_hsens), 0, 0)
+         if (self.ms_lastx == 0):
+             self.cam.MoveAlignedXZ((time * self.ms_hsens), 0, 0)
+-        if (self.ms_lasty == 0):
+-            self.cam.MoveAlignedXZ(0, 0, (time * self.ms_vsens))
+-        if (self.ms_lasty > (self.screen_size[1] - 1)):
+-            self.cam.MoveAlignedXZ(0, 0, (-time * self.ms_vsens))
++        if self.ms_lasty == 0:
++            self.cam.MoveAlignedXZ(0, 0, time * self.ms_vsens)
 +        if self.ms_lasty > self.HDEdgeY():
-             self.cam.MoveAlignedXZ(0, 0, -time * self.ms_vsens)
++            self.cam.MoveAlignedXZ(0, 0, -time * self.ms_vsens)
          self.ms_dx = 0
+         self.ms_dy = 0
+         self.BoundCamera()

@@ -156,8 +156,8 @@ def main():
 
     base = os.path.join(_ROOT, e["base"])
     if not os.path.exists(base):
-        print("base missing: %s\nrecreate the decompilate from your own game copy:\n  python3 tools/pyc/decompile_lit.py %s"
-              % (e["base"], module))
+        print("base missing: %s\nrecreate the decompilate from your own game copy:\n"
+              "  python3 tools/pyc/decompyle_base.py --write" % e["base"])
         sys.exit(1)
 
     patch_path = os.path.join(_ROOT, e["patch_file"])

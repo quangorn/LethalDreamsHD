@@ -52,17 +52,23 @@ python3 tools/pyc/make_cfg.py <w> <h> [--fs] --install
 ## pyc-пайплайн (tools/pyc)
 
 ```
-python3 tools/pyc/decompile_lit.py <module>        # декомпилят+литералы в decompiled_fixed/<module>.py
-python3 tools/pyc/decompile_lit.py --all            # все 434 модуля (+ report.txt)
-python3 tools/pyc/decompile_lit.py --check-battlemenu
+python3 tools/pyc/fetch_decompyle.py               # поставить decompyle 2.3.2 в vendor/decompyle
+python3 tools/pyc/decompyle_base.py                # база из родных .pyc в build/decompyle_base/ (--scan)
+python3 tools/pyc/decompyle_base.py --write        # записать её в decompiled_fixed/
+python3 tools/pyc/check_patches.py [--base DIR]    # патчи ложатся? гейт по ядру опкодов
+python3 tools/pyc/port_patch.py --all --base DIR   # перенести правки на новую базу (+гейт)
 python3 tools/pyc/pyc_scan.py [--code]            # каталог .pyc игры по magic (парсер marshal 2.2)
 python3 tools/pyc/pycbuild.py <cmd> [args]        # normalize/gate/build/parity/vdiff/fixlits/... (см. ниже)
 python3 tools/pyc/py22_worker.py <mode> <args>     # воркер Python 2.2.3; py2-скрипт (py3 AST падает)
+python3 tools/pyc/decompyle_worker.py <mode> <lst> # py2-воркер: batch (decompyle), compile
 python3 tools/pyc/parity_file.py <pyc> <py>       # паритет байткода пары файлов
 python3 tools/pyc/parity_vs.py <module> <orig.pyc> # паритет компилята .py против оригинала
 python3 tools/pyc/hdpatch.py                      # адъюстер HD-масштаба к build/*.py
 python3 tools/pyc/probe1.py                       # зондовые сборки (после 2026-11 снимки не нужны)
 ```
+
+Прежний recovery-стек (`decompile_lit.py`, `lit_order.py`, `lit_scan.py`) — исторический:
+он лечил дефекты uncompyle6, которых у decompyle нет (`docs/DECOMP_DEFECTS.md`).
 
 `vdiff_canon.py`/`vdiff_mod.py` — библиотеки сравнения canon vs мод (вызываются
 pycbuild, не CLI). Список всех команд pycbuild: `python3 tools/pyc/pycbuild.py` без
@@ -214,6 +220,12 @@ python3 tools/extract_pristine.py templates  # btf-шаблоны/родные �
 
 
 ## Тулчейн
+- `tools/pyc/decompyle_base.py` — база `decompiled_fixed/` из РОДНЫХ `.pyc`
+  декомпилятором **decompyle 2.3.2** (`vendor/decompyle/`, untracked, ставится
+  `tools/pyc/fetch_decompyle.py`: tar.gz с SourceForge + одна правка — marshal 2.2
+  берётся нативный из 2.2.3). Прогон: `--jobs N` (параллельные воркеры 2.2.3),
+  `--only`, `--resume`, `--normalize-only`, `--write`. Гейт — «ядро опкодов»
+  компилята против родного `.pyc`; нормализация стиля — `tools/pyc/pyc_text.py`.
 - `tools/pyc/pycbuild.py` — normalize/gate/build/parity/gate-all/sim-all/fixlits/fix-all/vdiff/
   fixints/build-all/hd-all/install-min/install-hd/install-all/restore-all/install-list/
   install-fns/install-probe-all/fnames/fnames-all/vdiff-all/install/uninstall (команды

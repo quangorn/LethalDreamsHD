@@ -16,7 +16,14 @@
 | файл | роль |
 |---|---|
 | `pyc_scan.py` | парсер marshal Python 2.2, каталог `.pyc` игры по magic (`--code` — layout code object) |
-| `decompile_lit.py` | декомпилят + восстановление литералов: `<module>`, `--all`, `--check-battlemenu`; результат в `decompiled_fixed/<module>.py` (локальный, в git не входит) |
+| `decompyle_base.py` | база `decompiled_fixed/` из родных `.pyc` (decompyle 2.3.2): `--scan`, `--write`, `--only`, `--resume`; гейт «ядро опкодов» |
+| `decompyle_worker.py` | py2-воркер для `decompyle_base.py`: `batch` (decompyle по списку), `compile` (сборка `.pyc`) |
+| `litmod.py` | fallback для «плоских литеральных» модулей (decompyle не берёт `dictionary_rus`): стековая машина по `co_code` |
+| `fetch_decompyle.py` | скачать/разложить decompyle 2.3.2 в `vendor/decompyle` (`--check`, `--force`) |
+| `check_patches.py` | гейт: патч ложится на базу и даёт тот же `.pyc` (`--base`, `--only`) |
+| `port_patch.py` | перенос правок `patches/*.py` на новую базу (выравнивание строк + гейт байткодом) |
+| `pyc_text.py` | нормализация текста декомпилята: склейка импортов, снятие скобок, схлопывание переносов в литералах |
+| `decompile_lit.py` | **историческое:** recovery литералов поверх uncompyle6 (`<module>`, `--all`); заменено `decompyle_base.py` |
 | `pycbuild.py` | пайплайн: normalize/gate/build/parity/gate-all/sim-all/fixlits/fix-all/vdiff/fixints/build-all/hd-all/install-min/install-hd/install-all/restore-all/install-list/install-fns/install-probe-all/fnames/fnames-all/vdiff-all/install/uninstall; список команд печатается запуском без аргументов. Установка/откат в игру — команды, явно называющие установку |
 | `py22_worker.py` | воркер 2.2.3 (см. выше); `PYTHONPATH = py223.dir + paths.cache_lib_dir()` (игровой `Lib` не входит) |
 | `install_patch.py` | сборка `patches/<module>.py` → `.pyc` компилятором 2.2.3; запись в игру только с `--install` |
@@ -39,5 +46,6 @@
 
 `decompiled_fixed/**` — производные от игрового bytecode, локальные, в git не
 входят; создаются из вашей копии игры:
-`python3 tools/pyc/decompile_lit.py <module>` (`--all` — все 434 модуля).
-Полный порядок шагов: `docs/PIPELINE.md`.
+`python3 tools/extract_pristine.py extract "data/scripts/*"` →
+`python3 tools/pyc/fetch_decompyle.py` → `python3 tools/pyc/decompyle_base.py --write`.
+Полный порядок шагов и гейты: `docs/PIPELINE.md`.

@@ -1,5 +1,5 @@
---- a/ui_cursor.py
-+++ b/ui_cursor.py
+--- a/ui/cursor.py
++++ b/ui/cursor.py
 @@ -1,4 +1,9 @@
  import ui, globalscript, gamemodule, copy
 +_HMC = [0]
@@ -10,36 +10,50 @@
  Dict = globalscript.GetDictionary()
  CUR_NONE = -1
  CUR_ARROW = 0
-@@ -85,7 +90,7 @@
+@@ -83,6 +88,7 @@
+ class BCursor:
  
      def __init__(self):
-         global PrevCursorPos
--        self.cur_table = [['cursor_arrow.tga', 32, 32, 32, 32], ['cursor_move.tga', 32, 32, 32, 32], ['cursor_move_deny.tga', 32, 32, 32, 32], ['cursor_spell.tga', 32, 2, 16, 16], ['cursor_spell_deny.tga', 32, 32, 16, 16], ['cursor_disband.tga', 32, 2, 16, 16], ['cursor_disband_deny.tga', 2, 2, 16, 16], ['cursor_spell_ready.tga', 2, 2, 16, 16]]
-+        self.cur_table = [['cursor_arrow.tga', 32, 32, 2, 2], ['cursor_move.tga', 32, 32, 2, 2], ['cursor_move_deny.tga', 32, 32, 2, 2], ['cursor_spell.tga', 32, 32, 16, 16], ['cursor_spell_deny.tga', 32, 32, 16, 16], ['cursor_disband.tga', 32, 32, 16, 16], ['cursor_disband_deny.tga', 32, 32, 16, 16], ['cursor_spell_ready.tga', 32, 32, 16, 16]]
++        global PrevCursorPos
+         self.cur_table = [['cursor_arrow.tga', 32, 32, 2, 2], ['cursor_move.tga', 32, 32, 2, 2], ['cursor_move_deny.tga', 32, 32, 2, 2], ['cursor_spell.tga', 32, 32, 16, 16], ['cursor_spell_deny.tga', 32, 32, 16, 16], ['cursor_disband.tga', 32, 32, 16, 16], ['cursor_disband_deny.tga', 32, 32, 16, 16], ['cursor_spell_ready.tga', 32, 32, 16, 16]]
          self.ico_table = [['sp_summonmage_ci01.tga', 32, 32], ['sp_summonwarrior_ci01.tga', 32, 32], ['sp_summonwarrior_ci02.tga', 32, 32], ['sp_bonesmove_ci01.tga', 32, 32], ['sp_bonesmove_ci02.tga', 32, 32], ['sp_bonesmove_ci03.tga', 32, 32], ['sp_spiritrising_ci01.tga', 32, 32], ['sp_spiritrising_ci02.tga', 32, 32], ['sp_spiritrising_ci03.tga', 32, 32], ['sp_golem_ci01.tga', 32, 32], ['sp_golem_ci02.tga', 32, 32], ['sp_emotion_ci01.tga', 32, 32], ['sp_emotion_ci02.tga', 32, 32], ['sp_emotion_ci03.tga', 32, 32], ['sp_emotion_ci04.tga', 32, 32], ['sp_darkraven_ci01.tga', 32, 32], ['sp_hollowwarrior_ci01.tga', 32, 32], ['sp_lightning_ci02.tga', 32, 32], ['sp_animatefire_ci02.tga', 32, 32], ['sp_greenaerie_ci01.tga', 32, 32], ['sp_magicspirit_ci01.tga', 32, 32], ['sp_stonemadness_ci01.tga', 32, 32], ['sp_stonemadness_ci02.tga', 32, 32], ['sp_treant_ci01.tga', 32, 32], ['sp_lightning_ci01.tga', 32, 32], ['sp_animatefire_ci01.tga', 32, 32], ['sp_hollowwarrior_ci02.tga', 32, 32], ['sp_transformation_ci01.tga', 32, 32], ['sp_transformation_ci02.tga', 32, 32], ['sp_ol_magicsun_ci01.tga', 32, 32], ['da_solarcollector_ci01.tga', 32, 32], ['sp_ol_shieldofwill_ci01.tga', 32, 32], ['sp_ol_mirrorwarden_ci01.tga', 32, 32], ['sp_ol_dreamsource_ci01.tga', 32, 32], ['sp_ol_mysticalthief_ci01.tga', 32, 32], ['sp_ol_perfectworld_ci01.tga', 32, 32], ['sp_ol_pacify_ci01.tga', 32, 32], ['da_observatory.tga', 32, 32], ['sp_ol_creation_ci01.tga', 32, 32], ['sp_ol_greatauraofoblivion_ci01.tga', 32, 32], ['sp_ol_astralgates_ci01.tga', 32, 32], ['sp_ol_astralcorridor_ci01.tga', 32, 32], ['', 32, 32], ['sp_ol_shifting_ci01.tga', 32, 32], ['sp_ol_ghostship_ci01.tga', 32, 32], ['da_flyingdutchman_ci01.tga', 32, 32], ['da_dyingdomain_ci01.tga', 32, 32], ['', 32, 32], ['da_labyrinth_ci01.tga', 32, 32], ['', 32, 32], ['da_crossroad_ci01.tga', 32, 32], ['da_chichenitza_ci01.tga', 32, 32], ['da_drylands_ci01.tga', 32, 32], ['da_disputable_ci01.tga', 32, 32], ['da_stonequarry_ci01.tga', 32, 32], ['da_baldhill_ci01.tga', 32, 32], ['da_pangrove_ci01.tga', 32, 32], ['da_distortedmirrors_ci01.tga', 32, 32], ['da_icefortress_ci01.tga', 32, 32], ['', 32, 32], ['', 32, 32], ['da_etheralstronghold_ci01.tga', 32, 32], ['da_teriomorphstronghold_ci01.tga', 32, 32], ['', 32, 32]]
          self.Scenes = {}
-         self.Scene = -1
-@@ -276,6 +281,7 @@
-         return
+@@ -289,8 +295,10 @@
+ 
+ 
+ 
++        return
  
      def h_MouseMove(self, mx, my, flags):
 +        hm('MM ' + repr((mx, my)))
          self.ms_x = mx
          self.ms_y = my
          self.ms_ox = mx
-@@ -290,6 +296,7 @@
-         return
+@@ -304,21 +312,23 @@
+         gamemodule.SendMessage(globalscript.WT_MOUSE, globalscript.WM_MOUSEMOVE, 0, (self.ms_x, self.ms_y, flags))
+ 
+ 
++        return
  
      def h_MouseLBDown(self, mx, my, flags):
 +        hm('LBD ' + repr((mx, my)))
          gamemodule.SendMessage(globalscript.WT_MOUSE, globalscript.WM_LBDOWN, 0, (self.ms_x, self.ms_y, flags))
-         return
+-
+-
++        return
  
-@@ -298,6 +305,7 @@
-         return
+     def h_MouseRBDown(self, mx, my, flags):
+         gamemodule.SendMessage(globalscript.WT_MOUSE, globalscript.WM_RBDOWN, 0, (self.ms_x, self.ms_y, flags))
+ 
+ 
++        return
  
      def h_MouseLBUp(self, mx, my, flags):
 +        hm('LBUP ' + repr((mx, my)))
          gamemodule.SendMessage(globalscript.WT_MOUSE, globalscript.WM_LBUP, 0, (self.ms_x, self.ms_y, flags))
-         return
+-
+-
++        return
  
+     def h_MouseRBUp(self, mx, my, flags):
+         gamemodule.SendMessage(globalscript.WT_MOUSE, globalscript.WM_RBUP, 0, (self.ms_x, self.ms_y, flags))

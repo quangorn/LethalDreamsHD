@@ -87,14 +87,17 @@ def core(c):
     официальном 2.3-поведении классов) и схлопывает повторный хвост
     `LOAD_CONST None` + `RETURN_VALUE` (2.2 и альфа эмитят разное число)."""
     items = [x for x in parse_offs(c) if OPS.get(x[0]) != 'SET_LINENO']
-    keep = []
+    # `names` — tuple, поэтому сравнение срезов идёт кортежем, и снимается вся пара
+    # (LOAD_GLOBAL __name__ + STORE_NAME __module__), а не только первая половина.
+    skip = set()
     for k, (op, arg, off) in enumerate(items):
-        if OPS.get(op) == 'LOAD_GLOBAL' and arg is not None and c['names'][arg:arg + 1] == [b'__name__']:
+        if OPS.get(op) == 'LOAD_GLOBAL' and arg is not None and c['names'][arg:arg + 1] == (b'__name__',):
             nxt = items[k + 1] if k + 1 < len(items) else None
             if nxt and OPS.get(nxt[0]) == 'STORE_NAME' and nxt[1] is not None \
-                    and c['names'][nxt[1]:nxt[1] + 1] == [b'__module__']:
-                continue
-        keep.append((op, arg, off))
+                    and c['names'][nxt[1]:nxt[1] + 1] == (b'__module__',):
+                skip.add(k)
+                skip.add(k + 1)
+    keep = [x for k, x in enumerate(items) if k not in skip]
 
     def is_null(op, arg):
         if OPS.get(op) != 'LOAD_CONST' or arg is None:

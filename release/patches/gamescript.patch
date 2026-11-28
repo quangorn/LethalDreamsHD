@@ -1,6 +1,6 @@
 --- a/gamescript.py
 +++ b/gamescript.py
-@@ -72,7 +72,16 @@
+@@ -71,7 +71,16 @@
  
  
  def Initialize():

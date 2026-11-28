@@ -4,7 +4,7 @@
 
 - **База**: `decompiled_fixed/<module>.py` — декомпилированные и исправленные
   источники игровых модулей (производные от bytecode, локальные, в git не входят;
-  восстановление из игрового .pyc: `tools/pyc/decompile_lit.py` + правки).
+  восстановление из РОДНЫХ `.pyc`: `tools/pyc/decompyle_base.py --write`).
 - **gate** (`tools/pyc/hdpatch.py`): прогоняет патч-функции по базе, перезаписывает
   `build/<module>.py` (mtime меняется, контент стабилен = идемпотентность).
 - **parity** (`tools/pyc/parity_file.py`): CRC-сверка bytecode базы vs `.py`
@@ -133,65 +133,28 @@ baseline `45e93d46…` (`backup/LETHALDREAMS.EXE.pre4`) → exepatch12 (cave) =
   cache/scratch.
 
 
-## Recovery-проход `tools/pyc/decompile_lit.py` (литералы по значению, гейты A/B)
+## База `decompiled_fixed/`: decompyle 2.3.2 (2026-11-28)
 
-- `[P]` Скрипт `tools/pyc/decompile_lit.py` (новый, результаты только в `decompiled_fixed/`):
-  recovery поверх декомпилятов `decompiled_snap/`. Литералы восстанавливаются **по
-  значению**, индекс `co_consts` никогда не подставляется в текст. Цикл:
-  `normalize` -> воркер `tools/pyc/py22_worker.py litfix2 <orig.pyc> <файл>` -> выравнивание
-  кодовых объектов **по именам** -> замен-проходы -> гейт по финальному файлу.
-- `[P]` Стратегии замен (применяются по очереди, проход принимается только если
-  гейт строго уменьшился — иначе осцилляция позиционного выравнивания):
-  1) позиционные пары токенов: B=целое K, A=V, `consts_orig[K]==V` -> K на
-     `py2_literal(V)`; B=целое K, A=int V -> K на `repr(V)`; B=строка S, A=V ->
-     строковый литерал со значением S на `py2_literal(V)`;
-  2) unops для неспаренных токенов (правило индекса + порядное k-е сопоставление);
-  3) multiset-delta: мультимножества LOAD_CONST кодового объекта — лишние значения B
-     спариваются с недостающими (сначала одноимённые типы, затем кросс-тайповые),
-     литерал заменяется по значению; регион поиска — строки statements объекта;
-  4) greedy-polish: по одной замене за раз, принимаем только улучшающие гейт.
-- `[P]` Гейт A = мультимножества значений LOAD_CONST по выровненной паре объектов
-  (хвостовой `LOAD_CONST None` от RETURN_VALUE снимается с обеих сторон; терпимость
-  к peephole-разнице `-x` vs `x`+`UNARY_NEGATIVE` — альфа-константное свёртывание
-  против 2.2.3). Итог по скану `приватный архив сессий Project/1.7z, entry LethalDreams/.tmp/decompile_all_scan3.log` (лог скана; в git не входит):
-  **434 модулей, суммарный gate=0, статусных проблем=0**, отчёт
-  `decompiled_fixed/report.txt` (A=B по всем 433).
-- `[P]` Структурно неполные декомпиляты (единственный пропуск):
-  `dictionary_rus` — в `decompiled_snap/` только заголовок uncompyle6 (237 байт,
-  тело не декомпиллируется), восстановлен 0 модулей; в отчёте помечен skip.
-- `[P]` Пилот `ui/battlemenu`: A=124 B=124 (потерянных функций нет), gate=0,
-  Gate B: `grep -c ld_uncial12` = 9, ровно 9 списков
-  `['', 'ld_uncial12', FONT_H, 1, 0, 0]`, 9 байткодных окон
-  `LOAD_CONST ''` / `'ld_uncial12'` / `LOAD_GLOBAL FONT_H` / `1` / `0` / `0` /
-  `BUILD_LIST 6` / `BUILD_LIST 8`. Проверка: `python3 tools/pyc/decompile_lit.py --check-battlemenu`
-  (сам собирает `.pyc` в `decompiled_fixed/`). Строковые константы A=303,
-  строковых литералов B=303.
-- `[P]` Исправленные баги декомпиллятов по пути: `parse_literal` не пропускал
-  префиксы `r/u/b/f` (docstring `os.py` с CR), сборка текста однострочного литерала
-  удваивала хвост строки, окно поиска было фиксировано в 40 строк.
-- `[P]` Итог по порче из предыдущей записи: `ui/battlemenu.py` в `decompiled_fixed/`
-  содержит **восстановленные** литералы BHUD по значению, например
-  `ui.BActionElement([30, 100, 300, 300, ui.GUI_TNORMAL, '', 0, ['', 'ld_uncial12',
-  FONT_H, 1, 0, 0]], [], [])` (строка 930) — вместо индексов `[7, 8, 3, 2, 2]` из
-  испорченного декомпилята. Base пригоден для патча. Игровая копия не менялась:
-  `config[game.root]/data/scripts/ui/battlemenu.pyc` md5 = оригиналу.
+- Источник — РОДНЫЕ `.pyc` из `original.7z` (не установка: там наши патчи):
+  `python3 tools/extract_pristine.py extract "data/scripts/*"` →
+  `python3 tools/pyc/fetch_decompyle.py` → `python3 tools/pyc/decompyle_base.py --write`.
+  Гейт прогона — ядро опкодов компилята 2.2.3 против родного `.pyc` (`pyc_bytes.core`);
+  модуль без паритета не пишется.
+- Почему не uncompyle6: он печатал ИНДЕКС `co_consts` вместо значения и приписывал
+  общий хвост ветвей одной ветке — `docs/DECOMP_DEFECTS.md`. Recovery-проходы
+  (`decompile_lit`, `lit_order`, `lit_scan`) больше не нужны.
+- Литералы и слияние ветвей отдаёт сам декомпилятор; `dictionary_rus` (10 561 опкод в
+  одном объекте, spark-парсер падает) восстанавливает fallback `tools/pyc/litmod.py`.
+- Патчи против базы: `python3 tools/pyc/check_patches.py [--base DIR]` (rc≠0 — править),
+  пересборка хунков: `python3 tools/pyc/regen_patch.py --all` (опубликованный `.py`
+  не меняется, поэтому `.pyc`/md5 манифеста те же).
 
+## База пайплайна: `decompiled_fixed/` (историческое)
 
-## База пайплайна: `decompiled_fixed/`
-
-
-
-- `[P]` `pycbuild.SNAP` переставлен на `decompiled_fixed/` (строка 30; docstring и
-  комментарии по build/gate обновлены). `tools/pyc/decompile_lit.py` (SNAP = pycbuild.SNAP) и
-  `tools/pyc/make_cfg.py` (SRC/GS_SRC) переведены на `decompiled_fixed/`.
-- `[P]` Гейт на новой базе: `python3 tools/pyc/pycbuild.py gate` -> **434 компилируются, 0 падают**.
-  Паритет по новой базе показывает дельту my-build против УСТАНОВЛЕННОГО `.pyc`
-  (файл установки) (cmd_parity
-  сравнивает с game_pyc = установленным), т.е. числа вроде ui/ui 0.2968 = мои HD-правки,
-  не дефект базы.
-- `[P]` Удалены папки `decompiled/` и `decompiled_snap/` (остался `decompiled_manifest.json` (историческая ссылка; рабочая директория, в git не входит)
-  — нужен `tools/archive/decompile/dd.py`). `tools/archive/decompile/pin_decompiled.py`, `tools/archive/decompile/decompile_all.py`, `tools/archive/decompile/decompile_fast.py` помечены
-  предупреждением "не запускать" (они воссоздали бы базу).
+- `pycbuild.SNAP` = `decompiled_fixed/`; `tools/pyc/make_cfg.py` читает оттуда же.
+  Гейт базы: `python3 tools/pyc/pycbuild.py gate` — 434 компилируются, 0 падают.
+- `decompiled/` и `decompiled_snap/` удалены; `tools/archive/decompile/*` помечены
+  предупреждением «не запускать» (воссоздали бы старую базу).
 
 
 ## tex-пайплайн (почва карт: `.tex` из `.map` → PNG)

@@ -49,6 +49,18 @@
 (header=build-time, source mtime — указанный), md5 установленной копии,
 `pyc_source_mtime`, путь `.py`, патч. Ключевые константы:
 
+- `[P]` База `decompiled_fixed/` пересобрана **decompyle 2.3.2** (28.11.2026) из
+  РОДНЫХ `.pyc`; гейт «ядро опкодов»: 430 из 434 модулей побитово, 4
+  (`os/_execvpe`, `overland_map/CreateBattleUnit`, `mentality/std_brains/__init__`,
+  `tutorial_lesson3/Initialize`) — только цель прыжка ±1–3 опкода (форма ветки).
+  Прогон: `python3 tools/pyc/decompyle_base.py --jobs N --write`.
+- `[P]` Патчи перенесены на новую базу `tools/pyc/port_patch.py` (гейт по байткоду),
+  записи манифеста пересобраны `tools/release/update_entry.py`; установленные
+  md5: `battlemenu 9cd8e1fb19ce`, `ui 67655741b4e2`, `cursor 4e9d3f5231bb`,
+  `olmenu bae741f0c8c7`, `btutorial 4e91dd307da3`, `olcamera a0d69737ba25`,
+  `battlecamera 500180bbf331`, `std_brains 089fea5683c9`, `std_bstates 5def8633c6f3`,
+  `battlecharacters 5e6636a44426`, `gamescript 39a6c524bf23`. Все state `MATCH`.
+
 | модуль | pyc_source_mtime |
 |---|---|
 | data/scripts/gamescript | 1794778202 |

@@ -1,5 +1,5 @@
---- a/ui_olmenu.py
-+++ b/ui_olmenu.py
+--- a/ui/olmenu.py
++++ b/ui/olmenu.py
 @@ -25,6 +25,23 @@
  DestSubscribed = 0
  CastOverlandSpell = 0
@@ -24,26 +24,37 @@
  def DlgAttackSelectedDomain():
      if len(overland_map.SelectedDomain.Keepers):
          td = overland_map.SelectedDomain.Keepers[0].GetOpponentData(overlandcharacters.AvailablePlayers[overlandcharacters.CurrentPlayer].GetKeyName(), 'TalkScriptData')
-@@ -105,7 +122,10 @@
-             return
+@@ -100,12 +117,14 @@
+         if (self.PlayerOwnerOL == 0):
+             return 
+         if (gamemodule.GameManager_GetScene() != OLmenuScene):
+-            return 
++            return
          import mainmenu
          ui.ResetTooltip()
--        mainmenu.ShowMainmenu(1, [2, 1, 1, 1, 1, 1])
+-        mainmenu.ShowMainmenu(1, [1, 1, 1, 1, 1, 2])
+-
+-
 +        # 6-й элемент - действие пункта "Продолжить": 2 = ResumeGame (оверленд),
 +        # 3 = ResumeBattle. Здесь всегда оверленд: 3 вызывал battlemenu.ShowBattlemenu
 +        # без боя (BattlemenuScene is None) -> KeyError в cursor.SetScene(None).
 +        mainmenu.ShowMainmenu(1, [2, 2, 2, 2, 2, 2])
-         return
++        return
  
      def OL_Encyclopedy(self):
-@@ -393,6 +410,10 @@
+         if (self.PlayerOwnerOL == 0):
+@@ -406,8 +425,12 @@
  
      def ModifyCallBack(self, type, param):
          import bgui_constant
+-        if (type == bgui_constant.BCCT_ELEMENT):
+-            if (param['name'] == 'overlandmenu'):
 +        if type == bgui_constant.BCCT_TEMPLATE:
 +            # 16:9: боковые панели оверленда -> к краям экрана (4:3: правки нет)
 +            HD_PanelFix(param)
 +            return
-         if type == bgui_constant.BCCT_ELEMENT:
-             if param['name'] == 'overlandmenu':
++        if type == bgui_constant.BCCT_ELEMENT:
++            if param['name'] == 'overlandmenu':
                  param['hotkeys'].append([self.pOL_Encyclopedy, globalscript.PlayerConfig.olmenu['ol_encyclopedy'][0]])
+                 param['hotkeys'].append([self.pOL_SpellBook, globalscript.PlayerConfig.olmenu['ol_research'][0]])
+                 param['hotkeys'].append([self.pOL_Diplomacy, globalscript.PlayerConfig.olmenu['ol_diplomacy'][0]])

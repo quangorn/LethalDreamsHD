@@ -52,7 +52,6 @@ def IsEnemyOwner(owner):
 
 ESCORT_POS = [[[]], [[0.0, 1.0]], [[-1.0, 0.0], [1.0, 0.0]], [[-1.0, 0.0], [0.0, 1.0], [1.0, 0.0]], [[-1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.0, -1.0]], [[-1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [-0.5, -1.0], [0.5, -1.0]], [[-1.5, 0.0], [1.5, 0.0], [-1.0, 1.0], [1.0, 1.0], [-1.0, -1.0], [1.0, -1.0]]]
 ESCORT_MUL = 1.5
-
 class BBrain_Base:
 
     def __init__(self, bunit):
@@ -122,7 +121,7 @@ class BBrain_Base:
     def Dest(self):
         LOG(self, 'BBrain_Base.Dest: dying ....')
         self.BStates_Term()
-        if not self.grouping_flags & SB_GF_ONE_GROUP_PER_CLASS:
+        if (not (self.grouping_flags & SB_GF_ONE_GROUP_PER_CLASS)):
             self.DetachFromGroup_self()
         self.bdomain = None
         self.mo_Group = None
@@ -130,19 +129,21 @@ class BBrain_Base:
         self.ment = None
         self.ext_amb_func = None
         self.LoiterFunc = None
-        return
+
+
 
     def h_EnemyPlayerFound(self, players_go):
-        if players_go[0].GetMentalityPart().GetObjectType() == globalscript.MT_CHAR:
+        if (players_go[0].GetMentalityPart().GetObjectType() == globalscript.MT_CHAR):
             allied_commanders = self.bdomain.GetCharactersAtGroups(players_go[0].GetMentalityPart().GetPythonCharacter().Owner.GetOpponentSides())
             i = 0
             sz = len(allied_commanders)
-            while i < sz:
-                if allied_commanders[i].BattleUnit and allied_commanders[i].BattleUnit.MentalityObject:
+            while (i < sz):
+                if (allied_commanders[i].BattleUnit and allied_commanders[i].BattleUnit.MentalityObject):
                     allied_commanders[i].BattleUnit.MentalityObject.SendOrder(B_PLAYER_FOUND, players_go[0].GetMentalityPart().GetPythonCharacter())
                 i += 1
 
-        return
+
+
 
     def AttachToGroup_unit(self, unit):
         if unit.Brains.mo_Group:
@@ -152,9 +153,10 @@ class BBrain_Base:
             self.mo_Group = self.ment.CreateGroupObject('grp_light')
             self.mo_Group.GetPythonCharacter().Setup(self)
             self.mo_Group.GetPythonCharacter().StartThinking()
-        if self.grouping_flags & SB_GF_FLOCK:
+        if (self.grouping_flags & SB_GF_FLOCK):
             self.ment.SendOrder(DIRECT_TO, [None, self.mo_Group.GetPosition()])
-        return
+
+
 
     def AttachToGroup_group(self, mo_group):
         if mo_group:
@@ -164,28 +166,32 @@ class BBrain_Base:
             self.mo_Group = self.ment.CreateGroupObject('grp_light')
             self.mo_Group.GetPythonCharacter().Setup(self)
             self.mo_Group.GetPythonCharacter().StartThinking()
-        if self.grouping_flags & SB_GF_FLOCK:
+        if (self.grouping_flags & SB_GF_FLOCK):
             self.ment.SendOrder(DIRECT_TO, [None, self.mo_Group.GetPosition()])
-        return
+
+
 
     def DetachFromGroup_self(self):
-        if self.mo_Group == None:
-            return
+        if (self.mo_Group == None):
+            return 
         self.mo_Group.DetachObject(self.ment)
         self.mo_Group = None
-        return
+
+
 
     def Loiter_Radius(self):
         pos = self.ment.GetRandomPointInRadius(self.loiter_radius)
         self.ment.SendOrder(DIRECT_TO, [None, pos])
-        return
+
+
 
     def SelectLoiterStrategy(self):
         self.LoiterFunc = None
-        if self.loiter_type == SB_LOITER_RADIUS:
+        if (self.loiter_type == SB_LOITER_RADIUS):
             self.LoiterFunc = self.Loiter_Radius
-            return
-        return
+            return 
+
+
 
     def SetRoTCS(self, bstate):
         rule = DONT_SELECT_TARGET
@@ -197,32 +203,33 @@ class BBrain_Base:
         if self.target_selection_rule & SB_TSR_ATTACK_ALL:
             parm[OBJECTS_FILTER] = [OBJECT_CLASS | INCLUDE, {OBJECT_CLASS: [MENTALITY_OBJECT, globalscript.MT_CHAR]}]
         else:
-            parm[OBJECTS_FILTER] = [OBJECT_CLASS | OBJECT_OWNER | INCLUDE, {OBJECT_OWNER: NO_MY_OWNER, OBJECT_CLASS: [MENTALITY_OBJECT, globalscript.MT_CHAR]}]
-        if self.target_selection_rule & SB_TSR_MASK == SB_TSR_MAXATT:
+            parm[OBJECTS_FILTER] = [((OBJECT_CLASS | OBJECT_OWNER) | INCLUDE), {OBJECT_OWNER: NO_MY_OWNER, OBJECT_CLASS: [MENTALITY_OBJECT, globalscript.MT_CHAR]}]
+        if ((self.target_selection_rule & SB_TSR_MASK) == SB_TSR_MAXATT):
             rule |= PARAMETERMAX
             parm[PARAMETERMAX] = ['GetStat_RoTCS', 'ATT']
-        if self.target_selection_rule & SB_TSR_MASK == SB_TSR_MAXHP:
+        if ((self.target_selection_rule & SB_TSR_MASK) == SB_TSR_MAXHP):
             rule |= PARAMETERMAX
             parm[PARAMETERMAX] = ['GetStat_RoTCS', 'HP']
-        if self.target_selection_rule & SB_TSR_AMBIGUITY:
+        if (self.target_selection_rule & SB_TSR_AMBIGUITY):
             rule |= AMBIGUITYFUNC
             parm[AMBIGUITYFUNC] = self.ext_amb_func
         bstate.SetRuleOfTargetCharSelection(rule, parm)
         bstate.SetRuleOfTargetPointSelection(DONT_SELECT_TARGET, 0)
-        return
+
+
 
     def StartThinking(self):
         LOG(self, 'StartThinking()')
-        if self.unit.InitBehaviourOverride == 0:
-            return
+        if (self.unit.InitBehaviourOverride == 0):
+            return 
         self.BStates_Init()
         opponents = self.bdomain.GetCharactersAtGroups(self.unit.Owner.GetOpponentSides())
         opponentsGO = []
         i = 0
         sz = len(opponents)
-        while i < sz:
+        while (i < sz):
             bu = opponents[i].BattleUnit
-            if bu and bu.MentalityObject and bu.MentalityObject.GetGraphObject():
+            if (bu and (bu.MentalityObject and bu.MentalityObject.GetGraphObject())):
                 opponentsGO.append(bu.MentalityObject.GetGraphObject())
             i += 1
 
@@ -233,7 +240,8 @@ class BBrain_Base:
         self.ment.SetCurrentBehaviourState(self.bs_main.bstate)
         import g_defs
         self.ment.EnableNotifications(g_defs.dev_enable_notifications)
-        return
+
+
 
     def SetStatModsTraps(self):
         tfilter = 0
@@ -245,21 +253,26 @@ class BBrain_Base:
         tfilter = 0
         tparms = {}
         tfilter = OBJECTS_FILTER
-        tparms[OBJECTS_FILTER] = [OBJECT_OWNER | INCLUDE, {OBJECT_OWNER: NO_MY_OWNER}]
+        tparms[OBJECTS_FILTER] = [(OBJECT_OWNER | INCLUDE), {OBJECT_OWNER: NO_MY_OWNER}]
         self.ment.SetRuleOfTargetCharSelection(tfilter, tparms, self.unit.h_StatModVisible)
         self.ment.SetHideTargetCharSelection(tfilter, tparms, self.unit.h_StatModHide)
-        return
+
+
 
     def SetCtlOverride(self):
         self.remote_ctl_override = 0
-        return
+
+
 
     def ResetCtlOverride(self):
         self.remote_ctl_override = 1
-        return
 
-    def TestOrderObeyance(self, param0=0, param1=0):
+
+
+    def TestOrderObeyance(self, param0 = 0, param1 = 0):
         return self.remote_ctl_override
+
+
         return
 
     def ext_Reset(self):
@@ -274,16 +287,18 @@ class BBrain_Base:
         self.ment.SetCurrentBehaviourState(self.bs_main.bstate)
         self.ment.GetGraphObject().SetAnimationChain(STAND)
         self.ment.SendOrder(NEXT_FRAME, 0)
-        return
+
+
 
     def GetCurrentMeleeTarget(self):
         target = self.ment.GetTarget()
-        if target == None:
+        if (target == None):
             return None
-        if target[2] == None:
+        if (target[2] == None):
             return None
         return target[2].GetPythonCharacter()
-        return
+
+
 
     def BStates_Init(self):
         self.ment.ClearBehaviour()
@@ -291,7 +306,8 @@ class BBrain_Base:
         self.bs_attack = std_bstates.BattleAttack(self)
         self.bs_kick = std_bstates.BattleKick(self)
         self.bs_lockedanim = std_bstates.LockedAnim(self)
-        return
+
+
 
     def BStates_Term(self):
         self.ment.ClearBehaviour()
@@ -307,7 +323,7 @@ class BBrain_Base:
         if self.bs_lockedanim:
             self.bs_lockedanim.Dest()
             self.bs_lockedanim = None
-        return
+
 
 
 class BMage_Brain(BBrain_Base):
@@ -331,130 +347,144 @@ class BMage_Brain(BBrain_Base):
         self.danger_range = 2.5
         self.disengage_dist = 10.0
         self.disengage_tries_max = 2
-        self.CCL_mana = 0.4
-        self.CCL_upkeep = 0.1
-        self.ADL_mana = 0.3
-        self.ADL_upkeep = 0.3
+        self.CCL_mana = 0.40000000000000002
+        self.CCL_upkeep = 0.10000000000000001
+        self.ADL_mana = 0.29999999999999999
+        self.ADL_upkeep = 0.29999999999999999
         self.l_venemys = []
         self.unit.Owner.CurrentLocation.AddCasterCharacter(self.unit)
-        return
+
+
 
     def Dest(self):
         if self.unit.Owner.CurrentLocation:
             self.unit.Owner.CurrentLocation.RemoveCasterCharacter(self.unit)
         self.l_venemys = []
         spells = self.unit.OverlandCharacter.AvailableSpells['Known']
-        i = len(spells) - 1
-        while i >= 0:
+        i = (len(spells) - 1)
+        while (i >= 0):
             if spells[i].AICast:
                 spells[i].AICast.Dest()
             spells[i].AICast = None
             i -= 1
 
         BBrain_Base.Dest(self)
-        return
+
+
 
     def h_TargetSelector(self, objs):
         self.l_venemys = objs
         self.ment.SendOrder(B_ENEMY_FOUND, objs)
         return 0
-        return
+
+
 
     def u_GetEnchantLevel(self, spell_name, unit):
-        i = len(unit.ActiveSpells) - 1
-        while i >= 0:
-            if unit.ActiveSpells[i].CSpellRef.GetKeyName() == spell_name:
+        i = (len(unit.ActiveSpells) - 1)
+        while (i >= 0):
+            if (unit.ActiveSpells[i].CSpellRef.GetKeyName() == spell_name):
                 return unit.ActiveSpells[i].SpellLevel
             i -= 1
 
         return -1
-        return
+
+
 
     def u_CanCastDist(self, target):
-        if self.unit.CalcDist(target) > self.unit.GetCastRange():
+        if (self.unit.CalcDist(target) > self.unit.GetCastRange()):
             return 0
         else:
             return 1
-        return
+
+
 
     def u_GetMaxUpkeep(self):
         return self.unit.Owner.CurrentLocation.GetCasterUpkeepLimit(self.unit)
-        return
+
+
 
     def u_GetUpkeep(self):
         upkeep = 0
         i = 0
         sz = len(self.unit.CastedSpells)
-        while i < sz:
-            upkeep += self.unit.CastedSpells[i].Result[len(self.unit.CastedSpells[i].Result) - 1]
+        while (i < sz):
+            upkeep += self.unit.CastedSpells[i].Result[(len(self.unit.CastedSpells[i].Result) - 1)]
             i += 1
 
         return upkeep
-        return
+
+
 
     def u_GetUpkeepStatus(self):
         ms = self.unit.Owner.CurrentLocation
-        return float(self.u_GetMaxUpkeep() - self.u_GetUpkeep()) / self.u_GetMaxUpkeep()
-        return
+        return (float((self.u_GetMaxUpkeep() - self.u_GetUpkeep())) / self.u_GetMaxUpkeep())
+
+
 
     def u_GetManaStatus(self):
         ms = self.unit.Owner.CurrentLocation
-        return float(ms.BattleMana) / ms.BattleMaxMana
-        return
+        return (float(ms.BattleMana) / ms.BattleMaxMana)
+
+
 
     def u_ObtainManaLimit(self):
-        if self.u_GetManaStatus() < self.ADL_mana or self.u_GetUpkeepStatus() < self.ADL_upkeep:
+        if ((self.u_GetManaStatus() < self.ADL_mana) or (self.u_GetUpkeepStatus() < self.ADL_upkeep)):
             if len(self.unit.CastedSpells):
                 self.unit.CastedSpells[0].Uncast()
             return 1
         return 0
-        return
+
+
 
     def u_ManaCheck_Level(self):
-        if self.u_GetUpkeepStatus() < self.CCL_upkeep:
+        if (self.u_GetUpkeepStatus() < self.CCL_upkeep):
             return 0
-        if self.u_GetManaStatus() < self.CCL_mana:
+        if (self.u_GetManaStatus() < self.CCL_mana):
             return 0
         return 1
-        return
+
+
 
     def u_GetGroupUpkeep(self, cl):
         group_upkeep = 0
-        i = len(cl) - 1
-        while i >= 0:
+        i = (len(cl) - 1)
+        while (i >= 0):
             group_upkeep += cl[i].UPKEEP
             i -= 1
 
         return group_upkeep
-        return
+
+
 
     def u_FindSpell(self, s_flags):
         ofs_spells = self.unit.OverlandCharacter.AvailableSpells['Known']
-        i = len(ofs_spells) - 1
-        while i >= 0:
-            if ofs_spells[i].ParentSpell.Flags & s_flags == s_flags:
+        i = (len(ofs_spells) - 1)
+        while (i >= 0):
+            if ((ofs_spells[i].ParentSpell.Flags & s_flags) == s_flags):
                 return ofs_spells[i]
             i -= 1
 
         return None
-        return
+
+
 
     def StartThinking(self):
-        if self.unit.InitBehaviourOverride == 0:
-            return
+        if (self.unit.InitBehaviourOverride == 0):
+            return 
         ms = self.unit.Owner.CurrentLocation
         spells = self.unit.OverlandCharacter.AvailableSpells['Known']
-        i = len(spells) - 1
-        while i >= 0:
+        i = (len(spells) - 1)
+        while (i >= 0):
             ofs_spell = spells[i]
-            if not ofs_spell.ParentSpell.Flags & SF_NON_COMBAT_CAST and ofs_spell.AICast == None:
-                exec 'import ' + ofs_spell.ParentSpell.SpellMentalityName
+            if ((not (ofs_spell.ParentSpell.Flags & SF_NON_COMBAT_CAST)) and (ofs_spell.AICast == None)):
+                exec ('import ' + ofs_spell.ParentSpell.SpellMentalityName)
                 spell_script = eval(ofs_spell.ParentSpell.SpellMentalityName)
                 ofs_spell.AICast = spell_script.AICastInitialize(self.unit, ofs_spell)
             i -= 1
 
         BBrain_Base.StartThinking(self)
-        return
+
+
 
     def BStates_Init(self):
         self.ment.ClearBehaviour()
@@ -465,7 +495,8 @@ class BMage_Brain(BBrain_Base):
         self.bs_cast2 = std_bstates.SCCastSpell2(self)
         self.bs_magic_attack2 = std_bstates.SCMagicAttack2(self)
         self.bs_enchant2 = std_bstates.SCEnchant2(self)
-        return
+
+
 
     def BStates_Term(self):
         self.ment.ClearBehaviour()
@@ -490,7 +521,7 @@ class BMage_Brain(BBrain_Base):
         if self.bs_enchant2:
             self.bs_enchant2.Dest()
             self.bs_enchant2 = None
-        return
+
 
 
 class BCreatureController_Brain(BMage_Brain):
@@ -518,23 +549,23 @@ class BCreatureController_Brain(BMage_Brain):
         self.remote_ctl_mode = SB_RCM_ALWAYS
         self.target_selection_rule = SB_TSR_AMBIGUITY
         self.ext_amb_func = self.h_TargetSelector
-        self.target_selection_flags = SB_TSF_EXCEPT_MOVE | SB_TSF_EXCEPT_ATTACK
+        self.target_selection_flags = (SB_TSF_EXCEPT_MOVE | SB_TSF_EXCEPT_ATTACK)
         self.OoCRT = 0.0
         self.danger_range = 2.5
         self.disengage_dist = 10.0
         self.disengage_tries_max = 1
-        self.CCL_mana = 0.1
+        self.CCL_mana = 0.10000000000000001
         self.CCL_upkeep = 0.01
-        self.ADL_mana = 0.05
-        self.ADL_upkeep = -0.1
+        self.ADL_mana = 0.050000000000000003
+        self.ADL_upkeep = -0.10000000000000001
         self.protect_dc = 0
         self.melee_contingency = 0.25
-        self.recon_upkeep = 0.2
-        self.escort_upkeep = 0.7
-        self.messengers_upkeep = 0.1
+        self.recon_upkeep = 0.20000000000000001
+        self.escort_upkeep = 0.69999999999999996
+        self.messengers_upkeep = 0.10000000000000001
         self.player_attack_activation_dist = 1.25
         self.HP_danger_limit = 0.75
-        self.def_rlock_limit = 0.4
+        self.def_rlock_limit = 0.40000000000000002
         self.att_rlock_limit = 0.5
         self.summon_timeout = 8
         self.need_more_imps = 1
@@ -543,51 +574,57 @@ class BCreatureController_Brain(BMage_Brain):
         self.cl_escort = []
         self.LastPlayerPos = []
         self.LastTimePlayerFound = 0
-        i = len(self.bdomain.Attackers) - 1
-        while i >= 0:
-            if self.bdomain.Attackers[i] != self.unit.OverlandCharacter and self.bdomain.Attackers[i].CurrentLocation == self.unit.OverlandCharacter.CurrentLocation:
+        i = (len(self.bdomain.Attackers) - 1)
+        while (i >= 0):
+            if ((self.bdomain.Attackers[i] != self.unit.OverlandCharacter) and (self.bdomain.Attackers[i].CurrentLocation == self.unit.OverlandCharacter.CurrentLocation)):
                 self.recon_upkeep /= 2.0
                 self.escort_upkeep /= 2.0
             i -= 1
 
-        i = len(self.bdomain.Defenders) - 1
-        while i >= 0:
-            if self.bdomain.Defenders[i] != self.unit.OverlandCharacter and self.bdomain.Defenders[i].CurrentLocation == self.unit.OverlandCharacter.CurrentLocation:
+        i = (len(self.bdomain.Defenders) - 1)
+        while (i >= 0):
+            if ((self.bdomain.Defenders[i] != self.unit.OverlandCharacter) and (self.bdomain.Defenders[i].CurrentLocation == self.unit.OverlandCharacter.CurrentLocation)):
                 self.recon_upkeep /= 2.0
                 self.escort_upkeep /= 2.0
             i -= 1
 
-        return
+
+
 
     def Dest(self):
         BMage_Brain.Dest(self)
         self.cl_recon = []
         self.cl_escort = []
         self.cl_current = None
-        return
+
+
 
     def u_GetUpkeep(self):
         upkeep = BMage_Brain.u_GetUpkeep(self)
         i = 0
         sz = len(self.unit.Critters)
-        while i < sz:
+        while (i < sz):
             upkeep += self.unit.Critters[i].UPKEEP
             i += 1
 
         return upkeep
-        return
+
+
 
     def h_RespawnFound(self, objs):
         self.ment.SendOrder(B_RESPAWN_FOUND, objs[0].GetMentalityPart().GetPythonCharacter())
-        return
+
+
 
     def h_RespawnLocked(self, respawn):
         self.ment.SendOrder(B_RESPAWN_LOCKED, respawn)
-        return
+
+
 
     def h_DCCapture(self):
         self.ment.SendOrder(B_DOMAIN_HEART_CAPTURE, 0)
-        return
+
+
 
     def BStates_Init(self):
         self.ment.ClearBehaviour()
@@ -600,7 +637,7 @@ class BCreatureController_Brain(BMage_Brain):
             self.bs_main = std_bstates.CCMain_def(self)
             self.bs_recon = std_bstates.CCRecon(self)
             self.bs_rlock = std_bstates.SCRespawnUnlock(self)
-        self.bs_main.bstate.SetRuleOfTargetCharSelection(OBJECTS_FILTER, {OBJECTS_FILTER: [OBJECT_CLASS | INCLUDE, {OBJECT_CLASS: [MENTALITY_OBJECT, globalscript.MT_RESPAWN]}]}, self.h_RespawnFound)
+        self.bs_main.bstate.SetRuleOfTargetCharSelection(OBJECTS_FILTER, {OBJECTS_FILTER: [(OBJECT_CLASS | INCLUDE), {OBJECT_CLASS: [MENTALITY_OBJECT, globalscript.MT_RESPAWN]}]}, self.h_RespawnFound)
         self.bs_attack = std_bstates.BattleAttack(self)
         self.bs_kick = std_bstates.BattleKick(self)
         self.bs_lockedanim = std_bstates.LockedAnim(self)
@@ -610,7 +647,8 @@ class BCreatureController_Brain(BMage_Brain):
         self.bs_summon2 = std_bstates.SCSummon2(self)
         self.bs_summon_imp = std_bstates.CCSummonImp(self)
         self.bs_enchant2 = std_bstates.SCEnchant2(self)
-        return
+
+
 
     def BStates_Term(self):
         self.ment.ClearBehaviour()
@@ -650,103 +688,101 @@ class BCreatureController_Brain(BMage_Brain):
         if self.bs_enchant2:
             self.bs_enchant2.Dest()
             self.bs_enchant2 = None
-        return
+
+
 
     def bc_AddCritter(self, critter):
         self.ment.ClearEventsQueue(MAIN_STATE_ORDERS, 1)
         self.ment.SendOrder(ADD_CRITTER, critter)
-        if self.cl_current == None:
-            return
+        if (self.cl_current == None):
+            return 
         self.cl_current.append(critter)
-        return
+
+
 
     def bc_RemoveCritter(self, critter):
         if self.cl_recon.count(critter):
             self.cl_recon.remove(critter)
             self.ment.SendOrder(B_UNIT_LOST, [self.cl_recon, critter])
-            return
+            return 
         if self.cl_escort.count(critter):
             self.cl_escort.remove(critter)
             self.ment.SendOrder(B_UNIT_LOST, [self.cl_escort, critter])
-            return
+            return 
         self.ment.SendOrder(B_UNIT_LOST, [None, critter])
-        return
+
+
 
     def u_IsUnitBusy(self, unit):
-        if unit.Brains == None:
+        if (unit.Brains == None):
             return 1
-        if unit.Brains.ment.GetCurrentBehaviourState() == unit.Brains.bs_main.bstate and (unit.Brains.bs_main.moving == 0 or unit.Brains.bs_main.loitering == 1):
+        if ((unit.Brains.ment.GetCurrentBehaviourState() == unit.Brains.bs_main.bstate) and ((unit.Brains.bs_main.moving == 0) or (unit.Brains.bs_main.loitering == 1))):
             return 0
         else:
             return 1
-        return
+
+
 
     def u_MoveGroup_Free(self, pos, group):
         free_group = []
-        i = len(group) - 1
-        while i >= 0:
-            if self.u_IsUnitBusy(group[i]) == 0:
+        i = (len(group) - 1)
+        while (i >= 0):
+            if (self.u_IsUnitBusy(group[i]) == 0):
                 free_group.append(group[i])
             i -= 1
 
         self.u_MoveGroup(pos, free_group)
-        return
+
+
 
     def u_MoveGroup(self, pos, group):
-        """
-        #--- old style
-        nc=len(group)
-
-        if nc==0 : return
-        if nc > 6 : nc=6
-
-        i=0
-        while i<nc :
-            self.u_DirectUnit(group[i],[pos[0]+ESCORT_POS[nc][i][0]*ESCORT_MUL, pos[1], pos[2]+ESCORT_POS[nc][i][1]*ESCORT_MUL])
-            i+=1
-        """
+        '\n        #--- old style\n        nc=len(group)\n\n        if nc==0 : return\n        if nc > 6 : nc=6\n\n        i=0\n        while i<nc :\n            self.u_DirectUnit(group[i],[pos[0]+ESCORT_POS[nc][i][0]*ESCORT_MUL, pos[1], pos[2]+ESCORT_POS[nc][i][1]*ESCORT_MUL])\n            i+=1\n        '
         sz = len(group)
         SelectedObjects = []
         i = 0
-        while i < sz:
+        while (i < sz):
             unit = group[i]
-            if battlecharacters.TwoPointDistance2_2x(unit.GetPosition(), self.unit.GetPosition()) < math.pow(self.unit.GetVisibilityRange(), 2):
-                unit.MentalityObject.SendOrder(DIRECT_TO | REMOTE_ORDER, [None, pos])
+            if (battlecharacters.TwoPointDistance2_2x(unit.GetPosition(), self.unit.GetPosition()) < math.pow(self.unit.GetVisibilityRange(), 2)):
+                unit.MentalityObject.SendOrder((DIRECT_TO | REMOTE_ORDER), [None, pos])
             else:
                 SelectedObjects.append(unit)
             i += 1
 
-        if self.unit.ImpController == None:
-            return
+        if (self.unit.ImpController == None):
+            return 
         if len(SelectedObjects):
-            if not self.unit.ImpController.h_DeliverOrder(pos, SelectedObjects):
+            if (not self.unit.ImpController.h_DeliverOrder(pos, SelectedObjects)):
                 self.need_more_imps = 1
-        return
 
-    def u_MoveToWithEscort(self, pos, adjust_speed=0):
+
+
+    def u_MoveToWithEscort(self, pos, adjust_speed = 0):
         speed = 0
         if adjust_speed:
             speed = self.unit.GetStat('SPD')
-            i = len(self.cl_escort) - 1
-            while i >= 0:
-                if self.cl_escort[i].GetStat('SPD') < speed:
+            i = (len(self.cl_escort) - 1)
+            while (i >= 0):
+                if (self.cl_escort[i].GetStat('SPD') < speed):
                     speed = self.cl_escort[i].GetStat('SPD')
                 i -= 1
 
-            self.unit.SA_Set(speed - 1.5)
+            self.unit.SA_Set((speed - 1.5))
         self.ment.SendOrder(DIRECT_TO, [None, pos])
         self.u_MoveEscort(pos, speed)
-        return
 
-    def u_MoveEscort(self, pos, group_speed=0):
+
+
+    def u_MoveEscort(self, pos, group_speed = 0):
         if group_speed:
             nc = len(self.cl_escort)
             i = 0
-            while i < nc:
+            while (i < nc):
                 self.cl_escort[i].SA_Set(group_speed)
                 i += 1
 
         self.u_MoveGroup(pos, self.cl_escort)
+
+
         return
 
     def u_StopObject(self, unit):
@@ -756,19 +792,21 @@ class BCreatureController_Brain(BMage_Brain):
         unit.MentalityObject.SetCurrentBehaviourState('suspend')
         unit.MentalityObject.StopObject()
         unit.MentalityObject.SetTarget(0)
-        return
+
+
 
     def u_CheckEscortUpkeep(self):
-        ret = float(self.u_GetGroupUpkeep(self.cl_escort)) / self.u_GetMaxUpkeep() / self.escort_upkeep
+        ret = ((float(self.u_GetGroupUpkeep(self.cl_escort)) / self.u_GetMaxUpkeep()) / self.escort_upkeep)
         return ret
-        return
+
+
 
     def u_ConsolidateEscortForces(self):
         while len(self.cl_recon):
             self.cl_escort.append(self.cl_recon[0])
             self.cl_recon.remove(self.cl_recon[0])
 
-        return
+
 
 
 class BPlayer_Brain(BBrain_Base):
@@ -783,42 +821,51 @@ class BPlayer_Brain(BBrain_Base):
         self.remote_ctl_mode = SB_RCM_ALWAYS
         self.target_selection_rule = SB_TSR_AMBIGUITY
         self.ext_amb_func = self.h_TargetSelector
-        self.target_selection_flags = SB_TSF_EXCEPT_ATTACK | SB_TSF_EXCEPT_MOVE
+        self.target_selection_flags = (SB_TSF_EXCEPT_ATTACK | SB_TSF_EXCEPT_MOVE)
         self.AAR = -10.0
-        return
+
+
 
     def SetAutoAttackRange(self, rad):
         self.AAR = rad
-        return
+
+
 
     def h_RespawnFound(self, objs):
-        return
-        return
+        return 
+
+
 
     def h_RespawnLocked(self, respawn):
-        return
-        return
+        return 
+
+
 
     def h_DCCapture(self):
-        return
-        return
+        return 
+
+
 
     def h_TargetSelector(self, objs):
         self.ment.SendOrder(B_ENEMY_FOUND, objs)
         return 0
-        return
+
+
 
     def bc_AddCritter(self, critter):
-        return
-        return
+        return 
+
+
 
     def bc_RemoveCritter(self, critter):
-        return
-        return
+        return 
+
+
 
     def UpdateEnemyPlayerPos(self, pos):
-        return
-        return
+        return 
+
+
 
     def BStates_Init(self):
         self.ment.ClearBehaviour()
@@ -826,25 +873,28 @@ class BPlayer_Brain(BBrain_Base):
         self.bs_attack = std_bstates.BattleAttack(self)
         self.bs_kick = std_bstates.BattleKick(self)
         self.bs_lockedanim = std_bstates.LockedAnim(self)
-        return
+
+
 
     def StartThinking(self):
-        if self.unit.InitBehaviourOverride == 0:
-            return
+        if (self.unit.InitBehaviourOverride == 0):
+            return 
         self.BStates_Init()
         self.SetStatModsTraps()
         self.ment.SetCurrentBehaviourState(self.bs_main.bstate)
         import g_defs
         self.ment.EnableNotifications(g_defs.dev_enable_notifications)
-        return
+
+
 
     def PBase_Cast_Started(self):
         self.bs_main.u_RewindStateStack()
-        return
+
+
 
     def Dest(self):
         BBrain_Base.Dest(self)
-        return
+
 
 
 class BBrain_DarkMirror(BBrain_Base):
@@ -854,11 +904,13 @@ class BBrain_DarkMirror(BBrain_Base):
         self._h_TwinDied = self.h_TwinDied
         self.p_target = None
         self.p_spell = None
-        return
+
+
 
     def h_TwinDied(self, unit):
         self.unit.Kill()
-        return
+
+
 
     def SetParentSpell(self, p_spell):
         self.p_spell = p_spell
@@ -873,17 +925,18 @@ class BBrain_DarkMirror(BBrain_Base):
         self.remote_ctl_mode = SB_RCM_NEVER
         self.target_selection_rule = SB_TSR_MAXATT
         self.ext_amb_func = None
-        self.target_selection_flags = SB_TSF_EXCEPT_ATTACK | SB_TSF_EXCEPT_MOVE
-        return
+        self.target_selection_flags = (SB_TSF_EXCEPT_ATTACK | SB_TSF_EXCEPT_MOVE)
+
+
 
     def Dest(self):
-        if self._h_TwinDied and self.p_target:
+        if (self._h_TwinDied and self.p_target):
             self.p_target.MentalityObject.RemoveMessageHandler(globalscript.GT_MENTALITY, globalscript.GM_DIED, self._h_TwinDied, 0)
         self._h_TwinDied = None
         self.p_target = None
         self.p_spell = None
         BBrain_Base.Dest(self)
-        return
+
 
 
 class BBrain_Gatekeeper(BMage_Brain):
@@ -893,13 +946,14 @@ class BBrain_Gatekeeper(BMage_Brain):
         self.teleport_timeout = 0
         self.req_sl = -1
         i = 0
-        while i < 10:
-            if spells.RegisteredSpells['Teleport'].GetCastResult(i, None)[1] >= self.unit.LEVEL:
+        while (i < 10):
+            if (spells.RegisteredSpells['Teleport'].GetCastResult(i, None)[1] >= self.unit.LEVEL):
                 self.req_sl = i
                 break
             i += 1
 
-        return
+
+
 
     def h_TargetSelector(self, objs):
         self.teleport_timeout -= 1
@@ -907,15 +961,15 @@ class BBrain_Gatekeeper(BMage_Brain):
         objs = gamemodule.GameManager_GetScene().PickObjectsInCircle(mypos[0], mypos[2], g_defs.g_visibility_range)
         enemy_obj = None
         ally_obj = None
-        i = len(objs) - 1
-        while i >= 0:
-            if objs[i].GetMentalityPart() and objs[i].GetMentalityPart().GetPythonCharacter() and objs[i].GetMentalityPart().GetObjectType() == globalscript.MT_CHAR:
+        i = (len(objs) - 1)
+        while (i >= 0):
+            if (objs[i].GetMentalityPart() and (objs[i].GetMentalityPart().GetPythonCharacter() and (objs[i].GetMentalityPart().GetObjectType() == globalscript.MT_CHAR))):
                 unit = objs[i].GetMentalityPart().GetPythonCharacter()
-                if unit.UnitInfo == self.unit.UnitInfo and unit != self.unit:
+                if ((unit.UnitInfo == self.unit.UnitInfo) and (unit != self.unit)):
                     ally_obj = objs[i]
-                if unit.Owner != self.unit.Owner:
+                if (unit.Owner != self.unit.Owner):
                     enemy_obj = objs[i]
-                if (ally_obj or self.teleport_timeout > 0) and enemy_obj:
+                if ((ally_obj or (self.teleport_timeout > 0)) and enemy_obj):
                     return enemy_obj
             i -= 1
 
@@ -924,7 +978,7 @@ class BBrain_Gatekeeper(BMage_Brain):
         spell.Setup(self.unit, self.req_sl)
         self.bs_cast2.Run(spell)
         return 0
-        return
+
 
 
 class BBrain_RainbowBird(BMage_Brain):
@@ -947,14 +1001,14 @@ class BBrain_RainbowBird(BMage_Brain):
         self.enchant_others_bad = 0
         self.danger_range = 5
         CR = self.unit.GetCastRange()
-        if self.danger_range >= CR:
+        if (self.danger_range >= CR):
             self.danger_range = 2
         self.disengage_dist = 10.0
         self.disengage_tries_max = 100
-        self.mana_can_cast_limit = 0.4
-        self.mana_auto_dispell_limit = 0.3
+        self.mana_can_cast_limit = 0.40000000000000002
+        self.mana_auto_dispell_limit = 0.29999999999999999
         self.acquire_target_in_cast = 1
-        return
+
 
 
 class BBrain_Homunculus(BMage_Brain):
@@ -977,14 +1031,14 @@ class BBrain_Homunculus(BMage_Brain):
         self.enchant_others_bad = 0
         self.danger_range = 5
         CR = self.unit.GetCastRange()
-        if self.danger_range >= CR:
+        if (self.danger_range >= CR):
             self.danger_range = 2
         self.disengage_dist = 10.0
         self.disengage_tries_max = 0
-        self.mana_can_cast_limit = 0.4
-        self.mana_auto_dispell_limit = 0.3
+        self.mana_can_cast_limit = 0.40000000000000002
+        self.mana_auto_dispell_limit = 0.29999999999999999
         self.acquire_target_in_cast = 1
-        return
+
 
 
 class BBrain_DarkTwin(BMage_Brain):
@@ -998,7 +1052,7 @@ class BBrain_DarkTwin(BMage_Brain):
         self.attack_type = SB_AT_CAST
         self.kick_n_run_dist = 4.0
         self.remote_ctl_mode = SB_RCM_ALWAYS
-        self.target_selection_rule = SB_TSR_MAXATT | SB_TSR_AMBIGUITY
+        self.target_selection_rule = (SB_TSR_MAXATT | SB_TSR_AMBIGUITY)
         self.ext_amb_func = self.h_TargetSelector
         self.target_selection_flags = SB_TSF_EXCEPT_ATTACK
         self.OoCRT = 2.0
@@ -1007,18 +1061,19 @@ class BBrain_DarkTwin(BMage_Brain):
         self.enchant_others_bad = 1
         self.danger_range = 5
         CR = self.unit.GetCastRange()
-        if self.danger_range >= CR:
+        if (self.danger_range >= CR):
             self.danger_range = 2
         self.disengage_dist = 10.0
         self.disengage_tries_max = 2
-        self.mana_can_cast_limit = 0.4
-        self.mana_auto_dispell_limit = 0.3
+        self.mana_can_cast_limit = 0.40000000000000002
+        self.mana_auto_dispell_limit = 0.29999999999999999
         self.acquire_target_in_cast = 1
-        return
+
+
 
     def i_ParseKnownSpells(self):
         BMage_Brain.i_ParseKnownSpells(self)
-        return
+
 
 
 class BBrain_DarkRaven(BBrain_Base):
@@ -1035,22 +1090,21 @@ class BBrain_DarkRaven(BBrain_Base):
         self.target_selection_rule = SB_TSR_AMBIGUITY
         self.ext_amb_func = self.h_TargetSelector
         self.target_selection_flags = SB_TSF_EXCEPT_ATTACK
-        return
+
+
 
     def h_TargetSelector(self, objs):
-        if self.ment.GetCurrentBehaviourState() != self.bs_main.bstate:
+        if (self.ment.GetCurrentBehaviourState() != self.bs_main.bstate):
             return 0
-        i = len(objs) - 1
-        while i >= 0:
-            if objs[i].GetMentalityPart().GetPythonCharacter() and objs[i].GetMentalityPart().GetPythonCharacter().UnitInfo == units_base.UnitsBase['Imp']:
+        i = (len(objs) - 1)
+        while (i >= 0):
+            if (objs[i].GetMentalityPart().GetPythonCharacter() and (objs[i].GetMentalityPart().GetPythonCharacter().UnitInfo == units_base.UnitsBase['Imp'])):
                 return objs[i]
             i -= 1
 
         return 0
-        return
+
+
 
     def Dest(self):
         BBrain_Base.Dest(self)
-        return
-
-
