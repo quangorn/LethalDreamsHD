@@ -30,6 +30,16 @@
 
 #define MOB_OCC_ENV        "LDHOOK_MOB_OCC"
 #define MOB_OCC_EVERY_ENV  "LDHOOK_MOB_OCC_EVERY"
+#define MOB_OCC_SHARED_ENV "LDHOOK_OCC_SHARED"
+
+/* Эксперимент общей занятости (env `LDHOOK_OCC_SHARED=1`, вместе с
+ * `LDHOOK_MOB_OCC=1`): фиксированный реестр клеток юнитов; радиальный скан cb40
+ * (`battle/path.cpp`) пропускает клетку, занятую ДРУГИМ юнитом. Дефолт выкл:
+ * ни записей, ни пропусков. Реестр — 128 слотов {self, x, y}, без аллокаций;
+ * self = BattleAI (unit+0x138). */
+int  occ_shared_on(void);
+void occ_shared_note(void *self, int x, int y);   /* клетка юнита при входе cb40 */
+int  occ_shared_other(void *self, int x, int y);   /* клетка занята другим self */
 
 /* Разбор env при init; иначе наблюдатель полностью инертен. */
 void mob_occ_init(void);

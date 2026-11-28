@@ -76,6 +76,7 @@ Python-патчи (`hd_scale.py`, `tex_hook_*.py`), поэтому `probe_exitco
 | `LDHOOK_E0_DIAG=1` | диагностика faithful-цикла портованного `FUN_0045e0a0` (`LDHOOK_SITE6=1`): сводка визитов кандидатов на вызовы с `iters > 100` — формат и кап см. «site6»; плюс разложение µs path-слоя и итог тика (`E0PATH`/`E0PATHSUM`/`E0TICK`, см. выше); дефолт выкл, поведение побайтно прежнее |
 | `LDHOOK_SEED=<uint32>` | пиннинг RNG для A/B: `push <константа>` на R1..R3 (`0x49ebcf`, `0x4a7677`, `0x4ae87f`) + `whrandom.seed(7,11,13)` из загрузчика `.pyd`; decimal или `0x`-hex. Не задан — seed-хуки не ставятся |
 | `LDHOOK_MOB_OCC=1` | наблюдатель занятости клеток мобами (`battle/occ.cpp`): строка `OCC tick unit cx cy cz px py pz t0 t1 t2 s1 s2 code` на выборку тика юнита (K задаёт `LDHOOK_MOB_OCC_EVERY`, дефолт 10); `cx,cy` — клетка pos-тройки game_ctx (`unit+0x138 → +0xc`); дефолт выкл, ни чтений, ни строк. Разбор — `tools/probes/occ_analyze.py` |
+| `LDHOOK_OCC_SHARED=1` | (вместе с `LDHOOK_MOB_OCC=1`) эксперимент общей занятости: радиальный скан `cb40` (`battle/path.cpp`) пропускает клетку, занятую другим юнитом; реестр 128 слотов `{self,x,y}`, запись клетки входа `pos` при входе `cb40`; дефолт выкл, ветвь скана дословно прежняя |
 
 `ldhook.set_level(n)` из игрового скрипта перекрывает env на лету (возвращает
 прежний уровень); `ldhook.log(msg)` — строка info из Python; `ldhook.stats()`

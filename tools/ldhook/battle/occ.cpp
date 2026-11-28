@@ -27,14 +27,24 @@
 #define OCC_UNITS            128     /* слотов таблицы счётчиков */
 #define OCC_EVERY_DEF        10      /* K по умолчанию: каждый 10-й тик юнита */
 
+#define OCC_SHARED_MAX       128     /* слотов реестра общей занятости */
+
 typedef struct {
     void *unit;                      /* NULL = слот пуст */
     long  n;                         /* тиков юнита с момента появления */
 } occ_slot;
 
+typedef struct {
+    void *self;                      /* BattleAI (unit+0x138); NULL = слот пуст */
+    int   x;                         /* клетка скана (x = edi) */
+    int   y;                         /* клетка скана (y = ebp) */
+} occ_shared_slot;
+
 static int      g_on = 0;            /* 1 = наблюдение включено */
 static long     g_every = OCC_EVERY_DEF;
 static occ_slot g_tbl[OCC_UNITS];
+static int      g_shared_on = 0;     /* 1 = реестр общей занятости */
+static occ_shared_slot g_shared[OCC_SHARED_MAX];
 
 /* env-флаг: непустое числовое значение != 0 либо ведущий `t`/`T`
  * (atoi("true") == 0). */
@@ -70,11 +80,57 @@ void mob_occ_init(void)
     g_on = 1;
     ld_info("mob_occ: %s=1 every=%ld (строка OCC на выборке тиков юнита)",
             MOB_OCC_ENV, g_every);
+    g_shared_on = 0;
+    memset(g_shared, 0, sizeof(g_shared));
+    if (occ_env_flag(MOB_OCC_SHARED_ENV)) {
+        g_shared_on = 1;
+        ld_info("mob_occ: %s=1 (радиальный скан cb40 пропускает клетки других юнитов)",
+                MOB_OCC_SHARED_ENV);
+    }
 }
 
 int mob_occ_enabled(void)
 {
     return g_on;
+}
+
+int occ_shared_on(void)
+{
+    return g_shared_on;
+}
+
+/* Клетка юнита при входе cb40: линейный поиск по self, вставка в первый пустой.
+ * Реестр растёт до 128 юнитов; переполнение — слот не записывается. */
+void occ_shared_note(void *self, int x, int y)
+{
+    int i;
+
+    for (i = 0; i < OCC_SHARED_MAX; i++) {
+        if (g_shared[i].self == self) {
+            g_shared[i].x = x;
+            g_shared[i].y = y;
+            return;
+        }
+        if (g_shared[i].self == NULL) {
+            g_shared[i].self = self;
+            g_shared[i].x = x;
+            g_shared[i].y = y;
+            return;
+        }
+    }
+}
+
+int occ_shared_other(void *self, int x, int y)
+{
+    int i;
+
+    for (i = 0; i < OCC_SHARED_MAX; i++) {
+        if (g_shared[i].self != NULL && g_shared[i].self != self &&
+            g_shared[i].x == x && g_shared[i].y == y) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 /* Слот счётчика юнита: линейный поиск, вставка в первый пустой.

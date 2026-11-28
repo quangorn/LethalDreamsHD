@@ -18,6 +18,7 @@
 #include "../ldhook_internal.h"
 #include "battle.h"
 #include "native.h"
+#include "occ.h"
 
 #ifdef BATTLE_REPLAY
 extern "C" int g_replay_override;
@@ -616,6 +617,11 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
     const int diag = e0_diag_on();
     LONGLONG tp = -1;
 
+    /* LDHOOK_OCC_SHARED: клетка входа (pos) пишется в реестр общей занятости. */
+    if (occ_shared_on()) {
+        occ_shared_note(self, spec->pos->x, spec->pos->y);
+    }
+
 #define LS(k) (l[(k) >> 2])
 
     LS(0x28) = (int)(INT_PTR)&spec->out_metric;  /* @0x45cb66 */
@@ -671,6 +677,14 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
                         ecx = (int)(INT_PTR)&self->map2;      /* @0x434bc0 PUSH ECX / POP ECX @0x434c13/0x434c2a:
                                                                * ecx возвращает посев @0x45cc15 (lea 0x74(%esi)) */
                         if ((void *)(INT_PTR)LS(0x44) == self->occ_head) {  /* @0x45cc2d: head → NOT занято */
+                            /* LDHOOK_OCC_SHARED (эксперимент): клетка, занятая ДРУГИМ юнитом
+                             * (реестр battle/occ.cpp), не исследуется — путь огибает толпу.
+                             * Выключено: ни вызова, ни пропуска, ветвь дословно прежняя. */
+                            const int occ_skip =
+                                (occ_shared_on() && occ_shared_other(self, edi, ebp));
+                            if (occ_skip) {
+                                ebx = LS(0x3c);   /* @0x45ccce перечитывание pos->x, без обхода */
+                            } else {
                             GridLevel *grid;
                             GridCell *node2;
                             int p7;
@@ -715,6 +729,7 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
                              * 0x45c3e0..0x45c417 зависит от обхода) — консервативно сохраняем ecx=grid. Все
                              * продолжения проходят перечитывание @0x45cd04, где native сеет ecx слотом L[0x20]. */
                             ebx = LS(0x3c);                           /* @0x45ccce перечитывание pos->x */
+                            }
                         }
                         /* хвост 0x45ccd2 (общий обеим ветвям head-проверки): */
                         if (s6_bits_get(LS(0x2c)) < s6_bits_get(LS(0x14))) {  /* JP(маска 0x5) NOT taken ⟺ a<b */
