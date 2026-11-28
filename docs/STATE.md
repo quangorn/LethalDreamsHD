@@ -311,6 +311,9 @@
 - `[P]` 9.3 инструмент (27.11.2026): `BATTLE` несёт `e0n`/`e0us` (доля поиска в тике, без
   QPC-накладных), `LDHOOK_BATTLE_TRACE=2` — `TICKSEC` раз в секунду + медленные тики; разбор —
   `tools/probes/tick_stats.py`, запуск ручного боя — `tools/probes/play_profiled.ps1`.
+- `[P]` Наблюдатель занятости мобов (28.11.2026): env `LDHOOK_MOB_OCC=1` (`battle/occ.cpp`,
+  строка `OCC tick unit cx cy cz px py pz t0..t2 s1 s2 code` на выборку K=10 тиков юнита,
+  клетка = pos-тройка `*(unit+0x138)+0xc`); разбор — `tools/probes/occ_analyze.py`.
 - `[P]` 9.2a принято (27.11.2026): path-слой = 80–90 % µs `e0a0` (window-цикл+гейты 53 %, `map2`
   `lower_bound` 23 %, grid-lookup 10 %, tree-walk 13 %); повторы `(cell,target)` 2.7–9 %, все внутри
   одного вызова. Разложение — `E0PATH`/`E0PATHSUM`/`E0TICK` (`LDHOOK_E0_DIAG=1`, `battle/path.cpp`).

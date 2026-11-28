@@ -33,6 +33,7 @@
 #include "structs.h"
 #include "trace.h"
 #include "capture.h"
+#include "occ.h"
 
 /* Оффсеты, которых нет в struct BattleAI (размер зафиксирован только до
  * +0x7c): размер map1 и размер map2 читаются эпилогом 44bdd0. */
@@ -282,14 +283,20 @@ void __cdecl battle_trace_tick_begin(void *unit)
 {
     LD_CRASH_SCOPE(7);           /* LDHOOK_CRASHLOG: stage 7 (H1), no-op off */
     int cap_on = battle_capture_enabled();
+    int occ_on = mob_occ_enabled();
 
-    /* Capture работает и при trace=0: H1 даёт ему tick и ordinal юнита. */
-    if (!g_enabled && !cap_on) {
+    /* Capture и OCC работают и при trace=0: H1 даёт им tick и ordinal юнита. */
+    if (!g_enabled && !cap_on && !occ_on) {
         return;
     }
     g_tick_unit = unit;
     g_tick_unit_id = trace_unit_id(unit);
     InterlockedIncrement(&g_tick_no);
+    /* OCC (LDHOOK_MOB_OCC): строка выборки на тик юнита — до сброса полей тика,
+     * поэтому code — код, записанный H3 предыдущего тика цикла. */
+    if (occ_on && g_tick_unit_id > 0) {
+        mob_occ_unit_tick(g_tick_unit, g_tick_unit_id, (long)g_tick_no);
+    }
     if (cap_on) {
         battle_capture_tick_begin(unit, g_tick_no, g_tick_unit_id);
     }
@@ -323,6 +330,12 @@ void __cdecl battle_trace_tick_begin(void *unit)
 long battle_trace_tick_count(void)
 {
     return (long)g_tick_no;
+}
+
+/* Код, записанный H3 к текущему моменту — для наблюдателя занятости (occ.cpp). */
+int battle_trace_current_code(void)
+{
+    return g_tick_code;
 }
 
 /* LDHOOK_BATTLE_TRACE=2 — сводка по секундам (длинный бой: строка на тик

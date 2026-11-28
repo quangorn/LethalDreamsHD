@@ -68,6 +68,7 @@
 #include "battle/trace.h"
 #include "battle/native.h"
 #include "battle/capture.h"
+#include "battle/occ.h"
 #include "battle/leaf_sites.h"
 #include "battle/native_sites.h"
 #include "ldhook_internal.h"
@@ -1219,6 +1220,7 @@ extern "C" __declspec(dllexport) void initldhook(void)
     native::init();
     battle_trace_init();
     battle_capture_init();
+    mob_occ_init();
     base = native::base();
     if (base != NULL && ld_find_text(base, &g_text, &g_text_len)) {
         ld_info("=== ldhook.pyd phase 6 (hooks + logger + target-search diag) pid=%u base=0x%08x .text=0x%08x+0x%x level=%d ===",

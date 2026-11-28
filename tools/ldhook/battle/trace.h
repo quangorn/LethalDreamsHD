@@ -65,6 +65,10 @@ void battle_trace_tick_begin(void *unit);
 /* Текущий номер тика (счётчик H1). */
 long battle_trace_tick_count(void);
 
+/* Код, записанный H3 к текущему моменту (g_tick_code; -1 — не записан).
+ * H1 идёт ДО H3, поэтому на входе тика это код предыдущего тика цикла. */
+int  battle_trace_current_code(void);
+
 /* H2 (0x44d074): AL, esp кадра (для [esp+0x164] = param_3) —
  * читает поля через g_tick_unit и пишет строку; вызывается ДО воспроизведения
  * украденных байт. */
