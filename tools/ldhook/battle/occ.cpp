@@ -43,7 +43,8 @@ typedef struct {
 static int      g_on = 0;            /* 1 = наблюдение включено */
 static long     g_every = OCC_EVERY_DEF;
 static occ_slot g_tbl[OCC_UNITS];
-static int      g_shared_on = 0;     /* 1 = реестр общей занятости */
+static int      g_shared_on = 0;     /* реестр: 1 пропуск, 2 штраф */
+static float    g_shared_pen = 10.0f;
 static occ_shared_slot g_shared[OCC_SHARED_MAX];
 
 /* env-флаг: непустое числовое значение != 0 либо ведущий `t`/`T`
@@ -81,11 +82,25 @@ void mob_occ_init(void)
     ld_info("mob_occ: %s=1 every=%ld (строка OCC на выборке тиков юнита)",
             MOB_OCC_ENV, g_every);
     g_shared_on = 0;
+    g_shared_pen = 10.0f;
     memset(g_shared, 0, sizeof(g_shared));
-    if (occ_env_flag(MOB_OCC_SHARED_ENV)) {
-        g_shared_on = 1;
-        ld_info("mob_occ: %s=1 (радиальный скан cb40 пропускает клетки других юнитов)",
-                MOB_OCC_SHARED_ENV);
+    s = getenv(MOB_OCC_SHARED_ENV);
+    if (s != NULL && *s != '\0') {
+        long m = strtol(s, NULL, 10);
+        if (m == 't' || m == 'T') {
+            m = 1;                       /* ведущий t/T = пропуск */
+        }
+        if (m == 1 || m == 2) {
+            g_shared_on = (int)m;
+            s = getenv(MOB_OCC_PEN_ENV);
+            if (s != NULL && *s != '\0') {
+                g_shared_pen = (float)atof(s);
+            }
+            ld_info("mob_occ: %s=%d pen=%g (%s)", MOB_OCC_SHARED_ENV, g_shared_on,
+                    g_shared_pen,
+                    g_shared_on == 1 ? "радиальный скан cb40 пропускает клетки других юнитов"
+                                     : "радиальный скан cb40 штрафует клетки других юнитов");
+        }
     }
 }
 
@@ -97,6 +112,11 @@ int mob_occ_enabled(void)
 int occ_shared_on(void)
 {
     return g_shared_on;
+}
+
+float occ_shared_pen(void)
+{
+    return g_shared_pen;
 }
 
 /* Клетка юнита при входе cb40: линейный поиск по self, вставка в первый пустой.

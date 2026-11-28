@@ -31,13 +31,16 @@
 #define MOB_OCC_ENV        "LDHOOK_MOB_OCC"
 #define MOB_OCC_EVERY_ENV  "LDHOOK_MOB_OCC_EVERY"
 #define MOB_OCC_SHARED_ENV "LDHOOK_OCC_SHARED"
+#define MOB_OCC_PEN_ENV    "LDHOOK_OCC_PEN"
 
-/* Эксперимент общей занятости (env `LDHOOK_OCC_SHARED=1`, вместе с
+/* Эксперимент общей занятости (env `LDHOOK_OCC_SHARED=1|2`, вместе с
  * `LDHOOK_MOB_OCC=1`): фиксированный реестр клеток юнитов; радиальный скан cb40
- * (`battle/path.cpp`) пропускает клетку, занятую ДРУГИМ юнитом. Дефолт выкл:
- * ни записей, ни пропусков. Реестр — 128 слотов {self, x, y}, без аллокаций;
- * self = BattleAI (unit+0x138). */
-int  occ_shared_on(void);
+ * (`battle/path.cpp`) на клетку, занятую ДРУГИМ юнитом: режим 1 — пропускает
+ * её, режим 2 — исследует с штрафом `LDHOOK_OCC_PEN` к метрике клетки.
+ * Дефолт выкл: ни записей, ни пропусков, ни штрафов. Реестр — 128 слотов
+ * {self, x, y}, без аллокаций; self = BattleAI (unit+0x138). */
+int  occ_shared_on(void);        /* 0 выкл, 1 пропуск, 2 штраф */
+float occ_shared_pen(void);      /* величина штрафа (env LDHOOK_OCC_PEN) */
 void occ_shared_note(void *self, int x, int y);   /* клетка юнита при входе cb40 */
 int  occ_shared_other(void *self, int x, int y);   /* клетка занята другим self */
 

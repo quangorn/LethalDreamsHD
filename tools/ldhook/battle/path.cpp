@@ -677,12 +677,15 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
                         ecx = (int)(INT_PTR)&self->map2;      /* @0x434bc0 PUSH ECX / POP ECX @0x434c13/0x434c2a:
                                                                * ecx возвращает посев @0x45cc15 (lea 0x74(%esi)) */
                         if ((void *)(INT_PTR)LS(0x44) == self->occ_head) {  /* @0x45cc2d: head → NOT занято */
-                            /* LDHOOK_OCC_SHARED (эксперимент): клетка, занятая ДРУГИМ юнитом
-                             * (реестр battle/occ.cpp), не исследуется — путь огибает толпу.
-                             * Выключено: ни вызова, ни пропуска, ветвь дословно прежняя. */
-                            const int occ_skip =
-                                (occ_shared_on() && occ_shared_other(self, edi, ebp));
-                            if (occ_skip) {
+                            /* LDHOOK_OCC_SHARED (эксперимент): реестр клеток юнитов
+                             * (battle/occ.cpp) на клетку другого юнита. Режим 1 — клетка
+                             * не исследуется (путь огибает толпу); режим 2 — исследуется
+                             * со штрафом occ_shared_pen() к метрике клетки. Дефолт (0):
+                             * ни вызова, ни пропуска, ни штрафа, ветвь дословно прежняя. */
+                            const int occ_mode = occ_shared_on();
+                            const int occ_foreign =
+                                (occ_mode != 0 && occ_shared_other(self, edi, ebp));
+                            if (occ_mode == 1 && occ_foreign) {
                                 ebx = LS(0x3c);   /* @0x45ccce перечитывание pos->x, без обхода */
                             } else {
                             GridLevel *grid;
@@ -728,6 +731,12 @@ static void *s6_path_search_body(BattleAI *self, PathState *spec)
                             /* @0x45c3a0 clobbers ecx; остаточный ecx не наблюдаем (последнее значение ecx внутри
                              * 0x45c3e0..0x45c417 зависит от обхода) — консервативно сохраняем ecx=grid. Все
                              * продолжения проходят перечитывание @0x45cd04, где native сеет ecx слотом L[0x20]. */
+                            if (occ_mode == 2 && occ_foreign) {
+                                /* LDHOOK_OCC_SHARED=2: метрика клетки другого юнита
+                                 * дороже на occ_shared_pen() — хвост 0x45ccd2 сравнивает
+                                 * штрафную LS(0x14), путь выбирает свободную клетку. */
+                                s6_bits_set(&LS(0x14), s6_bits_get(LS(0x14)) + occ_shared_pen());
+                            }
                             ebx = LS(0x3c);                           /* @0x45ccce перечитывание pos->x */
                             }
                         }
