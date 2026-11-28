@@ -12,8 +12,9 @@
   установкой `release/patches/ui_cursor.patch`; копия v6 `4a8eb4bab413…` — в
   `scratch_dir('battle_baseline')/cursor_installed_v6.pyc`). `check_state --quick` rc 1
   (загрузчик `ui/ui.pyc` — ниже). Разбор и команда применения: `docs/VERIFY.md`.
-- `ui/ui.pyc` загрузчика ldhook `d9a55bdf…` против base-печати `ae59f601…` — dev-состояние живых
-  прогонов боевого AI; ставится `tools/ldhook/patch_ui.py --install`, откат `--restore`. Записан в
+- `ui/ui.pyc` загрузчика ldhook `b01d486f38ee…` против base-печати `67655741b4e2…` — dev-состояние живых
+  прогонов боевого AI; ставится **только** `tools/ldhook/patch_ui.py --install`, откат `--restore`.
+  `install_patch.py ui/ui --install` загрузчик СТИРАЕТ (ставит base-печать). Записан в
   манифесте как `drift_known_md5`: `--full` rc 0, `--quick` rc 1. Артефакты прогонов
   `ldhook.pyd` (артефакт `build/ldhook/ldhook.pyd`, md5 не фиксируется), `ldhook_marker.txt`,
   `hdlog.txt*` — в allowlist'е `dev_artifacts`. Грабли: `docs/PITFALLS.md`.

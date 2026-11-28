@@ -20,6 +20,11 @@
   `tools/release/update_entry.py <м>` пересобирает `.patch` и запись манифеста.
 - Гейт «патч ↔ база»: `python3 tools/pyc/check_patches.py [--base DIR]` — rc≠0
   значит хунки не ложатся или патч перестал давать установленный bytecode.
+- `ui/ui` — исключение из шага установки: в этой установке он ставится
+  `tools/ldhook/patch_ui.py --install` (сборка base-печати + загрузчик
+  `imp.load_dynamic(ldhook)`), иначе хуки боевого AI не грузятся. `install_patch.py
+  ui/ui --install` загрузчик стирает. `state` в манифесте — описательное поле
+  (`update_entry.py` всегда пишет `MATCH`), признак «чистой» сборки — только md5.
 - Расположение: `tools/apply_patch.py` рядом с `tools/check_state.py` — это место
   зафиксировано в `fix_command` манифеста
   (`python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>`),
@@ -85,7 +90,8 @@ python3 tools/apply_patch.py <м> && python3 tools/pyc/install_patch.py <м>
 ```
 
 Порядок: патч `.py` (локальная база) → компиляция с манифестным mtime →
-установка в игру (`install_patch.py --install`).
+установка в игру (`install_patch.py --install`). Для `ui/ui` третий шаг —
+`python3 tools/ldhook/patch_ui.py --install` (он добавляет загрузчик).
 
 ## Тесты (пройдены)
 
