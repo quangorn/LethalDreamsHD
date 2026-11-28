@@ -21,8 +21,10 @@
 из которого компилировали; тело совпадает только при компиляции из канонического
 пути — checker печатает поясняющую строку.
 
-- `[P]` Известный дрейф code tier: `ui/ui.pyc` загрузчика ldhook `d9a55bdf…` против base-печати
-  `ae59f601…`; ставится `tools/ldhook/patch_ui.py --install`, откат `--restore` (после отката rc 0).
+- `[P]` Известный дрейф code tier: `ui/ui.pyc` загрузчика ldhook `b01d486f…` против base-печати
+  `67655741…`; ставится **только** `tools/ldhook/patch_ui.py --install`, откат `--restore`.
+- `[P]` Известный дрейф `hd.cfg` (28.11.2026, принято не трогать): установка 18 B (две пустые
+  строки после `3840 2160 32 1`) против эталона 16 B — `--quick` rc 1 с DRIFT cfg.
 
 ## Ярус assets (входит в `--full`)
 
@@ -38,19 +40,18 @@
 
 Всё, что патч не трогает, объясняется тремя архивами
 (`archive.pristine`, `archive.hd_pack`, `archive.snapshot`). Алгоритм классификации
-(порядок фиксирован): пара путь-в-архиве → PRISTINE; пара путь → HD_PACK;
-пара путь → byte-identical репозиторий → REPO; пара путь в snapshot (strip
-префикса `LethalDreams/`) → SNAPSHOT; basename+(size,crc) fallback; basename
-(без контента) → REPO_BASENAME; UNCOVERED — репорт.
+(порядок фиксирован): exclude-глоб → CODE (мишени манифеста) → пара путь HD_PACK →
+allowlist (SNAPSHOT_ONLY/REPO/REPO_BASENAME/dev_artifacts) → пара путь PRISTINE →
+пара путь snapshot (strip префикса `LethalDreams/`) → ALLOWED → basename+(size,crc)
+fallback → ARCHIVE_BASENAME; DRIFT/EXTRA. Пустая запись архива: пара по размеру (CRC у
+неё пустое) — грабля `docs/PITFALLS.md`.
 
-Замер на установке (5087 файлов, без `__pycache__`, 27.11.2026; `lethaldreams.dll` и
+Замер на установке (5087 файлов, без `__pycache__`, 28.11.2026; `lethaldreams.dll` и
 `LD-setup.bat` удалены из установки по решению пользователя):
 
-- PRISTINE **2963**, HD_PACK **1379** (все побитово, включая 30 `data/maps/*.map` с 3x-почвой),
-  ALLOWED **720** (включая `dev_artifacts`: `ldhook.pyd`, `ldhook_marker.txt`, `hdlog.txt*`),
-  CODE **21** (включая `globalscript.pyc` = `PRISTINE_IDENTICAL`), EXCLUDED **4**,
-  ARCHIVE_BASENAME **0**, REPO_BASENAME **1** (`console.py`, 0 B),
-  UNCOVERED **0**; `hd.cfg` — REPO (артефакт пайплайна, в git не входит).
+- PRISTINE **2965** (включая родной клон `data/scripts/types.pyc`), HD_PACK **1379** (все побитово,
+  включая 30 `data/maps/*.map` с 3x-почвой), ALLOWED **719** (`dev_artifacts` + `console.py` 0 B
+  по правилу пустой пары), CODE **20**, EXCLUDED **4**, ARCHIVE_BASENAME **0**, UNCOVERED **0**.
 - allowlist: `data/video/*.wmv` (glob) + `.log`-класс; отсутствие
   `boolat.wmv`, `russobit_r.wmv` — разрешено (присутствуют в archive, отсутствуют
   в установках; run без exclude это доказывает);
@@ -61,6 +62,9 @@
 
 black-эксперимент: чёрные .btf в установку не входят (флагов нет, sidecar-черные
 только в snapshot) — ярус untouched их не требует.
+
+Логи прогонов (`hdlog.txt*`) в снапшот не включаются (решение 28.11.2026); их presence
+в установке покрывает allowlist `dev_artifacts`.
 
 ## Контур тестов (пройдены)
 

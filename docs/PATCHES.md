@@ -77,8 +77,8 @@ rewrite даёт header build-time (`2026-11-17 10:42`) и md5, не равны�
 | mentality/battlecharacters | mentality_battlecharacters.patch (996 B) | 1052156450 |
 
 - 11 патчей (патч `bdomain` снят 27.11.2026, модуль родной); новые модули без патча:
-  `data/scripts/types.pyc`, `data/scripts/hd_res.pyc`,
-  `data/scripts/hd_scale.pyc`, `data/scripts/hd_tex.pyc`.
+  `data/scripts/hd_res.pyc`, `data/scripts/hd_scale.pyc`, `data/scripts/hd_tex.pyc`.
+  `data/scripts/types.pyc` — родной клон stdlib игры (PRISTINE), к нашим модулям не относится.
 - base-печать == установленный md5 для всех модулей, кроме загрузчика `ui/ui.pyc`
   (KNOWN-drift, `docs/VERIFY.md`); дрейф `ui/cursor.pyc` закрыт 19.11.2026.
 - Цепочка exe: `docs/STATE.md`.

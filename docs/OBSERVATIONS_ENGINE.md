@@ -163,8 +163,11 @@
   `stat.pyc`, `ntpath.pyc`; всего 44 `.pyc` в `data/scripts`). Игровые модули импортируют
   `copy`/`sys`/`math` (`decompiled_fixed/**`), и движок разрешает их из `data/scripts`, а не из
   stdlib. Клоны **не равны** stdlib-компилятам: `copy` — `81fb2a2d3081` vs `c0d57e3df1a6`,
-  `os` — `61cffc2a1621` vs `bb3494b99800`, `types` — `414bd2aa0857` vs `34d060c208c0`,
+  `os` — `61cffc2a1621` vs `bb3494b99800`, `types` — `f8c999a87f9f` (2690 B) vs `34d060c208c0`,
   `string` — `10c368f8f8e0` vs `698e4d33a160`.
+- `[P]` `types.pyc` установки — родной клон (`original.7z` побитово); запись snapshot-архивов
+  9.7z/11.7z `414bd2aa0857` (3225 B, co_filename `./data/scripts/types.py`) — наша worker-сборка
+  stdlib `types.py`, клону не принадлежит; в снапшот она не включается.
 - `[P]` Нашему дереву полный stdlib нужен: цепочка инициализации тянет `re`, `sre`,
   `sre_compile`, `pickle`, `py_compile`, `dis`, `copy_reg`, `difflib`, `linecache`,
   `traceback`, которых в `data/scripts` нет. Отсюда обязательность `Lib` + финальной DLL.

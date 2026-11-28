@@ -74,10 +74,10 @@
 | battlecamera | 1794778203 |
 | mentality/battlecharacters | 1052156450 |
 
-- Новые модули лежат в `config[game.root]/data/scripts/`: `types.pyc` (3225 B,
-  md5 `414bd2aa0857…`; allowlist `named_legals` + `snapshot_only`) и `hd_res.pyc`
- (2497 B, md5 `fc524b6139c0…`; manifest `state` = `GENERATED`, собирается пайплайном
-  из `hd.cfg`). В `data/scripts/ui/` их нет. Патч к ним не применяется.
+- Новые модули лежат в `config[game.root]/data/scripts/`: `hd_res.pyc` (2497 B, md5 `fc524b6139c0…`;
+  manifest `state` = `GENERATED`, собирается пайплайном из `hd.cfg`), `hd_scale.pyc`, `hd_tex.pyc`;
+  патч к ним не применяется. `data/scripts/types.pyc` — родной stdlib-клон игры (2690 B,
+  md5 `f8c999a87f9f…`), классифицируется PRISTINE (allowlist его не покрывает).
 - Патчи: `release/patches/*.patch` (`tools/apply_patch.py`).
 - `[P]` Новый кодовый модуль (17.11.2026): `data/scripts/ui/olcamera.pyc` — base-печать md5
   `f67ae9904032…`, pristine-копия установки `ba346c67b543…` = `installed_recorded_md5`;
@@ -133,17 +133,17 @@
 
 ## Замеры проверки (см. docs/VERIFY.md)
 
-- `[P]` Замер 28.11.2026 (`--full` rc 0, `--untouched` rc 0, установка 5087 файлов): PRISTINE 2964,
-  HD_PACK 1379 (все 1379 побитово), ALLOWED 720, CODE 20, EXCLUDED 4, ARCHIVE_BASENAME 0.
-  `--quick` rc 0 (нарушений 12, все KNOWN, включая загрузчик ldhook `d9a55bdf…`).
+- `[P]` Замер 28.11.2026 (установка 5087 файлов): `--full --untouched` rc 1 — единственное нарушение
+  DRIFT `hd.cfg`; PRISTINE 2965 (родной клон `types.pyc` включён), HD_PACK 1379 (все побитово),
+  ALLOWED 719, CODE 20, EXCLUDED 4, ARCHIVE_BASENAME 0; `--quick` rc 1 (DRIFT cfg + загрузчик `ui.pyc`).
 - `[P]` Чёрная точка аддитивных UI-текстур: 91 запись hd_pack обезполнена (`tools/btf/qc_blackpoint.py fix`)
   и установлена в игру; эталон = сам архив, checker сверяет .btf побитово. Грабля — `docs/PITFALLS.md`.
 - `[P]` Значок юнитов миникарты `minimap_pt01` (hd_pack ×2): битый blob заменён Lanczos-апскейлом
   (`tools/btf/qc_upscale_alpha.py fix`), эталон md5 `acb6a957412a2006b575969a67d4b299` (crc32 `51213cae`).
 - Покрытие allowlist'а (`release/allowlist.json`: `lib/*` 713,
   корневые бинары 5 — `LETHALDREAMS.EXE`, `python22.dll`, `msvcr70.dll`, `msvcp70.dll`,
-  `msvcr70d.dll`, `data/scripts/*.pyc` 10, `data/textures/mm_bkg01.btf` 1);
-  `hd.cfg` классифицируется как REPO — артефакт пайплайна, в git не входит.
+  `msvcr70d.dll`, `data/scripts/*.pyc` 9 (`types.pyc` снят: он PRISTINE), `data/textures/mm_bkg01.btf` 1);
+  `hd.cfg` — артефакт пайплайна, в git не входит (установка от него drift'ит, см. выше).
 
 ---
 
