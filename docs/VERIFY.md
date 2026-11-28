@@ -41,12 +41,13 @@
 
 ## Ярус untouched (`--untouched`)
 
-Всё, что патч не трогает, объясняется тремя архивами
-(`archive.pristine`, `archive.hd_pack`, `archive.snapshot`). Алгоритм классификации
+Всё, что патч не трогает, объясняется двумя архивами (`archive.pristine`,
+`archive.hd_pack`) и коммитным индексом состояния установки (`release/snapshot_index.json`).
+Алгоритм классификации
 (порядок фиксирован): exclude-глоб → CODE (мишени манифеста) → пара путь HD_PACK →
 allowlist (SNAPSHOT_ONLY/REPO/REPO_BASENAME/dev_artifacts) → пара путь PRISTINE →
-пара путь snapshot (strip префикса `LethalDreams/`) → ALLOWED → basename+(size,crc)
-fallback → ARCHIVE_BASENAME; DRIFT/EXTRA. Пустая запись архива: пара по размеру (CRC у
+пара путь snapshot-индекса → ALLOWED → basename+(size,crc)
+fallback → ARCHIVE_BASENAME; DRIFT/EXTRA. Пустая запись архива/индекса: пара по размеру (CRC у
 неё пустое) — грабля `docs/PITFALLS.md`.
 
 Замер на установке (5087 файлов, без `__pycache__`, 28.11.2026; `lethaldreams.dll` и
@@ -60,11 +61,11 @@ fallback → ARCHIVE_BASENAME; DRIFT/EXTRA. Пустая запись архив
   в установках; run без exclude это доказывает);
 - `absent_ok`: `lethaldreams.dll` (удалён из установки как неиспользуемый StarForce-стаб,
   см. `docs/KNOWLEDGE.md`) — не репортится как MISSING.
-- `LD-setup.bat` удалён из установки по решению пользователя (2026-11-18): snapshot-only
-  запись (в `original.7z` файла нет), MISSING не репортится; строка снята из allowlist'а.
+- `LD-setup.bat` удалён из установки по решению пользователя (2026-11-18): запись только
+  в приватном архиве снимка (в `original.7z` файла нет), MISSING не репортится; строка снята из allowlist'а.
 
 black-эксперимент: чёрные .btf в установку не входят (флагов нет, sidecar-черные
-только в snapshot) — ярус untouched их не требует.
+только в приватном архиве снимка) — ярус untouched их не требует.
 
 Логи прогонов (`hdlog.txt*`) в снапшот не включаются (решение 28.11.2026); их presence
 в установке покрывает allowlist `dev_artifacts`.
@@ -143,7 +144,8 @@ black-эксперимент: чёрные .btf в установку не вх�
   EXE установки `171319bbc170cf6e57c8d36a8ae5f50d` (1191936 B), md5-diff установок = 0.
 - `[P]` (2026-11-19) Оба дрейфа закрыты: `--quick` rc 0, нарушений 0; `hd.cfg` = `3840 2160 32 1`.
 - `[P]` (2026-11-18) Из установки удалены `lethaldreams.dll` (неиспользуемый StarForce/SFORCE-стаб;
-  копия в `backup_orig/` и в `original.7z`) и `LD-setup.bat` (копия только в snapshot `6.7z`);
+  копия в `backup_orig/` и в `original.7z`) и `LD-setup.bat` (копия только в приватном
+  архиве снимка `6.7z`);
   `lethaldreams.dll` в `absent_ok`, строка `ld-setup.bat` из allowlist'а снята; ярусы — новых
   нарушений нет. Число файлов установки — замер выше.
 - `[P]` Цепь EXE воспроизведена: pristine `7943036fbd1233a0dbd43228f129cfc7` → exepatch3

@@ -32,7 +32,7 @@
    },
    {
     "crc32": "4f125705",
-    "fix_command": "7z x <snapshot_archive> -o<install_dir> LethalDreams/msvcp70.dll",
+    "fix_command": "cp vendor/vc70/msvcp70.dll <install_dir>/msvcp70.dll",
     "id": "msvcp70.dll",
     "kind": "dll",
     "md5": "d04f7aaca2319a3bcdb2c5d5dd6f6026",
@@ -42,7 +42,7 @@
    },
    {
     "crc32": "516c28bc",
-    "fix_command": "7z x <snapshot_archive> -o<install_dir> LethalDreams/msvcr70.dll",
+    "fix_command": "cp vendor/vc70/msvcr70.dll <install_dir>/msvcr70.dll",
     "id": "msvcr70.dll",
     "kind": "dll",
     "md5": "9972a6ed4f2388dbfa8e0a96f6f3fdf1",
@@ -52,7 +52,7 @@
    },
    {
     "crc32": "dbbd3412",
-    "fix_command": "7z x <snapshot_archive> -o<install_dir> LethalDreams/msvcr70d.dll",
+    "fix_command": "cp vendor/vc70/msvcr70d.dll <install_dir>/msvcr70d.dll",
     "id": "msvcr70d.dll",
     "kind": "dll",
     "md5": "e1b69a678c6fab162966cc1a4a1e592e",

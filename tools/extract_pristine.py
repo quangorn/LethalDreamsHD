@@ -4,7 +4,7 @@ Commands:
   list [PATTERN]            pristine archive entries matching a glob pattern
   extract PATTERN [--dest]  extract matching entries into cache/pristine/
   snapshot                  build cache/game_manifest.json (pyc/dll/exe/fdf/btf)
-  lib [--refresh]           populate cache/lib from game.snapshot_archive
+  lib [--refresh]           populate cache/lib from game.lib_archive
   templates                 font templates (*_orig.btf/.fdf) from pristine_archive
 
 Pattern notes: the pattern is matched against archive entry names with fnmatch
@@ -139,12 +139,13 @@ def lib_entries(archive):
     """(entries, roots) for every file under a `Lib` directory of an install
     archive. Each entry is (archive name, path relative to Lib, index entry);
     roots is the set of archive root directories that contain a Lib, so the
-    cache layout can be checked for ambiguity before extracting."""
+    cache layout can be checked for ambiguity before extracting. A `Lib` at the
+    archive root (`Lib/aifc.py`) counts as its own root."""
     out = []
     roots = set()
     for e in paths.archive_list_of(archive):
         parts = e["name"].split("/")
-        for i in range(1, len(parts) - 1):
+        for i in range(0, len(parts) - 1):
             if parts[i].lower() == "lib":
                 roots.add(parts[0])
                 out.append((e["name"], "/".join(parts[i + 1:]), e))
@@ -171,11 +172,11 @@ def verify_lib(entries, lib):
 
 
 def cmd_lib(refresh=False):
-    """Populate cache/lib from game.snapshot_archive, verify every file against
+    """Populate cache/lib from game.lib_archive, verify every file against
     the archive CRC, then write the marker that `paths.lib_dir()` checks. An
     existing good cache is left untouched and reported; a cache that does not
     match the archive is reported and needs `--refresh`."""
-    archive = paths.snapshot_archive()
+    archive = paths.lib_archive()
     lib = Path(paths.cache_lib_dir())
     marker = paths.lib_marker_path()
     entries, roots = lib_entries(archive)
@@ -371,7 +372,7 @@ def main(argv=None):
     if args.command == "snapshot" and args.pattern:
         ap.error("snapshot takes no pattern (it indexes the whole archive)")
     if args.command == "lib" and args.pattern:
-        ap.error("lib takes no pattern (it extracts Lib from game.snapshot_archive)")
+        ap.error("lib takes no pattern (it extracts Lib from game.lib_archive)")
     if args.command == "templates" and args.pattern:
         ap.error("templates takes no pattern (the four font templates are fixed)")
     if args.command == "extract" and not args.pattern:

@@ -7,11 +7,11 @@ Paths built from `__file__` are Cygwin mount paths (`/cygdrive/C/...`), so they
 go through `win_path()` before being handed to native Windows binaries.
 
 Keys: game.install_dir, game.pristine_archive (unpatched install, no `Lib`),
-game.snapshot_archive (full install snapshot, contains `Lib`), assets.hd_pack
-(all upscales), assets.base (optional, personal working dirs), py223.dir,
-scratch.dir, cache.dir, check.exclude. The game install is read by the checker
-and written only by explicit install commands; the py223 compile path is
-cache/lib (`lib_dir()`), never the game.
+game.lib_archive (the game's copy of the Python 2.2.3 `Lib`, the compile-path
+source), assets.hd_pack (all upscales), assets.base (optional, personal working
+dirs), py223.dir, scratch.dir, cache.dir, check.exclude. The game install is
+read by the checker and written only by explicit install commands; the py223
+compile path is cache/lib (`lib_dir()`), never the game.
 """
 
 import json
@@ -27,7 +27,7 @@ ENV_VAR = "LD_CONFIG"
 REQUIRED_KEYS = {
     "game.install_dir": ["game", "install_dir"],
     "game.pristine_archive": ["game", "pristine_archive"],
-    "game.snapshot_archive": ["game", "snapshot_archive"],
+    "game.lib_archive": ["game", "lib_archive"],
     "assets.hd_pack": ["assets", "hd_pack"],
     "py223.dir": ["py223", "dir"],
     "scratch.dir": ["scratch", "dir"],
@@ -185,10 +185,10 @@ def _writable(d):
 
 def validate_required(require_lib=True):
     """Fail fast: load config, check required values are non-empty and that
-    install_dir / pristine_archive / snapshot_archive / hd_pack exist on disk,
+    install_dir / pristine_archive / lib_archive / hd_pack exist on disk,
     py223.dir and py223_exe() exist, assets.base exists when set,
     scratch.dir / cache.dir are creatable and writable, and cache/lib is
-    populated and fresh for the current snapshot archive (`require_lib=False`
+    populated and fresh for the current lib archive (`require_lib=False`
     skips that check, used by the command that populates it). Every problem
     found is reported together in one message. Returns the config dict.
     """
@@ -200,14 +200,14 @@ def validate_required(require_lib=True):
     problems = []
     inst = Path(install_dir())
     arch = Path(pristine_archive())
-    snap = Path(snapshot_archive())
+    libarch = Path(lib_archive())
     pack = Path(hd_pack())
     if not inst.exists():
         problems.append("install_dir does not exist: %s" % norm(inst))
     if not arch.is_file():
         problems.append("pristine_archive does not exist: %s" % norm(arch))
-    if not snap.is_file():
-        problems.append("game.snapshot_archive does not exist: %s" % norm(snap))
+    if not libarch.is_file():
+        problems.append("game.lib_archive does not exist: %s" % norm(libarch))
     if not pack.is_file():
         problems.append("assets.hd_pack does not exist: %s" % norm(pack))
 
@@ -240,9 +240,9 @@ def validate_required(require_lib=True):
             if got is None:
                 problems.append("cache lib marker is corrupt: %s (run: %s --refresh)"
                                 % (norm(marker), populate))
-            elif got != archive_stamp(snapshot_archive()):
-                problems.append("cache lib is stale for snapshot archive %s (run: %s --refresh)"
-                                % (norm(snap), populate))
+            elif got != archive_stamp(lib_archive()):
+                problems.append("cache lib is stale for %s (run: %s --refresh)"
+                                % (norm(libarch), populate))
 
     if problems:
         raise FileNotFoundError("\n".join(problems))
@@ -265,10 +265,18 @@ def py223_exe():
     return py223_dir() + "/PYTHON.EXE"
 
 
-def snapshot_archive():
-    """Full install snapshot archive (contains `Lib` sources and .pyc, which the
-    pristine archive does not contain at all)."""
-    return norm(load()["game"]["snapshot_archive"])
+def lib_archive():
+    """Archive of the game's copy of the Python 2.2.3 `Lib` tree (`.py` and
+    `.pyc`, shipped with the game). It is the source that populates cache/lib,
+    the py223 compile path; the pristine archive contains no `Lib` at all."""
+    return norm(load()["game"]["lib_archive"])
+
+
+def snapshot_index_path():
+    """Committed pair index of the install snapshot (path + size + crc32 for
+    every entry), the reference the checker classifies snapshot-covered files
+    against. A project file, not a personal path."""
+    return norm(Path(__file__).resolve().parent / "release" / "snapshot_index.json")
 
 
 def hd_pack():
@@ -339,7 +347,7 @@ def read_lib_marker(marker):
 def lib_dir():
     """Cache copy of the game `Lib`, used as the py223 compile path so imports
     never write .pyc into the game install. Populated by
-    `python3 tools/extract_pristine.py lib` from game.snapshot_archive. An
+    `python3 tools/extract_pristine.py lib` from game.lib_archive. An
     unpopulated cache, a corrupt marker, or a cache built from a different
     archive stamp all raise FileNotFoundError naming the command to run."""
     d = cache_lib_dir()
@@ -349,7 +357,7 @@ def lib_dir():
         raise FileNotFoundError(
             "cache lib is not populated: %s\nrun: %s" % (d, populate))
     got = read_lib_marker(marker)
-    want = archive_stamp(snapshot_archive())
+    want = archive_stamp(lib_archive())
     if got is None:
         raise FileNotFoundError(
             "cache lib marker %s is corrupt\nrun: %s" % (norm(marker), populate))

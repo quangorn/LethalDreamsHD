@@ -22,7 +22,7 @@
   python3 tools/pyc/pycbuild.py restore-all          вернуть ВСЕ оригиналы из backup_orig
 
 Примечание: рабочий интерпретатор 2.2.3 берётся из config.toml (py223.dir);
-PYTHONPATH = py223-каталог + cache/lib (кэш Lib из snapshot-архива,
+PYTHONPATH = py223-каталог + cache/lib (кэш Lib из game.lib_archive,
 `python3 tools/extract_pristine.py lib`). Игровой каталог в путь компиляции не
 входит: импорт рабочего процесса не пишет .pyc в установку игры.
 """

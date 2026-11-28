@@ -27,6 +27,9 @@ scratch/
 # локальный интерпретатор 2.2.3: скачивается с python.org, в git не входит
 vendor/py223/
 
+# VC 7.0 runtime из игры (msvcp70/msvcr70/msvcr70d): копия установки, в git не входит
+vendor/vc70/
+
 # декомпилятор decompyle 2.3.2 (MIT): ставится tools/pyc/fetch_decompyle.py
 vendor/decompyle/
 

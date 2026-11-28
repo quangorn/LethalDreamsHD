@@ -6,9 +6,9 @@
 install_dir      = "C:/path/to/LethalDreams"
 # Unpatched install archive. Contains no `Lib` directory at all.
 pristine_archive = "C:/path/to/archives/original.7z"
-# Full install snapshot (data/scripts + Lib sources and .pyc). The py223
+# Game copy of the Python 2.2.3 `Lib` tree (+ python22.dll). The py223
 # compile path is cache/lib, populated from this archive.
-snapshot_archive = "C:/path/to/archives/6.7z"
+lib_archive    = "C:/path/to/archives/python_libs.7z"
 
 [assets]
 # Every upscale (textures, cursors, font sidecars). The project keeps no copies.

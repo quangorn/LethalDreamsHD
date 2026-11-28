@@ -157,7 +157,7 @@
 - `[P]` Статус в проверке: `Lib` — легальный базовый слой как SNAPSHOT_ONLY
   (`release/allowlist.json`: 713 записей `lib/*`), `--untouched` rc 0; корневые `.pyc` сняты
   и из установки, и из allowlist. `archive.pristine` `Lib` не покрывает (его там нет);
-  покрытие — snapshot-архив и `python_libs.7z`.
+  покрытие — SNAPSHOT_ONLY allowlist и `config[game.lib_archive]` (`python_libs.7z`).
 - `[P]` Причина, почему альфа-установка без `Lib` запускалась: игра несёт **свои клоны 7 stdlib
   модулей** в `data/scripts` (`copy.pyc`, `os.pyc`, `types.pyc`, `string.pyc`, `whrandom.pyc`,
   `stat.pyc`, `ntpath.pyc`; всего 44 `.pyc` в `data/scripts`). Игровые модули импортируют

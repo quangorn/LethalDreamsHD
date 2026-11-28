@@ -109,7 +109,7 @@
 
 - 1342 .btf в установке (список зафиксирован в `release/manifest.json` assets_tier);
   из них 12 шрифтов HD Pack (побитово) и 1379 hd_pack-записей побитово;
-  black-пары — только snapshot-архив, в install не входят.
+  black-пары — только приватный архив снимка, в install не входят.
 - Шрифты: `data/fonts/` из `tools/fonts/gen_font4x.py` (изображения-эскизы
   приватны, не в git).
 - HD Pack ассеты (1379, из них 30 `.map` с 3x-почвой — `docs/OBSERVATIONS_TEXTURE.md`,
@@ -129,6 +129,11 @@
   установка 5087 файлов. Снятые 11 — в `paths.scratch_dir('root_pyc_layer')/backup`
   (восстановление `root_pyc_layer.py --restore`); `python_libs.7z` (714 файлов) побитово равен
   установке и корневых `.pyc` не содержит.
+- Источник наполнения `cache/lib` — `config[game.lib_archive]` (`python_libs.7z`);
+  restore трёх VC-DLL — копия из `vendor/vc70/` (файлы в git не входят).
+- Индекс состояния установки — `release/snapshot_index.json` (5084 записи: путь+size+crc32,
+  артефакты прогонов пропущены); перегон после принятого наката:
+  `python3 tools/release/snapshot_index.py`.
 - Разбор происхождения и header-mtime — `docs/OBSERVATIONS_ENGINE.md` (раздел «Python-слой»),
   грабли — `docs/PITFALLS.md`.
 

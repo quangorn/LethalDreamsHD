@@ -14,7 +14,7 @@
   magic `ed2d0d0a`; worker'овский header mtime = build-time (рецепт .pyc и
   его следствие — `docs/PATCHES.md`). PYTHONPATH worker'а =
   `py223.dir + cache/lib` (игровой `Lib` не входит; кэш наполняет
-  `python3 tools/extract_pristine.py lib`).
+  `python3 tools/extract_pristine.py lib` из `game.lib_archive`).
 - **install** (`tools/pyc/install_patch.py <модуль> --install`): перед записью
   сверяет md5 целевого файла игры, переписывает header `.pyc` на
   `pyc_source_mtime` манифеста (рецепт — `docs/PATCHES.md`, «Рецепт .pyc»),
@@ -105,7 +105,7 @@ python_libs.7z; тот же мандат applies к истории сессий.
 исторические скрипты сессий) → список установки в `release/manifest.json`
 (assets_tier) → установка (`--install`). Чёрные сайдкары
 (`black_btf.py`) — эксперимент, в установку не входят (флагов `.flag` в игре нет;
-sidecar-черные — только в snapshot-архиве).
+sidecar-черные — только в приватном архиве снимка).
 Чёрная точка: `qc_blackpoint.py fix --in <каталог .btf> --out <каталог>` вычитает bandmin
 краевой полосы 2 px из аддитивных `.btf` (`BBlend_Add`), пишет `qc_report.txt`.
 Битый апскейл: `qc_upscale_alpha.py scan|fix|install --install` — альфа-корреляция пары

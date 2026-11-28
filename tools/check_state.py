@@ -27,9 +27,11 @@ fix_command из манифеста.
               pristine (путь, затем basename+пара); отклонения вне allowlist ->
               DRIFT; файл не найден ни в одном архиве и не в allowlist -> EXTRA;
               запись pristine-архива отсутствует в установке и не в exclude ->
+              запись pristine-архива отсутствует в установке и не в exclude ->
               MISSING. Allowlist = SNAPSHOT_ONLY + REPO + REPO_BASENAME + NAMED_LEGALS +
-              dev_artifacts + check.exclude (data/video/**) + побитовая пара пути
-              snapshot-архива (классифицируется после PRISTINE; пустая запись архива —
+              dev_artifacts + check.exclude (data/video/**) + побитовая пара пути из
+              коммитного индекса снапшота `release/snapshot_index.json`
+              (классифицируется после PRISTINE; пустая запись индекса —
               пара по размеру).
 """
 import glob
@@ -50,6 +52,7 @@ import paths  # noqa: E402
 
 MANIFEST = os.path.join(_ROOT, "release", "manifest.json")
 ALLOWLIST = os.path.join(_ROOT, "release", "allowlist.json")
+SNAPSHOT_INDEX = os.path.join(_ROOT, "release", "snapshot_index.json")
 
 EXE_BASE = "LETHALDREAMS.EXE"
 
@@ -113,6 +116,16 @@ def walk_install(install):
             rel = os.path.relpath(p, install).replace("\\", "/").lower()
             out[rel] = p
     return out
+
+
+def snapshot_index():
+    """Коммитный индекс снапшота установки: {имя_без_корня: [(size, crc)]}.
+    Формат — release/snapshot_index.json (paths.snapshot_index_path())."""
+    doc = json.load(open(SNAPSHOT_INDEX, encoding="utf-8"))
+    idx = {}
+    for e in doc["entries"]:
+        idx.setdefault(e["path"].lower(), []).append((e["size"], e["crc"]))
+    return idx
 
 
 def archive_index(archive, strip_root="lethaldreams/"):
@@ -285,7 +298,7 @@ def untouched_tier(install_files):
     excludes = [glob_to_regex(g) for g in paths.check_exclude()]
 
     p_idx = archive_index(paths.pristine_archive())
-    s_idx = archive_index(paths.snapshot_archive())
+    s_idx = snapshot_index()
     h_idx = archive_index(paths.hd_pack())
     pr_crcset = set(c for lst in p_idx.values() for (_, c) in lst)
 

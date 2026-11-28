@@ -5,7 +5,7 @@
    "pristine_entry": "lethaldreams.dll"
   }
  ],
- "black_experiment_note": "data/textures/mm_bkg01_black_169.btf and mm_bkg01_black_43.btf exist only in the snapshot archive (['data/textures/mm_bkg01_black_169.btf', 'data/textures/mm_bkg01_black_43.btf']); they are absent from the install on purpose (no data/blackbg.flag), so --untouched reports nothing for them; they are not pristine entries, so the MISSING rule does not apply",
+ "black_experiment_note": "data/textures/mm_bkg01_black_169.btf and mm_bkg01_black_43.btf exist only in the private snapshot archive, not in the project (['data/textures/mm_bkg01_black_169.btf', 'data/textures/mm_bkg01_black_43.btf']); they are absent from the install on purpose (no data/blackbg.flag), so --untouched reports nothing for them; they are not pristine entries, so the MISSING rule does not apply",
  "check_exclude": [
   "data/video/**"
  ],
@@ -13,8 +13,8 @@
   "PRISTINE path pair",
   "HD_PACK path pair",
   "REPO (repo root file, byte-identical)",
-  "SNAPSHOT_ONLY path pair (root prefix LethalDreams/ stripped)",
-  "basename + (size,crc32) pair in pristine/hd_pack/snapshot",
+  "SNAPSHOT_ONLY path pair (snapshot index release/snapshot_index.json, install-relative path)",
+  "basename + (size,crc32) pair in pristine/hd_pack/snapshot index",
   "REPO_BASENAME (repo tree file, byte-identical)",
   "UNCOVERED"
  ],

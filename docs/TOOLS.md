@@ -15,8 +15,9 @@
   константа `pycbuild.BUILD`);
 - `paths.win_path(p)` — native-форма пути для windows-python;
 - archive-ключи: `game.pristine_archive` (original.7z — без `Lib`),
-  `assets.hd_pack` (hd_pack.7z), `game.snapshot_archive` (6.7z — полный снап
-  установки с `Lib`); `paths.archive_list_of(archive)` — листинг записей;
+  `game.lib_archive` (python_libs.7z — игровая копия `Lib` + `python22.dll`, источник
+  наполнения `cache/lib`), `assets.hd_pack` (hd_pack.7z);
+  `paths.archive_list_of(archive)` — листинг записей;
 - `py223.dir` / `paths.py223_exe()` — Python 2.2.3 (компил-воркер игровых модулей);
   `python3` — сам интерпретатор инструментов;
 - `check.exclude` — glob-ы неприкосновенного яруса (файлы, которых может не быть).
@@ -205,7 +206,7 @@ EXE на диске не меняется. Гейты и замеры —
 ## Архивы
 
 ```
-python3 tools/extract_pristine.py lib        # наполнение cache/lib из pristine
+python3 tools/extract_pristine.py lib        # наполнение cache/lib из game.lib_archive
 python3 tools/extract_pristine.py templates  # btf-шаблоны/родные пары в cache
 ```
 
@@ -262,7 +263,7 @@ python3 tools/extract_pristine.py templates  # btf-шаблоны/родные �
     (`robocopy`/`Copy-Item`), не Cygwin-копированием.
 - `tools/pyc/py22_worker.py` — **только Python 2.2.3** (print-Statement; py3 AST
   падает на строке 84). Он вызывается через `paths.py223_exe()`, никогда python3.
-- `tools/pyc/probe1.py` — генератор зондовых сборок: чистый build из snapshot + правки →
+- `tools/pyc/probe1.py` — генератор зондовых сборок: чистый build из базы декомпилята + правки →
   `patches/<module>.py`, компиляция 2.2.3 → `patches/<module>.pyc` → установка только
   перечисленных модулей в игру. Правки применяются к чистому build; `build/` и
   `decompiled_snap/` не мутируются.
@@ -433,6 +434,9 @@ LD_GAME="<tree>" LD_SHOTS="<shots>" \
   снапшот дерева (md5+mtime по всем файлам, `__pycache__` пропускается) и diff к
   предыдущему: `CHANGED/ADDED/REMOVED` + итог. Обязательный гейт перед/после любой
   команды, пишущей в игру (AGENTS.md, правило 3).
+- `tools/release/snapshot_index.py` — перегон индекса состояния установки
+  `release/snapshot_index.json` (путь+size+crc32 по всем файлам установки, артефакты
+  прогонов пропускаются); запускается после принятого наката в игру.
 
 ## Профилирование (tools/perf)
 

@@ -3,7 +3,7 @@
 офлайн-проверки декомпилированных .py движком Lethal Dreams. Файл лежит в tools/pyc/,
 вызывается pycbuild.py (cwd=tools/pyc, пути передаются в Windows-форме).
 
-Запуск: PYTHONPATH = py223-каталог + cache/lib (кэш Lib из snapshot-архива,
+Запуск: PYTHONPATH = py223-каталог + cache/lib (кэш Lib из game.lib_archive,
 `python3 tools/extract_pristine.py lib`); игровой Lib в путь компиляции не входит
 (импорт не пишет .pyc в установку игры).
         PYTHON.EXE py22_worker.py <mode> <args...>

@@ -65,7 +65,7 @@ def write_scratch_config(cfg, tree, cfg_path):
     lines = ["[game]"]
     lines.append('install_dir      = "%s"' % paths.norm(tree))
     lines.append('pristine_archive = "%s"' % paths.norm(g["pristine_archive"]))
-    lines.append('snapshot_archive = "%s"' % paths.norm(g["snapshot_archive"]))
+    lines.append('lib_archive    = "%s"' % paths.norm(g["lib_archive"]))
     lines.append("")
     lines.append("[assets]")
     lines.append('hd_pack = "%s"' % paths.norm(cfg["assets"]["hd_pack"]))
