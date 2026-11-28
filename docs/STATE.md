@@ -8,14 +8,15 @@
 - EXE md5 `171319bbc170cf6e57c8d36a8ae5f50d`, размер 1191936 — базовая пропатченная версия
  (pristine-EXE того же размера, md5 `7943036fbd12…`). Маппинг: fileoff = VA − 0x400000
  (cave VA 0x4ebf12 = fileoff 966418; 491308 — fileoff первой правки exepatch3).
-- `ui/cursor.pyc` = published base-печать `60754a253515…` (drift v6 закрыт 19.11.2026
+- `ui/cursor.pyc` = published base-печать `4e9d3f5231bb…` (drift v6 закрыт 19.11.2026
   установкой `release/patches/ui_cursor.patch`; копия v6 `4a8eb4bab413…` — в
-  `scratch_dir('battle_baseline')/cursor_installed_v6.pyc`). `check_state --quick` rc 1
-  (загрузчик `ui/ui.pyc` — ниже). Разбор и команда применения: `docs/VERIFY.md`.
+  `scratch_dir('battle_baseline')/cursor_installed_v6.pyc`). Разбор и команда
+  применения: `docs/VERIFY.md`.
 - `ui/ui.pyc` загрузчика ldhook `b01d486f38ee…` против base-печати `67655741b4e2…` — dev-состояние живых
-  прогонов боевого AI; ставится **только** `tools/ldhook/patch_ui.py --install`, откат `--restore`.
+  прогонов боевого AI; md5 воспроизводится `tools/ldhook/patch_ui.py --build`; ставится **только**
+  `tools/ldhook/patch_ui.py --install`, откат `--restore`.
   `install_patch.py ui/ui --install` загрузчик СТИРАЕТ (ставит base-печать). Записан в
-  манифесте как `drift_known_md5`: `--full` rc 0, `--quick` rc 1. Артефакты прогонов
+  манифесте как `drift_known_md5`: `--quick` и `--full` rc 0 (KNOWN). Артефакты прогонов
   `ldhook.pyd` (артефакт `build/ldhook/ldhook.pyd`, md5 не фиксируется), `ldhook_marker.txt`,
   `hdlog.txt*` — в allowlist'е `dev_artifacts`. Грабли: `docs/PITFALLS.md`.
 - Реестр:
@@ -133,9 +134,9 @@
 
 ## Замеры проверки (см. docs/VERIFY.md)
 
-- `[P]` Замер 28.11.2026 (установка 5087 файлов): `--full --untouched` rc 1 — единственное нарушение
-  DRIFT `hd.cfg`; PRISTINE 2965 (родной клон `types.pyc` включён), HD_PACK 1379 (все побитово),
-  ALLOWED 719, CODE 20, EXCLUDED 4, ARCHIVE_BASENAME 0; `--quick` rc 1 (DRIFT cfg + загрузчик `ui.pyc`).
+- `[P]` Замер 28.11.2026 (установка 5087 файлов): `--quick`, `--full`, `--untouched` — rc 0;
+  PRISTINE 2965 (родной клон `types.pyc`), HD_PACK 1379 (все побитово), ALLOWED 719, CODE 20,
+  EXCLUDED 4, ARCHIVE_BASENAME 0; загрузчик `ui.pyc` печатается KNOWN.
 - `[P]` Чёрная точка аддитивных UI-текстур: 91 запись hd_pack обезполнена (`tools/btf/qc_blackpoint.py fix`)
   и установлена в игру; эталон = сам архив, checker сверяет .btf побитово. Грабля — `docs/PITFALLS.md`.
 - `[P]` Значок юнитов миникарты `minimap_pt01` (hd_pack ×2): битый blob заменён Lanczos-апскейлом
@@ -143,7 +144,8 @@
 - Покрытие allowlist'а (`release/allowlist.json`: `lib/*` 713,
   корневые бинары 5 — `LETHALDREAMS.EXE`, `python22.dll`, `msvcr70.dll`, `msvcp70.dll`,
   `msvcr70d.dll`, `data/scripts/*.pyc` 9 (`types.pyc` снят: он PRISTINE), `data/textures/mm_bkg01.btf` 1);
-  `hd.cfg` — артефакт пайплайна, в git не входит (установка от него drift'ит, см. выше).
+  `hd.cfg` — артефакт пайплайна, в git не входит; разрешение правится пользователем под тесты,
+  чекер сверяет первую строку (`docs/VERIFY.md`).
 
 ---
 

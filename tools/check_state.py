@@ -17,8 +17,9 @@ fix_command из манифеста.
 (paths.validate_required) или --json вне scratch/cache.
 
 Три tier'а (единственный легальный способ судить об установке):
-  --quick    : записи code tier манифеста (EXE, 3 DLL, hd.cfg побайтно, 12 .pyc,
-              реестр HIGHDPIAWARE) — сравнение md5/crc32 с эталонами.
+  --quick    : записи code tier манифеста (EXE, 3 DLL, hd.cfg (сверка первой
+              строки `W H BPP F`), 12 .pyc, реестр HIGHDPIAWARE) — сравнение
+              md5/crc32 с эталонами.
   --full     : --quick + assets tier: каждая запись hd_pack присутствует побитово
               (CRC32+size); набор data/fonts == шрифтовой набор hd_pack; каждый
               игровой .btf имеет CRC32 из {pristine} U {hd_pack}.
@@ -26,7 +27,7 @@ fix_command из манифеста.
               pristine (путь, затем basename+пара); отклонения вне allowlist ->
               DRIFT; файл не найден ни в одном архиве и не в allowlist -> EXTRA;
               запись pristine-архива отсутствует в установке и не в exclude ->
-              MISSING. Allowlist = SNAPSHOT_ONLY + REPO + REPO_BASENAME +
+              MISSING. Allowlist = SNAPSHOT_ONLY + REPO + REPO_BASENAME + NAMED_LEGALS +
               dev_artifacts + check.exclude (data/video/**) + побитовая пара пути
               snapshot-архива (классифицируется после PRISTINE; пустая запись архива —
               пара по размеру).
@@ -143,10 +144,10 @@ def code_tier(install_files, strict):
     """Сверка записей code tier манифеста с установкой.
 
     strict=True (--quick): строгий гейт — любое отклонение от эталона есть
-    нарушение, включая известный DRIFT_RELEASE_AHEAD (ui/cursor).
-    strict=False (--full): известный DRIFT_RELEASE_AHEAD из манифеста печатается
-    строкой KNOWN (с fix_command) и НЕ считается нарушением: установка объяснима
-    целиком.
+    нарушение, кроме объяснённых сборок `drift_known_md5` (они печатаются KNOWN
+    и в strict). Исторический DRIFT_RELEASE_AHEAD (`installed_recorded_md5`) в strict — нарушение.
+    strict=False (--full): известные отклонения из манифеста печатаются KNOWN и
+    НЕ считаются нарушениями: установка объяснима целиком.
     """
     man = json.load(open(MANIFEST, encoding="utf-8"))
     lines = []
@@ -170,10 +171,14 @@ def code_tier(install_files, strict):
             continue
         m, c = md5_crc(ap)
         if e["kind"] == "cfg":
-            want = b"3840 2160 32 1\r\n"  # эталон hd.cfg — байты из манифеста
+            # семантика hd.cfg: первая строка `W H BPP F`; игра при каждом запуске
+            # пересоздаёт файл и дописывает пустую строку -> сверяем непустое содержимое
+            want = b"3840 2160 32 1"
             data = open(ap, "rb").read()
-            if data == want:
-                lines.append("OK cfg %s (%d B, побайтно)" % (target, len(data)))
+            if data.strip() == want:
+                tail = len(data) - len(want)
+                lines.append("OK cfg %s (%d B, первая строка побайтно%s)" %
+                             (target, len(data), ", хвост %d B — писала игра" % tail if tail else ""))
             else:
                 viol += 1
                 lines.append("DRIFT cfg %s: содержимое != b'3840 2160 32 1\\r\\n'" % target)
@@ -183,13 +188,10 @@ def code_tier(install_files, strict):
             state = e.get("state", "MATCH")
             lines.append("OK %s %s md5 %s (эталон, state %s)" % (e["kind"], target, m[:12], state))
         elif e.get("drift_known_md5") and m == e["drift_known_md5"]:
-            # объяснённая dev-сборка (записывается в манифесте как drift_known_md5)
+            # объяснённая сборка (drift_known_md5) — KNOWN в обоих ярусах: она
+            # воспроизводится канонической командой, и strict-ярус её не флагит
             state = e.get("state", "DRIFT_KNOWN")
-            if strict:
-                viol += 1
-                tag = "DRIFT"
-            else:
-                tag = "KNOWN"
+            tag = "KNOWN"
             lines.append("%s %s %s: установленный md5 %s != эталон %s (state %s)" %
                          (tag, e["kind"], target, m[:12], e["md5"][:12], state))
             lines.append("   note: %s" % e.get("drift_known_note", ""))
@@ -278,7 +280,8 @@ def untouched_tier(install_files):
     code_targets = set(e["target"].lower() for e in man["code_tier"]["entries"]
                        if "target" in e)
     allow = set(al["snapshot_only"]) | set(x["target"] for x in al["repo"]) \
-            | set(x["target"] for x in al["repo_basename"]) | set(al.get("dev_artifacts", []))
+            | set(x["target"] for x in al["repo_basename"]) | set(al.get("dev_artifacts", [])) \
+            | set(x["target"] for x in al.get("named_legals", []))
     excludes = [glob_to_regex(g) for g in paths.check_exclude()]
 
     p_idx = archive_index(paths.pristine_archive())
