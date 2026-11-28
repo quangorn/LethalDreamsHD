@@ -78,6 +78,7 @@ Set-Content -Path (Join-Path $GameRoot "hd.cfg") -Value $line -Encoding ASCII
 $hdlog = Join-Path $GameRoot "hdlog.txt"
 "ACTIONS $Tag start $(Get-Date -Format 'HH:mm:ss') $line" | Set-Content -Path $hdlog -Encoding ASCII
 $env:LDHOOK_LOG = "$LogLevel"
+if (-not $env:HD_LOG) { $env:HD_LOG = '1' }   # SCENE-детект боя пишется при уровне python-зондов >= 1
 
 function Log([string]$s) { Write-Output $s; Add-Content -Path $hdlog -Value $s -Encoding ASCII }
 

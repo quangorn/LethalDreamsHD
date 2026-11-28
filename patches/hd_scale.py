@@ -22,7 +22,7 @@
 # w,h берутся из hd.cfg (gamescript-хук), НЕ из GetScreenSize() - в оконном режиме
 # GetScreenSize() возвращает desktop (проверено), это ломало k прошлой реализации.
 
-import ui, cursor, globalscript, gamemodule
+import os, ui, cursor, globalscript, gamemodule
 
 HD_K = 1
 HD_DX = 0
@@ -30,7 +30,17 @@ HD_F = 0
 HD_SY = 1
 DY_E = 0
 HD_YM = 1
-HD_LOG = 0    # 1 = писать зонды в hdlog.txt рядом с игрой (dev-сборка); 0 для установки
+# Уровень python-зондов в hdlog.txt: 0 = молчим (установка), 1 = минимум
+# (SCENE, HD_Init, install ok — слой загрузки), 2 = полная трассировка обёрток
+# (HDSETPOS/HDINITBB/HDGTH/HDMOVE/…). env HD_LOG при запуске: константу в .pyc
+# править не нужно. Значение вне 0/1/2 и непустое = 2.
+# Python 2.2: условного выражения нет, только если-блок.
+_HD_ENV = os.environ.get('HD_LOG', '').strip()
+HD_LOG = 0
+if _HD_ENV not in ('', '0'):
+    HD_LOG = 2
+    if _HD_ENV == '1':
+        HD_LOG = 1
 HD_FM = 1     # экспериментальный множитель аргумента SetFont (1 = текущее поведение)
 HD_GTH_F = 0.7563  # калибровка GetRealTextHeight для 16:9 (эталон 4:3 h_text=456; см. GetRealTextHeight)
 # Множитель метрики ширины текста. Листы 16:9 теперь сжаты ВМЕСТЕ С АДВАНСАМИ
@@ -212,8 +222,18 @@ def _log_coords():
         _log('COORDS fail')
 
 
+def _log1(s):
+    # слой загрузки: SCENE, HD install ok — пишется при уровне >= 1
+    if HD_LOG < 1:
+        return
+    f = open('hdlog.txt', 'a')
+    f.write(str(s) + chr(10))
+    f.close()
+
+
 def _log(s):
-    if not HD_LOG:
+    # числовая трассировка обёрток — только уровень 2 (в 1 она не пишется)
+    if HD_LOG < 2:
         return
     _HLC[0] = _HLC[0] + 1
     if _HLC[0] > 12000:
@@ -596,7 +616,7 @@ def _log_scene():
         nm = '?'
     if nm != _SCENE[0]:
         _SCENE[0] = nm
-        _log('SCENE ' + nm)
+        _log1('SCENE ' + nm)
 
 
 def h_MouseMove(self, mx, my, flags):
@@ -681,5 +701,5 @@ def install():
     BC.h_MouseRBUp = h_MouseRBUp
     BC.h_MouseWheel = h_MouseWheel
     BC.h_MouseLDblClk = h_MouseLDblClk
-    _log('HD install ok K=' + repr(HD_K) + ' DX=' + repr(HD_DX))
+    _log1('HD install ok K=' + repr(HD_K) + ' DX=' + repr(HD_DX))
     _log_coords()
