@@ -13,10 +13,11 @@
 
 ## Сессия 2026-11-27: полоса каста в 16:9 + случайный спавн отряда
 
-- `[P]` Pivot поворота gauge — движковые единицы `SC/SY` (обёртка `RotateBillBoardAroundPt`,
-  `patches/hd_scale.py`); эталон `data/scripts/hd_scale.pyc` md5 `336867c67316…`.
-- `[P]` Съёмка полосы каста: DSL-шаги `rdown`/`rup` (`tools/probes/perform_action_in_game.ps1`), снимок `castbar`.
-- `[P]` Спавн отряда в бою — случайный вход карты: патч `bdomain` снят, `data/scripts/bdomain.pyc` = родной (crc32 `5e282f17`).
+- `[P]` Pivot поворота gauge — движковые единицы: обёртка `RotateBillBoardAroundPt` в
+  `patches/hd_scale.py` (`SC/SY`, оригинал при `k==1`); эталон `data/scripts/hd_scale.pyc`
+  md5 `336867c67316…` — `docs/PATCHES.md`.
+- `[P]` Съёмка полосы каста: DSL-шаги `rdown`/`rup` в `tools/probes/perform_action_in_game.ps1`,
+  снимок `castbar` в обёртках `battle_169.ps1`/`battle_43.ps1`.
 
 - `[P]` Вектор `BackToMainMenu` = `[1, 0, 1, 1, 1, 3]` (`release/patches/ui_battlemenu.patch`):
   Quit и Options активны, Load из боя сохранён — `docs/PATCHES.md`, «Esc из боя: главное меню».

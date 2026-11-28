@@ -45,7 +45,7 @@
    `45e93d46…` + cave-блоки; при `--install` пишет baseline в игру
    (`backup/LETHALDREAMS.EXE.pre4`), `restore` возвращает его.
 
-## Кодовый ярус (15 pyc)
+## Кодовый ярус (16 pyc)
 
 Манифест `release/manifest.json`. Для каждого модуля: md5 base-печати
 (header=build-time, source mtime — указанный), md5 установленной копии,
@@ -73,6 +73,7 @@
 | ui/btutorial | 1794778203 |
 | ui/olcamera | 1794778203 |
 | battlecamera | 1794778203 |
+| bdomain | 1794778203 |
 | mentality/battlecharacters | 1052156450 |
 
 - Новые модули лежат в `config[game.root]/data/scripts/`: `hd_res.pyc` (2497 B, md5 `fc524b6139c0…`;
@@ -89,9 +90,9 @@
 - `[P]` Текущая сборка `battlecamera` (18.11.2026): MMB-обзор + зум колесом шагом
   `zoom_step = 1.0` (`h_MouseWheel`, `patches/battlecamera.py`); установленный md5 = base-печать
   `c7d3150409af…`, state `MATCH`; разбор — `docs/PATCHES.md` («Боевая камера: MMB-обзор и зум колесом», «Ослабление зума колесом»).
-- `[P]` Спавн отряда при входе в бой — случайный вход карты (27.11.2026, решение 20.11 отменено):
-  патч `bdomain` снят, `data/scripts/bdomain.pyc` = родной (27449 B, crc32 `5e282f17`, md5 `c8e6ac7bb406…`).
-  Спавн на точке врагов (`KeepersEntrancePoints['Owner']`) — юниты под землёй: `docs/PITFALLS.md`.
+- `[P]` Спавн отряда при входе в бой фиксирован (20.11.2026): индекс входа `FIXED_ENTRANCE_INDEX = 5`
+  (`InitializeData`, `patches/bdomain.py`), случайного выбора нет; установленный md5 = base-печать
+  `957bc9d86ccc…`, state `MATCH`; патч — `docs/PATCHES.md` («Точка входа отряда в бой»).
 - `[P]` Mentality-слой боя (27.11.2026, план 10.1–10.4): `patches/mentality/std_brains.py` + `std_bstates.py`
   (`release/patches/mentality_*.patch`, записи `mentality/*` в манифесте); установлены, md5 `8f9dc423…`/`ce0d5eed…`.
   Радиус агро 6.0 союзники / 8.0 враги — предикат `FilterAggroObjs` (`CHAR_FUNCTION` в `SetRoTCS`);
@@ -185,7 +186,7 @@
   состав и замеры импортов — `docs/TOOLS.md`, «Дерево интерпретатора».
 - `[P]` Грабля плоского дампа установщика (регистр имени модуля, `case_ok`) —
   `docs/PITFALLS.md`, раздел «Импорт 2.2.3 чувствителен к регистру имени модуля».
-- `[P]` Публикационное ядро: tracked-файлов 433, личных путей 0, игровых бинаров/`.pyc` в git 0,
+- `[P]` Публикационное ядро: tracked-файлов 435, личных путей 0, игровых бинаров/`.pyc` в git 0,
   `vendor/**` не отслеживается; AST core `.py` = 93 (`tools/**` без архива; py2-only 1 —
   `tools/pyc/py22_worker.py`), AST `tools/archive/**` = 105 (py2-only 8, список — `tools/archive/README.md`).
 ## Зависание ввода после Esc×2 из оверленда (18.11.2026)
