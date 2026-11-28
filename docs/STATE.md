@@ -184,6 +184,13 @@
 
 ## ldhook `.pyd` (18–22.11.2026)
 
+- `[P]` Ярусы лога (28.11.2026): уровень 1 — диагностика сайтов и `FIRED`, числовая трассировка
+  site5/site6 при `LDHOOK_LOG=2`; маркер пишется при уровне ≥ 1 (`ldhook.cpp`, `battle/target.cpp`).
+  Загрузку сверяет `python3 tools/ldhook/report_sites.py <hdlog.txt> --contour install|baseline` (rc 0).
+  Грабля — `docs/PITFALLS.md`.
+- `[P]` Python-зонды `patches/hd_scale.py` — env `HD_LOG`: 0 молчит, 1 = слой загрузки
+  (`SCENE`, `HD w=…`, install ok), 2 = полная трассировка обёрток; боевой детект
+  (`perform_action_in_game.ps1`, `battle_169/43.ps1`) работает при `HD_LOG=1`.
 - `[P]` **EXE установки не трогаем**: установка остаётся на cave `exepatch12` (`171319bb…`), `ldhook.pyd` в поставку
   не входит; `.pyd` (хуки site1/site2/site3, site5/site6 + логгер `hdlog.txt`) — проверенный путь следующих правок движка,
   dev-прогоны на baseline scratch. Критерии перехода — `docs/PLAN_proxy_dll.md`, состояние и вход — `docs/archive/HANDOFF_ldhook.md`.

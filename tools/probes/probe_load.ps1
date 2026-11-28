@@ -40,6 +40,9 @@ $line = "{0} {1} 32 {2}" -f $W, $H, $F
 Set-Content -Path "$RepoRoot\hd.cfg" -Value $line -Encoding ASCII
 Set-Content -Path "$GameRoot\hd.cfg" -Value $line -Encoding ASCII
 
+if (-not $env:HD_LOG) { $env:HD_LOG = '1' }      # детект боя = строка `SCENE battle` (python-зонды уровень >= 1)
+if (-not $env:LDHOOK_LOG) { $env:LDHOOK_LOG = '1' }
+
 $hdlog = "$GameRoot\hdlog.txt"
 "LOADTEST $Tag start $(Get-Date -Format 'HH:mm:ss') $line" | Set-Content -Path $hdlog -Encoding ASCII
 

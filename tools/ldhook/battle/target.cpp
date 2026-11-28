@@ -120,18 +120,21 @@ static void __cdecl s5_entry_impl(void *this_, void *arg0, void *arg1,
         ld_info("site5: first call (hook FIRED)");
     }
 
-    /* Первые 4 вызова — всегда (info); далее — троттлинг (debug). */
-    if (n <= 4) {
-        /* always log at info level */
-    } else {
+    /* Уровень 1 — только «first call» (сводка счётчиков — ldhook.stats()).
+     * Числовая трассировка вызова (map1, entry) — уровень 2: первые 4 вызова
+     * + каждый 8-й (README, «Боевой поиск цели»). */
+    if (g_log_level < LD_DEBUG) {
+        return;
+    }
+    if (n > 4) {
         trace = ld_rate(&g_site5_dbg, 0, 8);
-        if (!trace || g_log_level < LD_DEBUG) {
+        if (!trace) {
             return;
         }
     }
-    ld_info("site5: map1 f0=%d f1=%d f2=%d f3=%d",
-            s6_scan_count(this_, 0), s6_scan_count(this_, 1),
-            s6_scan_count(this_, 2), s6_scan_count(this_, 3));
+    ld_debug("site5: map1 f0=%d f1=%d f2=%d f3=%d",
+             s6_scan_count(this_, 0), s6_scan_count(this_, 1),
+             s6_scan_count(this_, 2), s6_scan_count(this_, 3));
 
     {
         unsigned char tracking = self->tracking;
@@ -140,7 +143,7 @@ static void __cdecl s5_entry_impl(void *this_, void *arg0, void *arg1,
         void *list_head = self->cand_head;
 
         if (n <= 4)
-            ld_info("site5: entry #%ld this=%p a0=%p a1=%p a2=%p a3=%p "
+            ld_debug("site5: entry #%ld this=%p a0=%p a1=%p a2=%p a3=%p "
                      "list=%p trk=%d thr=%d stored=%p prev_iter=%ld "
                      "map1=%d map2=%d",
                      (long)n, this_, arg0, arg1, arg2, arg3,
@@ -202,21 +205,20 @@ static void __cdecl s5_tail_impl(void *this_, void *candidate)
 
     iter = InterlockedIncrement(&g_site5_iter);
 
-    /* Первые 4 итерации — всегда (info); далее — троттлинг (debug). */
-    if (iter <= 4) {
-        /* always log at info level */
-    } else {
+    /* Уровень 1 — «first call» (on в entry); трассировка итераций — уровень 2:
+     * первые 4 итерации + каждый 256-й (README, «Боевой поиск цели»). */
+    if (g_log_level < LD_DEBUG) {
+        return;
+    }
+    if (iter > 4) {
         trace = ld_rate(&g_site5_idbg, 0, 256);
-        if (!trace || g_log_level < LD_DEBUG) {
+        if (!trace) {
             return;
         }
     }
 
     if (cand == NULL) {
-        if (iter <= 4)
-            ld_info("site5: iter=%ld cand=NULL", (long)iter);
-        else
-            ld_debug("site5: iter=%ld cand=NULL", (long)iter);
+        ld_debug("site5: iter=%ld cand=NULL", (long)iter);
         return;
     }
 
@@ -246,15 +248,10 @@ static void __cdecl s5_tail_impl(void *this_, void *candidate)
             py = -2;
         }
 
-        if (iter <= 4)
-            ld_info("site5: iter=%ld cand=%p [%d,%d] f=%d m=%d d2=%d thr=%d trk=%d"
-                     " pos=%p px=%d py=%d",
-                     (long)iter, cand, x, y, filter, metric, dist2, threshold,
-                     (int)tracking, (void *)cand->pos, px, py);
-        else
-            ld_debug("site5: iter=%ld cand=%p [%d,%d] f=%d m=%d d2=%d thr=%d trk=%d",
-                     (long)iter, cand, x, y, filter, metric, dist2, threshold,
-                     (int)tracking);
+        ld_debug("site5: iter=%ld cand=%p [%d,%d] f=%d m=%d d2=%d thr=%d trk=%d"
+                 " pos=%p px=%d py=%d",
+                 (long)iter, cand, x, y, filter, metric, dist2, threshold,
+                 (int)tracking, (void *)cand->pos, px, py);
     }
 }
 
@@ -303,9 +300,10 @@ static void __cdecl s5_exit_impl(int *param_4, void *candidate, void *this_)
             g_s5_win_t = now - us;
         }
         if (now - g_s5_win_t >= S5_WINDOW_US) {
-            ld_info("site5: window dt=%I64d calls=%ld iter=%ld us_sum=%I64d us_max=%I64d total=%ld",
-                    now - g_s5_win_t, (long)g_s5_win_calls, (long)g_s5_win_iter,
-                    (LONGLONG)g_s5_win_us, (LONGLONG)g_s5_win_max, (long)g_site5_calls);
+            /* Окно — числовая сводка: пишется только при LD_DEBUG. */
+            ld_debug("site5: window dt=%I64d calls=%ld iter=%ld us_sum=%I64d us_max=%I64d total=%ld",
+                     now - g_s5_win_t, (long)g_s5_win_calls, (long)g_s5_win_iter,
+                     (LONGLONG)g_s5_win_us, (LONGLONG)g_s5_win_max, (long)g_site5_calls);
             g_s5_win_calls = 0;
             g_s5_win_us = 0;
             g_s5_win_max = 0;
@@ -2733,17 +2731,20 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
         ld_debug("site6: call %ld scan -> %p (filter=%d cmp=%p)",
                  (long)n, (void *)cur, filter, cmp_val);
     }
+    /* Числовые зонды вызова (pre-scan, map1, итерации, сводка, окно) — уровень 2;
+     * уровень 1 даёт только «first call (hook FIRED)», сводки — ldhook.stats().
+     * Полный проход map1 (s6_scan_count) не выполняется при уровне 1. */
     if (n <= 2) {
-        ld_info("site6: call %ld pre-scan f1=%d (cmp=%p trk=%d thr=%u anchor=%p)",
-                (long)n, s6_scan_count(this_, filter), cmp_val,
-                (int)((BattleAI *)this_)->tracking,
-                (unsigned)((BattleAI *)this_)->distance_threshold,
-                (void *)((BattleAI *)this_)->anchor);
+        ld_debug("site6: call %ld pre-scan f1=%d (cmp=%p trk=%d thr=%u anchor=%p)",
+                 (long)n, s6_scan_count(this_, filter), cmp_val,
+                 (int)((BattleAI *)this_)->tracking,
+                 (unsigned)((BattleAI *)this_)->distance_threshold,
+                 (void *)((BattleAI *)this_)->anchor);
     }
-    if (n <= 2 || g_log_level >= LD_DEBUG) {
-        ld_info("site6: call %ld map1 f0=%d f1=%d f2=%d f3=%d filter=%d",
-                (long)n, s6_scan_count(this_, 0), s6_scan_count(this_, 1),
-                s6_scan_count(this_, 2), s6_scan_count(this_, 3), filter);
+    if (g_log_level >= LD_DEBUG) {
+        ld_debug("site6: call %ld map1 f0=%d f1=%d f2=%d f3=%d filter=%d",
+                 (long)n, s6_scan_count(this_, 0), s6_scan_count(this_, 1),
+                 s6_scan_count(this_, 2), s6_scan_count(this_, 3), filter);
     }
     {
         d_cells = g_ai_cells; d_cellnull = g_ai_cell_null;
@@ -2773,16 +2774,16 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
             e0_diag_visit(e0sl, &e0n, &e0ovf, &e0rep, &e0mchg, &e0msame,
                           &e0f3, &e0f1, (void *)cur, m, f);
         }
-        if (n <= 2 && iters <= 40) {
+        if (g_log_level >= LD_DEBUG && n <= 2 && iters <= 40) {
             LDPos *p = NULL;
             int px = -1, py = -1;
             __try {
                 p = cur->pos;
                 if (p != NULL) { px = p->x; py = p->y; }
             } __except (EXCEPTION_EXECUTE_HANDLER) { px = -2; py = -2; }
-            ld_info("site6: call %ld it=%ld cand=%p f=%d m=%d pos=%p px=%d py=%d",
-                    (long)n, (long)iters, (void *)cur, cur->filter, cur->metric,
-                    (void *)p, px, py);
+            ld_debug("site6: call %ld it=%ld cand=%p f=%d m=%d pos=%p px=%d py=%d",
+                     (long)n, (long)iters, (void *)cur, cur->filter, cur->metric,
+                     (void *)p, px, py);
         }
         /* LOG=2: provenance кандидата для коротких вызовов (code=0). */
         if (g_log_level >= LD_DEBUG && (n <= 12 || iters <= 2)) {
@@ -3061,29 +3062,28 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
         ld_debug("site6: call %ld iters=%ld max=%ld heavy=%ld us=%I64d -> %p code=%d",
                  (long)n, (long)iters, (long)g_site6_max,
                  (long)g_site6_heavy, us, (void *)result, code);
-        if (g_log_level >= LD_DEBUG || map1_before !=
-                ((BattleAI *)this_)->reserved_70) {
-            ld_info("site6: call %ld filter=%d iters=%ld code=%d map1 %d -> %d "
-                    "map2 %d -> %d (reg=%ld)",
-                    (long)n, filter, (long)iters, code, map1_before,
-                    (int)((BattleAI *)this_)->reserved_70,
-                    (int)*(const int *)((const unsigned char *)this_ + 0x7c),
-                    (int)*(const int *)((const unsigned char *)this_ + 0x7c),
-                    (long)g_reg_calls);
+        if (g_log_level >= LD_DEBUG) {
+            ld_debug("site6: call %ld filter=%d iters=%ld code=%d map1 %d -> %d "
+                     "map2 %d -> %d (reg=%ld)",
+                     (long)n, filter, (long)iters, code, map1_before,
+                     (int)((BattleAI *)this_)->reserved_70,
+                     (int)*(const int *)((const unsigned char *)this_ + 0x7c),
+                     (int)*(const int *)((const unsigned char *)this_ + 0x7c),
+                     (long)g_reg_calls);
         }
         s6_pfs_snapshot(ps1);
         if (g_log_level >= LD_DEBUG) {
-            ld_info("site6: call %ld outs cells=%ld cellnull=%ld pathnull=%ld "
-                    "pfsnull=%ld reg=%ld degen=%ld pfs(first=%ld sign=%ld bound=%ld grid=%ld "
-                    "recur=%ld gate=%ld res=%ld)",
-                    (long)n, (long)(g_ai_cells - d_cells),
-                    (long)(g_ai_cell_null - d_cellnull),
-                    (long)(g_ai_path_null - d_pathnull),
-                    (long)(g_ai_pfs_null - d_pfsnull),
-                    (long)(g_reg_calls - d_reg),
-                    (long)(g_ai_degen - d_degen),
-                    ps1[0]-ps0[0], ps1[1]-ps0[1], ps1[2]-ps0[2],
-                    ps1[3]-ps0[3], ps1[4]-ps0[4], ps1[5]-ps0[5], ps1[6]-ps0[6]);
+            ld_debug("site6: call %ld outs cells=%ld cellnull=%ld pathnull=%ld "
+                     "pfsnull=%ld reg=%ld degen=%ld pfs(first=%ld sign=%ld bound=%ld grid=%ld "
+                     "recur=%ld gate=%ld res=%ld)",
+                     (long)n, (long)(g_ai_cells - d_cells),
+                     (long)(g_ai_cell_null - d_cellnull),
+                     (long)(g_ai_path_null - d_pathnull),
+                     (long)(g_ai_pfs_null - d_pfsnull),
+                     (long)(g_reg_calls - d_reg),
+                     (long)(g_ai_degen - d_degen),
+                     ps1[0]-ps0[0], ps1[1]-ps0[1], ps1[2]-ps0[2],
+                     ps1[3]-ps0[3], ps1[4]-ps0[4], ps1[5]-ps0[5], ps1[6]-ps0[6]);
         }
         /* Окно 5 с: вызовы и µs за период. Окно закрывается первым вызовом
          * после его конца (простой период виден по dt). */
@@ -3096,9 +3096,9 @@ void *__cdecl s6_target_search(void *this_, void *arg0, void *arg1,
             g_s6_win_t = t0;
         }
         if (now - g_s6_win_t >= S6_WINDOW_US) {
-            ld_info("site6: window dt=%I64d calls=%ld us_sum=%I64d us_max=%I64d total=%ld",
-                    now - g_s6_win_t, (long)g_s6_win_calls,
-                    (LONGLONG)g_s6_win_us, (LONGLONG)g_s6_win_max, (long)n);
+            ld_debug("site6: window dt=%I64d calls=%ld us_sum=%I64d us_max=%I64d total=%ld",
+                     now - g_s6_win_t, (long)g_s6_win_calls,
+                     (LONGLONG)g_s6_win_us, (LONGLONG)g_s6_win_max, (long)n);
             g_s6_win_calls = 0;
             g_s6_win_us = 0;
             g_s6_win_max = 0;
