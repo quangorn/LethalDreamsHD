@@ -321,8 +321,9 @@ imp.load_dynamic('ldhook', r'<путь к игре>/ldhook.pyd')
 - `[P]` Отладочный Python-API модуля (проверено локально на `vendor/py223`):
   `ldhook.log(msg)`, `ldhook.set_level(n)`, `ldhook.stats()` →
   `(site1, site2, site3, level)`.
-- `[P]` Маркер `ldhook_marker.txt` пишется **всегда**, независимо от флага
-  лога: это доказательство загрузки `.pyd` для зондов (`probe_spike.ps1`).
+- `[P]` Маркер `ldhook_marker.txt` пишется при уровне ≥ 1 (как и лог): при
+  `LDHOOK_LOG=0` нет ни лога, ни маркера (проверено `tools/ldhook/smoke_api.py`);
+  гейт зондов (`probe_spike.ps1`) выставляет env сам. Правило — `ldhook.cpp`.
 - Гейт — **взят** (baseline scratch, `probe_exitcode.ps1`, build
   `122880` байт):
   - 16:9 `3840 2160 32 1`, `LDHOOK_LOG=1`: 9 строк, все `I`; три сайта
