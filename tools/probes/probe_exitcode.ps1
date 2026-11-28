@@ -16,6 +16,8 @@ param([int]$W = 3840, [int]$H = 2160, [int]$F = 1, [string]$Tag = "exitcode",
       [switch]$NoKill, [string]$ScratchRoot = $env:LD_SCRATCH,
       [string]$GameRoot = $env:LD_GAME, [string]$RepoRoot = $env:LD_REPO)
 if (-not $RepoRoot) { $RepoRoot = (Resolve-Path "$PSScriptRoot\..\..\..").Path }
+if (-not $env:LDHOOK_LOG) { $env:LDHOOK_LOG = '1' }   # гейт сайтов (install_site*/FIRED) пишется при уровне ≥ 1;
+                                                       # числовая трассировка site5/site6 — только LDHOOK_LOG=2
 
 $ShotDir = "$ScratchRoot\$Sub"
 if (-not (Test-Path $ShotDir)) { New-Item -ItemType Directory -Path $ShotDir | Out-Null }

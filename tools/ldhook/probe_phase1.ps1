@@ -9,6 +9,7 @@ param([string]$GameRoot = $env:LD_GAME, [string]$Tag = "phase1",
       [double]$CanvasX = 200, [double]$CanvasY = 400,
       [int]$MenuSec = 8, [int]$AfterSec = 16)
 if (-not $GameRoot) { throw "укажите -GameRoot <scratch-tree> (или LD_GAME)" }
+if (-not $env:LDHOOK_LOG) { $env:LDHOOK_LOG = '1' }   # гейт «FIRED» требует уровень ≥ 1
 if (-not (Test-Path (Join-Path $GameRoot "LETHALDREAMS.EXE"))) { throw "нет LETHALDREAMS.EXE: $GameRoot" }
 
 $ShotDir = "$GameRoot\shots"

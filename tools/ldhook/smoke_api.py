@@ -4,10 +4,14 @@
 
 Грузит расширение в интерпретатор 2.2.3 (vendor/py223), без игры:
 проверяет `log` / `set_level` / `stats`, уровень 0 (нет записи) и TypeError
-на неверные типы. Заодно проверяет, что скан `.text` идёт по PE-заголовкам:
+на неверные типы. Заодно проверяет правило файловых артефактов: при уровне off
+нет ни `hdlog.txt`, ни `ldhook_marker.txt`, при уровне ≥ 1 маркер пишется.
+Заодно проверяет, что скан `.text` идёт по PE-заголовкам:
 под python.exe сигнатур сайтов нет, в логе три `signature NOT found`.
 
     PYTHONDONTWRITEBYTECODE=1 LDHOOK_LOG=2 vendor/py223/python.exe \
+        tools/ldhook/smoke_api.py build/ldhook/ldhook.pyd
+    PYTHONDONTWRITEBYTECODE=1 LDHOOK_LOG=0 vendor/py223/python.exe \
         tools/ldhook/smoke_api.py build/ldhook/ldhook.pyd
 
 Лог `hdlog.txt` создаётся рядом с python.exe (каталог EXE) — после прогона
@@ -22,10 +26,31 @@ def main():
     if len(sys.argv) < 2:
         raise SystemExit("usage: smoke_api.py <path-to-ldhook.pyd>")
     pyd = os.path.abspath(sys.argv[1])
+
+    # Правило ярусов: при уровне off ни лога, ни маркера; при уровне ≥ 1 маркер
+    # пишется всегда. Проверяем на чистых файлах (каталог EXE = рядом с python.exe).
+    exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+    marker = os.path.join(exe_dir, 'ldhook_marker.txt')
+    hdlog = os.path.join(exe_dir, 'hdlog.txt')
+    off = os.environ.get('LDHOOK_LOG', '1').strip().lower() in ('0', 'off', 'no', 'false')
+    for p in (marker, hdlog):
+        if os.path.isfile(p):
+            os.remove(p)
+
     m = imp.load_dynamic('ldhook', pyd)
 
+    if off:
+        assert not os.path.isfile(marker), 'level 0: маркер не пишется'
+        assert not os.path.isfile(hdlog), 'level 0: лог не создаётся'
+        sys.stdout.write('level 0: ни hdlog.txt, ни ldhook_marker.txt\n')
+    else:
+        assert os.path.isfile(marker), 'маркер пишется при уровне >= 1'
+        assert os.path.isfile(hdlog), 'лог создан при уровне >= 1'
+        sys.stdout.write('level %s: маркер и лог есть\n' % os.environ.get('LDHOOK_LOG', '1'))
+
     m.log('hello from local test')
-    assert m.set_level(2) in (1, 2), 'set_level returns previous level'
+    # set_level возвращает ПРЕЖНИЙ уровень; при LDHOOK_LOG=0 он 0 (дефолт env off).
+    assert m.set_level(2) in (0, 1, 2), 'set_level returns previous level'
     s = m.stats()
     assert len(s) == 12 and s[3] == 2, ('stats tuple (site1, site2, site3, level, '
                                         'fc_calls, fc_iters, fc_code1, fc_code3, '

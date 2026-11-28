@@ -10,6 +10,7 @@
 param([string]$GameRoot = $env:LD_SPIKE_ROOT, [int]$WaitSec = 10,
       [string]$Tag = "spike0b", [switch]$NoKill)
 if (-not $GameRoot) { throw "укажите -GameRoot <scratch-дерево> (или LD_SPIKE_ROOT)" }
+if (-not $env:LDHOOK_LOG) { $env:LDHOOK_LOG = '1' }   # маркер и диагностика сайтов пишутся при уровне ≥ 1
 if (-not (Test-Path (Join-Path $GameRoot "LETHALDREAMS.EXE"))) { throw "нет LETHALDREAMS.EXE: $GameRoot" }
 
 $ShotDir = "$GameRoot\shots"
