@@ -103,8 +103,8 @@
    {
     "base": "decompiled_fixed/ui/ui.py",
     "crc32": "a8cddedc",
-    "drift_known_md5": "d9a55bdfcac5a43b559f5ed3c6d68447",
-    "drift_known_note": "загрузчик imp.load_dynamic(ldhook) в ui.pyc; сборка tools/ldhook/patch_ui.py --install, md5 воспроизводим; откат patch_ui.py --restore",
+    "drift_known_md5": "b01d486f38ee33031f53b7097c4bacd0",
+    "drift_known_note": "загрузчик imp.load_dynamic(ldhook) в ui.pyc; сборка tools/ldhook/patch_ui.py --install, откат --restore",
     "fix_command": "python3 tools/apply_patch.py ui/ui && python3 tools/pyc/install_patch.py ui/ui",
     "id": "ui/ui",
     "installed_recorded_md5": "ae59f6016ed633ffe7d936ac27468e3a",
@@ -119,7 +119,7 @@
     "repo_py": "patches/ui/ui.py",
     "repo_pyc": "patches/ui/ui.pyc",
     "size": 56102,
-    "state": "MATCH",
+    "state": "DRIFT_KNOWN",
     "target": "data/scripts/ui/ui.pyc"
    },
    {
