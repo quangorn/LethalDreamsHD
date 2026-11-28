@@ -185,7 +185,13 @@ site2 `0x40b494` (SetFont), site3 `0x47dd80` (world-проекция). Логи�
 `.text` для скана берётся из PE-заголовков, не из констант.
 Лог — `<game>/hdlog.txt` (общий с Python-патчами; формат
 `ldhook: HH:MM:SS.mmm t<tid> I|D …`, дубль в `OutputDebugString`), уровень —
-env `LDHOOK_LOG` или `ldhook.set_level(n)`; ротация `hdlog.txt.1` после 8 MiB.
+env `LDHOOK_LOG` или `ldhook.set_level(n)`; ротация `hdlog.txt.1` после 64 MiB.
+Ярусы: уровень 1 — диагностика загрузки/установки сайтов, guard'ы и `FIRED`
+(числовые зонды site5/site6 не пишутся), уровень 2 — числовая трассировка;
+маркер `ldhook_marker.txt` пишется при уровне ≥ 1. Загрузку сайтов сверяет
+`python3 tools/ldhook/report_sites.py <hdlog.txt> --contour install|baseline` (rc 0).
+Python-зонды (`patches/hd_scale.py`) — env `HD_LOG`: 0 молчит, 1 — слой загрузки
+(`SCENE`, `HD w=…`, install ok), 2 — полная трассировка обёрток.
 EXE на диске не меняется. Гейты и замеры —
 `docs/PLAN_proxy_dll.md` §4, `tools/ldhook/README.md`.
 

@@ -4,6 +4,13 @@
 реализовано. Актуальное состояние — `docs/STATE.md`, пайплайны — `docs/PIPELINE.md`,
 отменённые планы — `docs/archive/CANCELLED_Q_MODE.md`, грабли — `docs/PITFALLS.md`.
 
+## Сессия 2026-11-28: минимум логов и сверка загрузки сайтов
+
+- `[P]` Числовые зонды site5/site6 — только уровень 2, маркер при уровне ≥ 1 (`tools/ldhook/ldhook.cpp`,
+  `battle/target.cpp`); уровень 1 = ~16 строк на прогон.
+- `[P]` env `HD_LOG` ярусами 0/1/2 (`patches/hd_scale.py`), детект боя при 1; загрузку сайтов сверяет
+  `tools/ldhook/report_sites.py` (гейт rc 0).
+
 ## Сессия 2026-11-27: полоса каста в 16:9 + случайный спавн отряда
 
 - `[P]` Pivot поворота gauge — движковые единицы `SC/SY` (обёртка `RotateBillBoardAroundPt`,

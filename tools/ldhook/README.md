@@ -51,6 +51,7 @@ site3 считает FP-последовательность `cave3` (x87: `fild
 | `smoke_api.py` | локальный смоук Python-API под `vendor/py223` (без игры): `log`/`set_level`/`stats`/`site6_stats`, уровень 0, TypeError, безопасный скан `.text` |
 | `patch_ui.py` | каноническая установка загрузчика в игру: `--build` (ui.pyc + блок `imp.load_dynamic`), `--install` (бэкап + `.pyd` + `ui.pyc`), `--restore` |
 | `check_sites.py` | аудит Фазы 4 (без игры): уникальность трёх сигнатур в `.text`, вердикт `installable`/`patched`/`UNEXPECTED` (rc 1) для установки и baseline |
+| `report_sites.py` | отчёт «что загрузилось» по логу прогона: loader/`.text`, маркер, site1/2/3, site5/site6, env-гейты, `FIRED`; rc 0 = все нужные сайты на месте (`--contour install|baseline`) |
 | `spike.py` | полная копия установки → `<scratch>/ldhook/tree`, ldhook.pyd в корень, `ui/ui.pyc` = `patches/ui/ui.py` + блок `imp.load_dynamic`, config для scratch; `--baseline` — EXE = baseline |
 | `probe_spike.ps1` | спайк 0-бис: запуск из scratch, снимок ОКНА, гашение, проверка маркера |
 | `probe_phase1.ps1` | Фаза 1: «Новая игра» → экран выбора персонажа (site1), снимок окна, печать `hdlog.txt` с «FIRED» |
@@ -67,9 +68,9 @@ Python-патчи (`hd_scale.py`, `tex_hook_*.py`), поэтому `probe_exitco
 
 | флаг | поведение |
 |---|---|
-| `LDHOOK_LOG=0` (`off`) | файл не создаётся, ODS молчит; маркер `ldhook_marker.txt` пишется всегда |
-| `LDHOOK_LOG=1` (дефолт) | диагностика: загрузка, установка сайтов, guard identity, первый вызов хука |
-| `LDHOOK_LOG=2` (`debug`) | + числовая трассировка масштабирующего пути (троттлинг: site1 4+1024, site2 4+1024, site3 3+300) |
+| `LDHOOK_LOG=0` (`off`) | файл не создаётся, ODS молчит; маркер `ldhook_marker.txt` пишется только при уровне ≥ 1 |
+| `LDHOOK_LOG=1` (дефолт) | диагностика: загрузка, установка сайтов, guard identity, первый вызов хука (`FIRED`); ЧИСЛОВАЯ трассировка сайтов не пишется |
+| `LDHOOK_LOG=2` (`debug`) | + числовая трассировка: масштабирующий путь (троттлинг: site1 4+1024, site2 4+1024, site3 3+300), поиск цели (site5 — первые 4 вызова/итерации + каждый 8-й/256-й; site6 — pre-scan/map1/итерации первых 2 вызовов, сводка вызова, окно 5 с) |
 | `LDHOOK_BATTLE_TRACE=1` | трассировка боевого тика (`battle/trace.cpp`, формат — `battle/trace.h`): одна строка `BATTLE …` на вызов `FUN_0044bdd0` (несёт `us` — весь тик, `e0n`/`e0us` — вызовы и µs `e0a0`); хуки H1/H2/H3/H7 ставятся только при включённом флаге (H5/H6 читаются из трамплинов site5 либо из порта site6) |
 | `LDHOOK_BATTLE_TRACE=2` | то же + `TICKSEC` раз в секунду (`n/us_sum/us_max/e0_sum/e0_max/over10/over20/over50/code1/code3`) и полная `BATTLE` только для тиков >5 ms — для длинного ручного боя (`tools/probes/play_profiled.ps1`, разбор `tick_stats.py`) |
 | `LDHOOK_E0_DIAG=1` | диагностика faithful-цикла портованного `FUN_0045e0a0` (`LDHOOK_SITE6=1`): сводка визитов кандидатов на вызовы с `iters > 100` — формат и кап см. «site6»; плюс разложение µs path-слоя и итог тика (`E0PATH`/`E0PATHSUM`/`E0TICK`, см. выше); дефолт выкл, поведение побайтно прежнее |
@@ -80,7 +81,7 @@ Python-патчи (`hd_scale.py`, `tex_hook_*.py`), поэтому `probe_exitco
 → `(site1, site2, site3, level, fc_calls, fc_iters, fc_code1, fc_code3,
 fc_code4, fc_rot, fc_us_sum, fc_us_max)` — счётчики faithful-цикла `e0a0`
 (коды 1/3/4; `code=0` пустой скан = `fc_calls − fc_code1 − fc_code3 − fc_code4`).
-Ротация: файл > 8 MiB → `hdlog.txt.1`.
+Ротация: файл > 64 MiB → `hdlog.txt.1` (`LDHOOK_LOG_MAX` в `ldhook_internal.h`).
 
 В 4:3 при дефолтном уровне в лог попадают только диагностические строки:
 `site3_impl: guard 4h==3w -> identity`, `site1_impl: k==1.0 -> identity (4:3)`
@@ -129,6 +130,11 @@ scratch удобен как эталон `exepatch12` для A/B при том �
   срабатывает и зовёт `FUN_0041cc90` (в логе виден `site1_impl`);
 - при `LDHOOK_LOG=1` строки только `I`; при `LDHOOK_LOG=2` появляется
   `D`-трассировка site3/site2/site1, троттлинг виден по номерам вызовов;
+- формальный гейт — `python3 tools/ldhook/report_sites.py "<tree>/hdlog.txt"
+  --contour baseline` (rc 0; разбирает последний прогон: loader/`.text`, маркер,
+  site1/2/3, site5/site6, env-гейты, `FIRED`; `--contour install` — для cave-EXE);
+- маркер `ldhook_marker.txt` пишется при уровне ≥ 1; при `LDHOOK_LOG=0` ни лога,
+  ни маркера (проверяет `smoke_api.py` в обоих режимах);
 - игра доходит до оверленда без крашей; снимок окна не чёрный (средняя
   яркость 4:3 0.271 / 4K 0.268 на `*_overland.png`);
 - A/B с установленным cave-EXE на том же сейве/камере: кольцо домена
