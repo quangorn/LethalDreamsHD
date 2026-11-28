@@ -120,9 +120,9 @@
 
 ## Замеры проверки (см. docs/VERIFY.md)
 
-- `[P]` Замер 27.11.2026 (`--full` rc 0, `--untouched` rc 0, установка 5087 файлов): PRISTINE 2964,
+- `[P]` Замер 28.11.2026 (`--full` rc 0, `--untouched` rc 0, установка 5087 файлов): PRISTINE 2964,
   HD_PACK 1379 (все 1379 побитово), ALLOWED 720, CODE 20, EXCLUDED 4, ARCHIVE_BASENAME 0.
-  `--quick` rc 1 = загрузчик ldhook в `ui/ui.pyc` (KNOWN в `--full`).
+  `--quick` rc 0 (нарушений 12, все KNOWN, включая загрузчик ldhook `d9a55bdf…`).
 - `[P]` Чёрная точка аддитивных UI-текстур: 91 запись hd_pack обезполнена (`tools/btf/qc_blackpoint.py fix`)
   и установлена в игру; эталон = сам архив, checker сверяет .btf побитово. Грабля — `docs/PITFALLS.md`.
 - `[P]` Значок юнитов миникарты `minimap_pt01` (hd_pack ×2): битый blob заменён Lanczos-апскейлом
@@ -191,6 +191,9 @@
 - `[P]` Python-зонды `patches/hd_scale.py` — env `HD_LOG`: 0 молчит, 1 = слой загрузки
   (`SCENE`, `HD w=…`, install ok), 2 = полная трассировка обёрток; боевой детект
   (`perform_action_in_game.ps1`, `battle_169/43.ps1`) работает при `HD_LOG=1`.
+- `[P]` В установке python-слой HD активировать нечем: `gamescript.pyc` установки = родной (известный дрейф),
+  загрузчиков `hd_scale`/`hd_res`/`hd_tex` нет; геометрия установки — cave EXE. Ярусы `HD_LOG` работают
+  только на baseline scratch (снимки установки идут в окне движка, не 4K).
 - `[P]` **EXE установки не трогаем**: установка остаётся на cave `exepatch12` (`171319bb…`), `ldhook.pyd` в поставку
   не входит; `.pyd` (хуки site1/site2/site3, site5/site6 + логгер `hdlog.txt`) — проверенный путь следующих правок движка,
   dev-прогоны на baseline scratch. Критерии перехода — `docs/PLAN_proxy_dll.md`, состояние и вход — `docs/archive/HANDOFF_ldhook.md`.
