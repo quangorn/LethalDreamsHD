@@ -67,7 +67,8 @@ python3 tools/pyc/hdpatch.py                      # адъюстер HD-масш
 python3 tools/pyc/probe1.py                       # зондовые сборки (после 2026-11 снимки не нужны)
 ```
 
-Прежний recovery-стек (`decompile_lit.py`, `lit_order.py`, `lit_scan.py`) — исторический:
+Прежний recovery-стек (`decompile_lit.py`, `lit_order.py`, `lit_scan.py`) удалён 28.11.2026
+(история — в git), он лечил дефекты uncompyle6:
 он лечил дефекты uncompyle6, которых у decompyle нет (`docs/DECOMP_DEFECTS.md`).
 
 `vdiff_canon.py`/`vdiff_mod.py` — библиотеки сравнения canon vs мод (вызываются

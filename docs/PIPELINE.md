@@ -142,7 +142,7 @@ baseline `45e93d46…` (`backup/LETHALDREAMS.EXE.pre4`) → exepatch12 (cave) =
   модуль без паритета не пишется.
 - Почему не uncompyle6: он печатал ИНДЕКС `co_consts` вместо значения и приписывал
   общий хвост ветвей одной ветке — `docs/DECOMP_DEFECTS.md`. Recovery-проходы
-  (`decompile_lit`, `lit_order`, `lit_scan`) больше не нужны.
+  (`decompile_lit`, `lit_order`, `lit_scan`; удалены 28.11.2026, история в git) больше не нужны.
 - Литералы и слияние ветвей отдаёт сам декомпилятор; `dictionary_rus` (10 561 опкод в
   одном объекте, spark-парсер падает) восстанавливает fallback `tools/pyc/litmod.py`.
 - Патчи против базы: `python3 tools/pyc/check_patches.py [--base DIR]` (rc≠0 — править),

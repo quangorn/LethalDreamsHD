@@ -14,7 +14,7 @@
 
 Шаги (рецепт воспроизведения release-.pyc из spec_ef.md):
   1. база decompiled_fixed/<module>.py; если её нет — печатает каноническую
-     команду `python3 tools/pyc/decompile_lit.py <module>` и выходит 1;
+     команду `python3 tools/pyc/decompyle_base.py --write` и выходит 1;
   2. pure-python апикатор (бинарника patch(1) на машине нет) применяет
      release/patches/<file>.patch; при несовпадении контекста/удаления
      применение останавливается ДО любой записи, печатается номер базовой

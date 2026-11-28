@@ -23,7 +23,6 @@
 | `check_patches.py` | гейт: патч ложится на базу и даёт тот же `.pyc` (`--base`, `--only`) |
 | `port_patch.py` | перенос правок `patches/*.py` на новую базу (выравнивание строк + гейт байткодом) |
 | `pyc_text.py` | нормализация текста декомпилята: склейка импортов, снятие скобок, схлопывание переносов в литералах |
-| `decompile_lit.py` | **историческое:** recovery литералов поверх uncompyle6 (`<module>`, `--all`); заменено `decompyle_base.py` |
 | `pycbuild.py` | пайплайн: normalize/gate/build/parity/gate-all/sim-all/fixlits/fix-all/vdiff/fixints/build-all/hd-all/install-min/install-hd/install-all/restore-all/install-list/install-fns/install-probe-all/fnames/fnames-all/vdiff-all/install/uninstall; список команд печатается запуском без аргументов. Установка/откат в игру — команды, явно называющие установку |
 | `py22_worker.py` | воркер 2.2.3 (см. выше); `PYTHONPATH = py223.dir + paths.cache_lib_dir()` (игровой `Lib` не входит) |
 | `install_patch.py` | сборка `patches/<module>.py` → `.pyc` компилятором 2.2.3; запись в игру только с `--install` |

@@ -61,7 +61,7 @@
 **Причина:** декомпиллятор в списках параметров движка печатает индекс `co_consts` как целое вместо значения (`[7, 8, FONT_H, 3, 2, 2]`) → `TextParams[0] = 7` (int) → `string.find(int)` → `AttributeError: 'int' object has no attribute 'find'`, создание `CBattlemenu` обрывается; паритетный гейт порчу не замечает (индексы совпадают с int-константами того же объекта, `sig=0`).
 **Обход:** база правок — `decompiled_fixed/` из РОДНЫХ `.pyc` (`tools/pyc/decompyle_base.py`,
 декомпилятор decompyle 2.3.2; гейт «ядро опкодов»). Исторический обход — recovery поверх
-`decompiled_snap/` (`tools/pyc/decompile_lit.py`); установка поверх `decompiled_snap/` запрещена.
+`decompiled_snap/` (скрипты recovery удалены, история в git); установка поверх `decompiled_snap/` запрещена.
 Детали реализации патча боевого HUD — `docs/PATCHES.md`, раздел «Боевой HUD поверх recovered-базы».
 подробный разбор — docs/archive/NARRATIVE_2026-11.md («Декомпилят пишет ИНДЕКС константы вместо литерала (2026-11-15, проверено live)»)
 

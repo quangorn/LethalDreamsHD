@@ -58,14 +58,7 @@
    "target": "hd.cfg"
   }
  ],
- "repo_basename": [
-  {
-   "md5": "d41d8cd98f00b204e9800998ecf8427e",
-   "repo_file": "backup_current_pycinstalled/console.py",
-   "size": 0,
-   "target": "data/scripts/console.py"
-  }
- ],
+ "repo_basename": [],
  "snapshot_only": [
   "data/scripts/gamescript.pyc",
   "data/scripts/hd_res.pyc",
